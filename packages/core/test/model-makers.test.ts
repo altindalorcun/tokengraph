@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AGENT_LOGOS } from '../src/agent-logos.js';
 import { MAKER_LOGOS } from '../src/maker-logos.js';
-import { FAMILY_LABELS, FAMILY_LOGOS, MODEL_FAMILIES, familyForMaker, modelFamily, modelMaker } from '../src/model-makers.js';
+import { FAMILY_LABELS, FAMILY_LOGOS, MODEL_FAMILIES, familyForMaker, modelFamily, modelMaker, displayModelName } from '../src/model-makers.js';
 
 describe('modelFamily', () => {
   it.each([
@@ -53,5 +53,25 @@ describe('modelFamily', () => {
 
   it('still finds the maker for a provider-prefixed id', () => {
     expect(modelMaker('anthropic/claude-opus-4.1')).toBe('anthropic');
+  });
+});
+
+describe('displayModelName', () => {
+  it.each([
+    ['claude-sonnet-5-5', 'Claude Sonnet 5.5'],
+    ['claude-opus-5', 'Claude Opus 5'],
+    ['claude-haiku-4-5', 'Claude Haiku 4.5'],
+    ['claude-haiku-4-5-20251001', 'Claude Haiku 4.5'],
+    ['claude-3-5-sonnet-20241022', 'Claude Sonnet 3.5'],
+    ['claude-opus-4.1', 'Claude Opus 4.1'],
+    ['anthropic/claude-opus-4.1', 'Claude Opus 4.1'],
+    ['us.anthropic.claude-3-5-sonnet-20241022-v2:0', 'Claude Sonnet 3.5'],
+    ['claude-sonnet', 'Claude Sonnet'],
+    ['deepseek-v4.1-flash', 'deepseek-v4.1-flash'],
+    ['gpt-6-luna', 'gpt-6-luna'],
+    ['gpt-5-20250807', 'gpt-5'],
+    ['claude-unknown-9', 'claude-unknown-9'],
+  ])('%s is shown as %s', (id, name) => {
+    expect(displayModelName(id)).toBe(name);
   });
 });

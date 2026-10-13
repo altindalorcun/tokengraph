@@ -1,5 +1,6 @@
 import { AGENT_LOGOS, type BrandLogoArt } from './agent-logos.js';
 import { MAKER_LOGOS } from './maker-logos.js';
+import { modelLabel } from './models.js';
 
 export type Maker =
   | 'anthropic'
@@ -130,3 +131,25 @@ export const FAMILY_LOGOS: Partial<Record<ModelFamily, BrandLogoArt>> = {
   glm: MAKER_LOGOS.zhipu,
   kimi: MAKER_LOGOS.moonshot,
 };
+
+const CLAUDE_TIER_NAMES: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' };
+
+/**
+ * A name for showing a model to a person. Claude ids become "Claude" plus tier plus version
+ * ("claude-3-5-sonnet-20241022" is "Claude Sonnet 3.5", "claude-opus-5" is "Claude Opus 5"); anything else keeps
+ * its recorded id minus a release-date suffix, since guessing prettier names would invent them.
+ */
+export function displayModelName(modelId: string): string {
+  if (modelMaker(modelId) === 'anthropic') {
+    const id = modelId.toLowerCase().trim();
+    const fromClaude = id.includes('claude') ? id.slice(id.indexOf('claude')) : id;
+    const parts = fromClaude.replace(/-v\d+(?::\d+)?$/, '').split(/-/);
+    const tier = parts.map((part) => CLAUDE_TIER_NAMES[part]).find(Boolean);
+    if (tier) {
+      // One or two digits per part: a date ("20241022") is longer, and so is never a version.
+      const version = parts.filter((part) => /^\d{1,2}(?:\.\d+)?$/.test(part)).join('.');
+      return version ? `Claude ${tier} ${version}` : `Claude ${tier}`;
+    }
+  }
+  return modelLabel(modelId);
+}
