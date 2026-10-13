@@ -85,7 +85,7 @@ export async function pollForToken(code: DeviceCode, deps: DeviceFlowDeps = {}):
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = deps.now ?? Date.now;
   const deadline = now() + code.expiresIn * 1000;
-  let interval = code.interval;
+  let interval = Math.max(1, code.interval);
   while (now() < deadline) {
     await sleep(interval * 1000);
     const body = await post(deps, '/login/oauth/access_token', {
@@ -99,7 +99,8 @@ export async function pollForToken(code: DeviceCode, deps: DeviceFlowDeps = {}):
     }
     if (body['error'] === 'authorization_pending') continue;
     if (body['error'] === 'slow_down') {
-      interval = typeof body['interval'] === 'number' ? body['interval'] : interval + 5;
+      // Only ever slower: a server interval below ours is ignored.
+      interval = typeof body['interval'] === 'number' ? Math.max(interval, body['interval']) : interval + 5;
       continue;
     }
     throw failureFor(body['error']);

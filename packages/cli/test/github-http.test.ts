@@ -89,6 +89,16 @@ describe('GitHub client', () => {
     expect(await client(secondary.fetch).getUser().catch((e: unknown) => e)).toBeInstanceOf(GitHubRateLimitError);
   });
 
+  it('prefers retry-after over x-ratelimit-reset', async () => {
+    const limited = fakeFetch(() => json({ message: 'secondary rate limit' }, { status: 429, headers: { 'retry-after': '60', 'x-ratelimit-reset': '1800000000' } }));
+    const before = Date.now();
+    const error = (await client(limited.fetch).getUser().catch((e: unknown) => e)) as GitHubRateLimitError;
+    expect(error).toBeInstanceOf(GitHubRateLimitError);
+    const wait = error.resetAt!.getTime() - before;
+    expect(wait).toBeGreaterThanOrEqual(59_000);
+    expect(wait).toBeLessThanOrEqual(62_000);
+  });
+
   it('wraps network failures in GitHubError with status 0', async () => {
     const fetch = (async () => {
       throw new TypeError('fetch failed');

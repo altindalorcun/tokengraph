@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clipboardCommands, copyToClipboard } from '../src/clipboard.js';
+import { clipboardCommands, copyToClipboard, runWithInput } from '../src/clipboard.js';
 
 describe('clipboardCommands', () => {
   it('picks the platform tool', () => {
@@ -27,5 +27,16 @@ describe('copyToClipboard', () => {
 
   it('reports failure without throwing', async () => {
     expect(await copyToClipboard('hi', { platform: 'linux', env: {}, run: async () => false })).toBe(false);
+  });
+});
+
+describe('runWithInput', () => {
+  it('resolves false, without throwing, when the tool exits before reading stdin', async () => {
+    const big = 'x'.repeat(5_000_000);
+    expect(await runWithInput(process.execPath, ['-e', 'process.exit(1)'], big)).toBe(false);
+  });
+
+  it('resolves false for a missing tool', async () => {
+    expect(await runWithInput('tokengraph-no-such-tool', [], 'hi')).toBe(false);
   });
 });

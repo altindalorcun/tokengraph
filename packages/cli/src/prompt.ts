@@ -12,7 +12,11 @@ export async function askYesNo(question: string, options: { defaultYes?: boolean
   if (!io.input.isTTY) return defaultYes;
   const rl = createInterface({ input: io.input, output: io.output });
   try {
-    const answer = (await rl.question(`${question} ${defaultYes ? '[Y/n]' : '[y/N]'} `)).trim().toLowerCase();
+    // EOF / Ctrl+D closes the interface without an answer; that must not leave the promise pending.
+    const closed = new Promise<null>((resolve) => rl.once('close', () => resolve(null)));
+    const raw = await Promise.race([rl.question(`${question} ${defaultYes ? '[Y/n]' : '[y/N]'} `), closed]);
+    if (raw === null) return defaultYes;
+    const answer = raw.trim().toLowerCase();
     if (answer === '') return defaultYes;
     return answer === 'y' || answer === 'yes';
   } finally {

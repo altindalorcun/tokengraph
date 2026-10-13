@@ -70,10 +70,11 @@ export interface GitHubClientOptions {
 const MAX_GIST_PAGES = 30;
 
 function rateLimitReset(headers: Headers): Date | null {
-  const reset = Number(headers.get('x-ratelimit-reset'));
-  if (Number.isFinite(reset) && reset > 0) return new Date(reset * 1000);
+  // retry-after is the more precise (and secondary-limit) signal, so it wins.
   const retryAfter = Number(headers.get('retry-after'));
-  if (Number.isFinite(retryAfter) && retryAfter > 0) return new Date(Date.now() + retryAfter * 1000);
+  if (headers.has('retry-after') && Number.isFinite(retryAfter) && retryAfter > 0) return new Date(Date.now() + retryAfter * 1000);
+  const reset = Number(headers.get('x-ratelimit-reset'));
+  if (headers.has('x-ratelimit-reset') && Number.isFinite(reset) && reset > 0) return new Date(reset * 1000);
   return null;
 }
 

@@ -17,7 +17,7 @@ export function clipboardCommands(platform: NodeJS.Platform, env: NodeJS.Process
   return env['WAYLAND_DISPLAY'] ? [['wl-copy', []], ...x11] : x11;
 }
 
-function runWithInput(command: string, args: string[], input: string): Promise<boolean> {
+export function runWithInput(command: string, args: string[], input: string): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       const child = spawn(command, args, { stdio: ['pipe', 'ignore', 'ignore'] });
@@ -33,6 +33,8 @@ function runWithInput(command: string, args: string[], input: string): Promise<b
         clearTimeout(timer);
         resolve(code === 0);
       });
+      // A tool that is missing or exits early closes the pipe; that is a failure, not a crash.
+      child.stdin.on('error', () => undefined);
       child.stdin.end(input);
     } catch {
       resolve(false);

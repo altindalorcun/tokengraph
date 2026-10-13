@@ -55,6 +55,18 @@ describe('pollForToken', () => {
     expect(time.slept).toEqual([5000, 10000, 15000]);
   });
 
+  it('never polls faster than once a second', async () => {
+    const zero = clock();
+    await pollForToken({ ...code, interval: 0 }, { fetch: sequence([{ access_token: 'gho_x', scope: 'gist' }]).fetch, ...zero });
+    expect(zero.slept).toEqual([1000]);
+  });
+
+  it('never lowers the interval on slow_down', async () => {
+    const time = clock();
+    await pollForToken(code, { fetch: sequence([{ error: 'slow_down', interval: 2 }, { access_token: 'gho_x', scope: 'gist' }]).fetch, ...time });
+    expect(time.slept).toEqual([5000, 5000]);
+  });
+
   it('stops on denial and on expiry', async () => {
     await expect(pollForToken(code, { fetch: sequence([{ error: 'access_denied' }]).fetch, ...clock() })).rejects.toMatchObject({ reason: 'denied' });
     await expect(pollForToken(code, { fetch: sequence([{ error: 'expired_token' }]).fetch, ...clock() })).rejects.toMatchObject({ reason: 'expired' });
