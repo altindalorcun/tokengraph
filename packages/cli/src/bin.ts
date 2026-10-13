@@ -5,6 +5,7 @@ import { runCursorHook } from './commands/cursor-hook.js';
 import { runHookSync } from './commands/hook-sync.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
 import { runLogout } from './commands/logout.js';
+import { runReadme } from './commands/readme.js';
 import { runSchedule } from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync.js';
@@ -19,6 +20,7 @@ Usage: tokengraph [command] [options]
 Commands:
   view                 Explore your usage in the terminal (the default in a terminal)
   sync                 Read local agent data; publish your graph when logged in
+  readme               Print the README snippet for your graph (and copy it)
   logout               Disconnect GitHub on this machine
   status               Show the account, ledger and background syncs on this machine
   install-hook         Sync automatically when Claude Code, Cursor or Codex finishes
@@ -124,6 +126,27 @@ Options:
         theme,
         trigger,
       });
+    },
+  },
+
+  readme: {
+    help: `Usage: tokengraph readme [options]
+
+Prints the snippet that shows your graph in a GitHub README and copies it to the clipboard. The
+graph switches between light and dark with the reader's theme.
+
+Options:
+  --compact            A smaller graph without labels and legends
+  --colors <mode>      model (each day takes its model family's colour) or single; republishes
+`,
+    options: { compact: { type: 'boolean', default: false }, colors: { type: 'string' } },
+    run: (values) => {
+      const colors = values['colors'];
+      if (colors !== undefined && colors !== 'model' && colors !== 'single') {
+        console.error('--colors must be model or single.');
+        return 1;
+      }
+      return runReadme({ compact: values['compact'] === true, colors });
     },
   },
 

@@ -7,6 +7,8 @@ import { cliVersion } from '../bin-path.js';
 import { readConfig } from '../config.js';
 import { allLedgerUsage, readLedger } from '../ledger.js';
 import { configHome, hookSyncLogPath, ledgerPath, legacyConfigHome } from '../paths.js';
+import { activeDayCount } from '../publish/machines.js';
+import { readMachinesCache } from '../publish/machines-cache.js';
 import { summariseByDay } from './sync.js';
 
 export interface StatusDeps {
@@ -33,6 +35,13 @@ export async function runStatus(overrides: Partial<StatusDeps> = {}): Promise<nu
   console.log(`version: ${cliVersion()}`);
   console.log(`github:  ${config.github ? `@${config.github.login} (${config.github.auth.kind === 'gh' ? 'via gh' : 'tokengraph login'})` : 'not logged in'}`);
   console.log(`machine: ${config.machineId ?? 'not set yet (set on first publish)'}`);
+  if (config.gists?.graph && config.github) console.log(`graph:   https://gist.github.com/${config.github.login}/${config.gists.graph}`);
+  if (config.gists?.data && config.github) console.log(`data:    https://gist.github.com/${config.github.login}/${config.gists.data} (secret)`);
+  const others = await readMachinesCache();
+  if (others.length > 0) {
+    console.log('other machines (as of the last publish):');
+    for (const other of others) console.log(`  ${other.label}  updated ${other.updatedAt.slice(0, 10)}  ${activeDayCount(other.sources)} days`);
+  }
   console.log(`ledger:  ${days.length} active days in ${ledgerPath()}`);
   for (const source of Object.keys(ledger.sources).filter(isKnownSource)) {
     console.log(`  ${source}: ${Object.keys(ledger.sources[source] ?? {}).length} days`);
