@@ -46,6 +46,30 @@ describe('tokenProvider', () => {
   });
 });
 
+describe('tokenProvider memo', () => {
+  it('asks gh once for the life of the provider', async () => {
+    let asked = 0;
+    const provide = tokenProvider({ kind: 'gh', ghPath: '/bin/gh' }, async () => {
+      asked += 1;
+      return { stdout: 'gho_y\n' };
+    });
+    expect(await provide()).toBe('gho_y');
+    expect(await provide()).toBe('gho_y');
+    expect(asked).toBe(1);
+  });
+
+  it('does not remember a failure', async () => {
+    let asked = 0;
+    const provide = tokenProvider({ kind: 'gh', ghPath: '/bin/gh' }, async () => {
+      asked += 1;
+      if (asked === 1) throw new Error('not logged in');
+      return { stdout: 'gho_z' };
+    });
+    await expect(provide()).rejects.toBeInstanceOf(GitHubAuthError);
+    expect(await provide()).toBe('gho_z');
+  });
+});
+
 describe('hasGistScope', () => {
   it('accepts gist, or unknown scopes (fine-grained tokens)', () => {
     expect(hasGistScope(['repo', 'gist'])).toBe(true);

@@ -39,6 +39,14 @@ describe('parseConfig', () => {
     expect(parseConfig({ machineId: ID, deviceId: other }).machineId).toBe(ID);
   });
 
+  it('accepts underscores in logins (Enterprise Managed Users) but not at the start', () => {
+    const auth = { kind: 'token', token: 'x' };
+    expect(parseConfig({ github: { login: 'name_corp', auth } }).github?.login).toBe('name_corp');
+    expect(parseConfig({ github: { login: 'a-b_c', auth } }).github?.login).toBe('a-b_c');
+    expect(parseConfig({ github: { login: '_name', auth } })).toEqual({});
+    expect(parseConfig({ github: { login: 'name-_corp', auth } })).toEqual({});
+  });
+
   it('drops malformed values instead of failing', () => {
     expect(
       parseConfig({

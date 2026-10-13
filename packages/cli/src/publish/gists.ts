@@ -58,7 +58,10 @@ async function getIfExists(client: GitHubClient, id: string | undefined, login: 
 }
 
 async function findByMarker(client: GitHubClient, lookup: GistLookup, marker: string, login: string | undefined): Promise<Gist | null> {
-  const found = (await lookup.list()).find((gist) => marker in gist.files);
+  // Several gists can carry the marker (a second machine raced the first one): the oldest is the original.
+  const [found] = (await lookup.list())
+    .filter((gist) => marker in gist.files)
+    .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id));
   return found ? getIfExists(client, found.id, login) : null;
 }
 

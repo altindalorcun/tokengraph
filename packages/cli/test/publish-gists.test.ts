@@ -53,6 +53,23 @@ describe('ensureGraphGist', () => {
   });
 });
 
+describe('several gists with the marker', () => {
+  it('picks the oldest, whatever order GitHub lists them in', async () => {
+    const client = fakeGitHubClient();
+    const make = (id: string, created_at: string) =>
+      client.gists.set(id, { id, description: null, public: false, html_url: '', created_at, owner: { login: 'octocat' }, files: { [DATA_MARKER]: { filename: DATA_MARKER, content: 'x' } } });
+    make('b'.repeat(20), '2026-03-01T00:00:00Z');
+    make('a'.repeat(20), '2026-01-01T00:00:00Z');
+    make('c'.repeat(20), '2026-02-01T00:00:00Z');
+    const { gist } = await ensureDataGist(client, undefined, gistLookup(client), 'octocat');
+    expect(gist.id).toBe('a'.repeat(20));
+    const reversed = new Map([...client.gists].reverse());
+    client.gists.clear();
+    for (const [id, value] of reversed) client.gists.set(id, value);
+    expect((await ensureDataGist(client, undefined, gistLookup(client), 'octocat')).gist.id).toBe('a'.repeat(20));
+  });
+});
+
 describe('gists the logged-in account does not own', () => {
   function foreign(client: ReturnType<typeof fakeGitHubClient>, marker: string, extra: Record<string, unknown> = {}) {
     const id = 'f'.repeat(20);

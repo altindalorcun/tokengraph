@@ -7,8 +7,8 @@ import { cliVersion } from '../bin-path.js';
 import { readConfig } from '../config.js';
 import { allLedgerUsage, readLedger } from '../ledger.js';
 import { configHome, hookSyncLogPath, ledgerPath, legacyConfigHome } from '../paths.js';
-import { activeDayCount } from '../publish/machines.js';
-import { readMachinesCache } from '../publish/machines-cache.js';
+import { activeDayCount, machineLabel } from '../publish/machines.js';
+import { readLastPublish, readMachinesCache } from '../publish/machines-cache.js';
 import { summariseByDay } from './sync.js';
 
 export interface StatusDeps {
@@ -34,7 +34,9 @@ export async function runStatus(overrides: Partial<StatusDeps> = {}): Promise<nu
 
   console.log(`version: ${cliVersion()}`);
   console.log(`github:  ${config.github ? `@${config.github.login} (${config.github.auth.kind === 'gh' ? 'via gh' : 'tokengraph login'})` : 'not logged in'}`);
-  console.log(`machine: ${config.machineId ?? 'not set yet (set on first publish)'}`);
+  console.log(`machine: ${config.machineId ? `${config.machineId} (${machineLabel(process.platform, config.machineId)})` : 'not set yet (set on first publish)'}`);
+  const lastPublish = await readLastPublish();
+  if (lastPublish) console.log(`last publish: ${new Date(lastPublish).toLocaleString()}`);
   if (config.gists?.graph && config.github) console.log(`graph:   https://gist.github.com/${config.github.login}/${config.gists.graph}`);
   if (config.gists?.data && config.github) console.log(`data:    https://gist.github.com/${config.github.login}/${config.gists.data} (secret)`);
   const others = await readMachinesCache();

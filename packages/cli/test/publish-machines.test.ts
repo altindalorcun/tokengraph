@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -16,7 +16,7 @@ import {
   sourcesDigest,
   type MachineFile,
 } from '../src/publish/machines.js';
-import { readMachinesCache, writeMachinesCache } from '../src/publish/machines-cache.js';
+import { readLastPublish, readMachinesCache, writeMachinesCache } from '../src/publish/machines-cache.js';
 
 const A = '3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40';
 const B = '11111111-2222-4333-8444-555555555555';
@@ -106,5 +106,16 @@ describe('machines cache', () => {
     const files = [file(B, ledgerWith('2026-10-01', 1))];
     await writeMachinesCache(files, path);
     expect(await readMachinesCache(path)).toEqual(files);
+  });
+
+  it('remembers when the last publish happened, and old cache files still read', async () => {
+    const path = join(await mkdtemp(join(tmpdir(), 'tg-cache-')), 'machines.json');
+    expect(await readLastPublish(path)).toBeNull();
+    const files = [file(B, ledgerWith('2026-10-01', 1))];
+    await writeMachinesCache(files, path, '2026-10-13T10:00:00.000Z');
+    expect(await readLastPublish(path)).toBe('2026-10-13T10:00:00.000Z');
+    expect(await readMachinesCache(path)).toEqual(files);
+    await writeFile(path, JSON.stringify({ schema: 1, files: [] }));
+    expect(await readLastPublish(path)).toBeNull();
   });
 });

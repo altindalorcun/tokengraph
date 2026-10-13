@@ -218,7 +218,7 @@ async function publishFromSync(ledger: Ledger, config: CliConfig, github: GitHub
   if (sameAccount) {
     const { machineId, gists } = result.config;
     await writeConfig({ ...current, ...(machineId ? { machineId } : {}), ...(gists ? { gists } : {}) });
-    await writeMachinesCache(result.others);
+    await writeMachinesCache(result.others, undefined, now.toISOString());
   }
 
   const graphUrl = `https://gist.github.com/${github.login}/${result.graphGistId}`;

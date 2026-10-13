@@ -23,7 +23,8 @@ export interface CliConfig {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GIST_ID = /^[0-9a-f]{20,40}$/i;
 // GitHub logins: alphanumerics and single hyphens, no leading or trailing hyphen, at most 39 chars.
-const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/i;
+// Enterprise Managed Users also carry an underscore (name_corp).
+const LOGIN = /^[a-z0-9](?:[a-z0-9_]|-(?=[a-z0-9])){0,38}$/i;
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;

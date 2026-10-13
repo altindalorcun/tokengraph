@@ -17,9 +17,19 @@ export async function readMachinesCache(path = machinesCachePath()): Promise<Mac
   }
 }
 
-export async function writeMachinesCache(files: readonly MachineFile[], path = machinesCachePath()): Promise<void> {
+/** When the last successful publish finished (ISO), or null before the first one. */
+export async function readLastPublish(path = machinesCachePath()): Promise<string | null> {
+  try {
+    const raw = JSON.parse(await readFile(path, 'utf8')) as { publishedAt?: unknown };
+    return typeof raw.publishedAt === 'string' && !Number.isNaN(Date.parse(raw.publishedAt)) ? raw.publishedAt : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeMachinesCache(files: readonly MachineFile[], path = machinesCachePath(), publishedAt?: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${process.pid}.tmp`;
-  await writeFile(temporary, JSON.stringify({ schema: 1, files: files.map(serializeMachineFile) }), { encoding: 'utf8', mode: 0o600 });
+  await writeFile(temporary, JSON.stringify({ schema: 1, ...(publishedAt ? { publishedAt } : {}), files: files.map(serializeMachineFile) }), { encoding: 'utf8', mode: 0o600 });
   await rename(temporary, path);
 }

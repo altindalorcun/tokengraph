@@ -115,6 +115,25 @@ describe('publish', () => {
     expect(first.ownFileUnreadable).toBe(false);
   });
 
+  it('reads machine files whatever the case of their names, own file included', async () => {
+    const C = 'abcdef12-2222-4333-8444-555555555555';
+    const client = fakeGitHubClient();
+    const first = await publish(input(client));
+    const second = await publish(
+      input(client, { config: { github: first.config.github }, ledger: ledgerWith('2026-10-12', 500), fingerprint: 'fp-b', newMachineId: () => C }),
+    );
+    const files = client.gists.get(first.dataGistId)!.files;
+    for (const id of [A, C]) {
+      files[`machine-${id.toUpperCase()}.json`] = { ...files[machineFileName(id)]!, filename: `machine-${id.toUpperCase()}.json` };
+      delete files[machineFileName(id)];
+    }
+    client.calls.length = 0;
+    const again = await publish(input(client, { config: second.config, ledger: ledgerWith('2026-10-12', 500), fingerprint: 'fp-b', newMachineId: () => C }));
+    expect(again.others.map((other) => other.machineId)).toEqual([A]);
+    expect(again.ownFileUnreadable).toBe(false);
+    expect(again.wroteMachineFile).toBe(false);
+  });
+
   it('restores lost local history from its own file and never shrinks', async () => {
     const client = fakeGitHubClient();
     const first = await publish(input(client, { ledger: mergeUsage(ledgerWith('2026-10-12', 1000), 'claude-code', [{ date: '2026-08-01', model: 'claude-opus-5-5', pricingTier: 'standard', counts: counts(9) }]) }));

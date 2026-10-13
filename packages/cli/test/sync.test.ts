@@ -9,7 +9,7 @@ import { GitHubError, GitHubRateLimitError } from '../src/github/http.js';
 import { readLedger } from '../src/ledger.js';
 import { ledgerPath } from '../src/paths.js';
 import { machineFileName } from '../src/publish/machines.js';
-import { readMachinesCache } from '../src/publish/machines-cache.js';
+import { readLastPublish, readMachinesCache } from '../src/publish/machines-cache.js';
 import { acquireSyncLock } from '../src/sync-lock.js';
 import { fakeGitHubClient } from './fake-github-client.js';
 
@@ -238,6 +238,7 @@ describe('runSync across agents', () => {
       expect(config.machineId).toBe(MACHINE);
       expect(config.gists?.graph).toBeDefined();
       expect(await readMachinesCache()).toEqual([]);
+      expect(await readLastPublish()).not.toBeNull();
     });
 
     it('--local never touches GitHub', async () => {

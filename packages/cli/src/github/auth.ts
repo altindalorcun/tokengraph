@@ -35,14 +35,18 @@ export async function ghToken(ghPath: string, exec: ExecFile = execFileAsync): P
 }
 
 /**
- * For a gh-backed login the token is read from gh every time, so tokengraph never stores a copy of
+ * For a gh-backed login the token is read from gh (once per client), so tokengraph never stores a copy of
  * a token that may carry `repo` scope, and a token gh refreshes keeps working.
  */
 export function tokenProvider(auth: GitHubAuth, exec: ExecFile = execFileAsync): () => Promise<string> {
   if (auth.kind === 'token') return async () => auth.token;
+  // One `gh auth token` per provider (so per publish), not one per request. A failure is not remembered.
+  let cached: string | null = null;
   return async () => {
+    if (cached) return cached;
     const token = await ghToken(auth.ghPath, exec);
     if (!token) throw new GitHubAuthError(`The GitHub CLI at ${auth.ghPath} is not logged in any more.`, 401);
+    cached = token;
     return token;
   };
 }

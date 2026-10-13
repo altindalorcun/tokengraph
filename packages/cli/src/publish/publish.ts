@@ -59,7 +59,8 @@ function machineFiles(gist: Gist): MachineFile[] {
   return Object.entries(gist.files).flatMap(([name, file]) => {
     if (!file?.content || !isMachineFileName(name)) return [];
     const parsed = parseMachineFile(file.content);
-    return parsed && machineFileName(parsed.machineId) === name ? [parsed] : [];
+    // GitHub keeps file names as written: compare without regard to case (ids are stored lower-case).
+    return parsed && machineFileName(parsed.machineId) === name.toLowerCase() ? [parsed] : [];
   });
 }
 
@@ -80,7 +81,7 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
   await input.persistMachineId(machineId);
   const own = files.find((file) => file.machineId === machineId) ?? null;
   // A file under our name that does not parse may hold more than our ledger: never overwrite it.
-  const ownFileUnreadable = own === null && machineFileName(machineId) in data.gist.files;
+  const ownFileUnreadable = own === null && Object.keys(data.gist.files).some((name) => name.toLowerCase() === machineFileName(machineId));
   const others = files.filter((file) => file.machineId !== machineId);
 
   // 2. Within one machine totals only grow: take back anything the local ledger lost.
