@@ -118,9 +118,12 @@ finds them):
 - Discovery: page through `GET /gists?per_page=100` for the marker files; cache the ids in
   `config.json`. A cached id that returns 404 (user deleted the gist) is forgotten and the gist is
   recreated; for the graph gist this prints a loud notice that the README snippet changed.
-- Writes are `PATCH /gists/:id` with only the changed files. `published.json` in `~/.tokengraph`
-  stores a sha256 per published file; nothing is sent when nothing changed. SVG rendering is
-  deterministic (no timestamps), so the graph changes at most when data changes or the day rolls.
+- Writes are `PATCH /gists/:id` with only the changed files, found by comparing with the gist's
+  current content (one `GET` per gist per publish, which also notices files someone edited or
+  deleted by hand); nothing is sent when nothing changed. SVG rendering is deterministic (no
+  timestamps), so the graph changes at most when data changes or the day rolls.
+- The other machines' files from the last publish are cached in `~/.tokengraph/machines.json`, so
+  `story` (and anything else offline) can show the all-machines numbers without the network.
 - API base overridable by `TOKENGRAPH_GITHUB_API` / `TOKENGRAPH_GITHUB_WEB` (tests use a fake
   server). Requests send `User-Agent: tokengraph/<version>`, `Accept: application/vnd.github+json`,
   `X-GitHub-Api-Version: 2022-11-28`. 401 → "Your GitHub access was revoked. Run `tokengraph
@@ -135,8 +138,10 @@ finds them):
 - `machine-<id>.json`:
   `{ schema: 1, machineId, label, fingerprint, cliVersion, updatedAt, sources: LedgerDays-by-source }`,
   the v3 ledger body as is. `label` is `<platform>-<first 6 of id>` (no hostname, which can carry a
-  person's name). `fingerprint` is `sha256("tokengraph:" + hostname + ":" + os username + ":" +
-  platform)`, never the raw values.
+  person's name). `fingerprint` is `sha256("tokengraph:" + OS machine id + ":" + os username)`, never the raw
+  values. The OS machine id is the stable one (macOS `IOPlatformUUID`, Linux `/etc/machine-id`,
+  Windows `MachineGuid`), falling back to the hostname; hostnames alone change with the network
+  on macOS.
 - Each publish: read the data gist; `local = maxMerge(local, ownRemote)` (restores history this
   machine lost, never shrinks anything); write the ledger; write own file if changed.
 - Graph data = this machine's ledger **plus** every other machine's file, summed per day, model and
@@ -274,8 +279,12 @@ New ones:
 - Never sum a machine with itself: within one machine max-merge, across machines sum.
 - The QR server binds to one private LAN address, serves only from memory under a random token,
   and always stops.
-- The CLI never sends anything anywhere except `api.github.com` / `github.com` for the logged-in
-  user, and only from `login`, `sync`, `readme --colors`, `status`.
+- The CLI never sends anything anywhere except `api.github.com` / `github.com` /
+  `gist.githubusercontent.com` for the logged-in user, and only from `login`, `sync` (and the
+  hooks and schedule that run it) and `readme --colors`. `status`, `view` and `story` work offline
+  from local files.
+- `logout` keeps the machine id: the same machine must never come back under a new id and have
+  its logs counted twice.
 
 ## Out of scope for v1
 
