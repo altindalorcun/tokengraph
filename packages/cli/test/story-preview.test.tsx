@@ -36,6 +36,6 @@ describe('previewStrip', () => {
     expect(iterm.startsWith('  \x1b]1337;File=inline=1;')).toBe(true);
     expect(iterm).toContain('width=96;');
     const kitty = await previewStrip(renderer, cards, { env: { KITTY_WINDOW_ID: '3' }, columns: 100 });
-    expect(kitty.startsWith('  \x1b_Gf=100,a=T,c=96,m=')).toBe(true);
+    expect(kitty.startsWith('  \x1b_Gf=100,a=T,q=2,c=96,m=')).toBe(true);
   }, 30_000);
 });

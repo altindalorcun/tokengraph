@@ -31,8 +31,8 @@ describe('encoders', () => {
   it('chunks a Kitty image at 4096 base64 characters', () => {
     const out = kittyImage(png, 60);
     const chunks = out.split('\x1b\\').filter(Boolean);
-    expect(chunks[0]!.startsWith('\x1b_Gf=100,a=T,c=60,m=1;')).toBe(true);
-    expect(chunks.at(-1)!.startsWith('\x1b_Gm=0;')).toBe(true);
+    expect(chunks[0]!.startsWith('\x1b_Gf=100,a=T,q=2,c=60,m=1;')).toBe(true);
+    expect(chunks.at(-1)!.startsWith('\x1b_Gq=2,m=0;')).toBe(true);
     for (const chunk of chunks) expect(chunk.split(';')[1]!.length).toBeLessThanOrEqual(4096);
   });
 });

@@ -27,7 +27,7 @@ export function kittyImage(png: Uint8Array, widthCells: number): string {
   for (let i = 0; i < data.length; i += KITTY_CHUNK) {
     const chunk = data.slice(i, i + KITTY_CHUNK);
     const more = i + KITTY_CHUNK < data.length ? 1 : 0;
-    parts.push(i === 0 ? `\x1b_Gf=100,a=T,c=${widthCells},m=${more};${chunk}\x1b\\` : `\x1b_Gm=${more};${chunk}\x1b\\`);
+    parts.push(i === 0 ? `\x1b_Gf=100,a=T,q=2,c=${widthCells},m=${more};${chunk}\x1b\\` : `\x1b_Gq=2,m=${more};${chunk}\x1b\\`);
   }
   return parts.join('');
 }
