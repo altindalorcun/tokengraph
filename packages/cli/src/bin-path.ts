@@ -10,6 +10,15 @@ export function binPath(): string {
   return fileURLToPath(new URL('./bin.js', import.meta.url));
 }
 
+/**
+ * The package's assets folder (story fonts, resvg.wasm). Like binPath it resolves from this module's
+ * own location: dist/bin-path.js, bundle/bin.js and src/bin-path.ts (tests) all sit one level
+ * below the package root.
+ */
+export function assetsDir(): string {
+  return fileURLToPath(new URL('../assets/', import.meta.url));
+}
+
 /** The installed package's version, from its package.json. */
 export function cliVersion(): string {
   try {

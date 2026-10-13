@@ -49,4 +49,5 @@ export {
   type StoryTemplate,
 } from './options.js';
 export { shiftDate, type RangeWindow } from './range.js';
+export { summarizeStats, type DailyWeight, type Stats } from './stats.js';
 export { renderSkyline, type Skyline, type SkylineOptions } from './skyline.js';
