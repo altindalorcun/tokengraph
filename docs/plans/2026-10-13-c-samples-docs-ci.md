@@ -283,6 +283,7 @@ Check every command and flag against `node packages/cli/dist/bin.js <command> --
   `\nIf you like it, a ⭐ on GitHub helps other people find it: https://github.com/altindalorcun/tokengraph`
   (once per login; no state needed). Use `PROJECT_URL` from `readme-snippet.ts`.
 
+- [ ] **Step 3b: A gist the signed-in account cannot write.** After `gh auth switch` the stored login is stale, so the cached gists still look owned and every sync's PATCH returns 404. In `packages/cli/src/commands/sync.ts` `publishFromSync`, catch `GitHubNotFoundError` (from `../github/http.js`) before the generic `GitHubError` branch and print: `\nYour gists belong to a different GitHub account than the one you are signed in with now. Run \`tokengraph login\` to publish as the current account. Your usage is saved locally.` (exit 1). Test in `packages/cli/test/sync.test.ts` with a fake client whose `updateGist` throws `GitHubNotFoundError`.
 - [ ] **Step 4: Run** `node scripts/sync-readme.mjs && npx vitest run packages/cli/test/sync-readme.test.ts && npx tsc --build && npx vitest run`. **Step 5: Commit** (`Write the README and ship it to npm with absolute image links`).
 
 ---
