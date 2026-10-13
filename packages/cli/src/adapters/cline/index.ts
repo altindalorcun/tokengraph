@@ -1,0 +1,205 @@
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { CLINE_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
+import { RequestBuckets } from '../request-buckets.js';
+import { addClassicTask, type ClassicTask } from './classic.js';
+import { emptyClineDiagnostics, type ClineDiagnostics } from './normalize.js';
+import { addSdkMessages } from './sdk.js';
+
+const CLINE_EXTENSION_ID = 'saoudrizwan.claude-dev';
+/** VS Code-family hosts Cline's extension ships in, in the order the task brief lists them. */
+const HOSTS = ['Code', 'Code - Insiders', 'Cursor', 'VSCodium', 'Windsurf'];
+
+function clineDir(): string {
+  return process.env['CLINE_DIR'] ?? join(homedir(), '.cline');
+}
+
+function clineDataDir(): string {
+  return process.env['CLINE_DATA_DIR'] ?? join(clineDir(), 'data');
+}
+
+/** `~/.cline/data/sessions` by default, overridable the same way Cline's own SDK resolves it. */
+export function clineSessionsDir(): string {
+  return process.env['CLINE_SESSION_DATA_DIR'] ?? join(clineDataDir(), 'sessions');
+}
+
+function tasksDirUnder(userDataDir: string): string {
+  return join(userDataDir, 'User', 'globalStorage', CLINE_EXTENSION_ID, 'tasks');
+}
+
+/**
+ * Every candidate classic-format `tasks` directory: each VS Code-family host on macOS and Linux,
+ * that host on Windows (only when running on Windows, since `%APPDATA%` means nothing elsewhere),
+ * the three known remote-server variants, and the legacy CLI/JetBrains/standalone data dir. A
+ * directory that does not exist on this machine costs nothing to list, so every platform's shape is
+ * always included rather than branched on `process.platform`.
+ */
+export function clineClassicTaskDirs(): string[] {
+  const home = homedir();
+  const dirs: string[] = [];
+  for (const host of HOSTS) {
+    dirs.push(tasksDirUnder(join(home, 'Library', 'Application Support', host))); // macOS
+    dirs.push(tasksDirUnder(join(home, '.config', host))); // Linux
+  }
+  const appData = process.env['APPDATA'];
+  if (process.platform === 'win32' && appData) {
+    for (const host of HOSTS) dirs.push(tasksDirUnder(join(appData, host)));
+  }
+  dirs.push(tasksDirUnder(join(home, '.vscode-server', 'data')));
+  dirs.push(tasksDirUnder(join(home, '.vscode-server-insiders', 'data')));
+  dirs.push(tasksDirUnder(join(home, '.cursor-server', 'data')));
+  dirs.push(join(clineDataDir(), 'tasks'));
+  return dirs;
+}
+
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function subdirectoryNames(dir: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+}
+
+/** Parses a JSON file that is optional or whose shape we cannot fully trust; failure means null, never thrown. */
+async function readJsonFileOrNull(path: string): Promise<unknown | null> {
+  try {
+    return JSON.parse(await readFile(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads one classic task directory's `ui_messages.json` (falling back to the older
+ * `claude_messages.json` name) plus its optional `task_metadata.json`. Returns null when there is
+ * no messages file, the file predates `since`, or it cannot be read at all (counted as unreadable).
+ */
+async function readClassicTask(taskDir: string, taskId: string, since: Date, diagnostics: ClineDiagnostics): Promise<ClassicTask | null> {
+  let messagesPath = join(taskDir, 'ui_messages.json');
+  let info = await stat(messagesPath).catch(() => null);
+  if (!info) {
+    messagesPath = join(taskDir, 'claude_messages.json');
+    info = await stat(messagesPath).catch(() => null);
+  }
+  if (!info || info.mtime < since) return null;
+
+  let messages: unknown;
+  try {
+    messages = JSON.parse(await readFile(messagesPath, 'utf8'));
+  } catch {
+    diagnostics.unreadableFiles += 1;
+    return null;
+  }
+  if (!Array.isArray(messages)) {
+    diagnostics.unreadableFiles += 1;
+    return null;
+  }
+  const metadata = await readJsonFileOrNull(join(taskDir, 'task_metadata.json'));
+  return { taskId, messages, metadata };
+}
+
+/** `.messages.json` files directly under a session directory: the main agent's and any subagents'. Never `.compaction.json`, `providers.json`, `secrets.json` or `globalState.json` — none of those end in `.messages.json`. */
+async function sessionMessageFiles(sessionDir: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(sessionDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.messages.json'))
+    .map((entry) => join(sessionDir, entry.name));
+}
+
+async function readSdkSession(
+  sessionDir: string,
+  sessionId: string,
+  since: Date,
+  buckets: RequestBuckets,
+  diagnostics: ClineDiagnostics,
+  options: { since?: Date; timeZone?: string },
+): Promise<void> {
+  const manifest = await readJsonFileOrNull(join(sessionDir, `${sessionId}.json`));
+  for (const path of await sessionMessageFiles(sessionDir)) {
+    const info = await stat(path).catch(() => null);
+    if (!info || info.mtime < since) continue;
+    let document: unknown;
+    try {
+      document = JSON.parse(await readFile(path, 'utf8'));
+    } catch {
+      diagnostics.unreadableFiles += 1;
+      continue;
+    }
+    addSdkMessages({ document, manifest }, buckets, diagnostics, options);
+  }
+}
+
+function describeDiagnostics(d: ClineDiagnostics): string[] {
+  const notes: string[] = [];
+  if (d.skippedClaudeCode > 0) {
+    notes.push(`skipped ${d.skippedClaudeCode} request(s) made through the claude-code provider (already counted from Claude Code)`);
+  }
+  if (d.skippedEstimated > 0) notes.push(`skipped ${d.skippedEstimated} Bedrock request(s) whose counts Cline estimates`);
+  if (d.skippedImported > 0) notes.push(`skipped ${d.skippedImported} message(s) imported from another tool`);
+  if (d.skippedLegacyCopies > 0) notes.push(`skipped ${d.skippedLegacyCopies} message(s) copied from an older Cline task`);
+  if (d.clamped > 0) notes.push(`${d.clamped} request(s) reported more cached than total input; counted as 0 fresh input`);
+  if (d.unreadableFiles > 0) notes.push(`${d.unreadableFiles} Cline file(s) could not be read`);
+  if (d.malformedEntries > 0) notes.push(`skipped ${d.malformedEntries} malformed Cline usage record(s)`);
+  return notes;
+}
+
+/**
+ * Reads Cline's two local usage formats: classic per-task `ui_messages.json` files (extension
+ * versions up to and including today's "legacy" package) and SDK per-session `.messages.json`
+ * files (today's "next" package and the Cline CLI). Only counters, ids, model/provider ids and
+ * timestamps are ever read; `providers.json`, `secrets.json` and `globalState.json` — which hold
+ * API keys — are never opened, and prompt/response text is never kept even when it is right next to
+ * a counter we do read.
+ */
+export function createClineAdapter(options: { timeZone?: string } = {}): Adapter {
+  return {
+    name: CLINE_SOURCE,
+
+    async detect(): Promise<boolean> {
+      for (const dir of clineClassicTaskDirs()) if (await isDirectory(dir)) return true;
+      return isDirectory(clineSessionsDir());
+    },
+
+    async collect(since: Date): Promise<CollectResult> {
+      const buckets = new RequestBuckets();
+      const diagnostics = emptyClineDiagnostics();
+      const taskOptions = { since, timeZone: options.timeZone };
+
+      for (const tasksDir of clineClassicTaskDirs()) {
+        for (const taskId of await subdirectoryNames(tasksDir)) {
+          const task = await readClassicTask(join(tasksDir, taskId), taskId, since, diagnostics);
+          if (task) addClassicTask(task, buckets, diagnostics, taskOptions);
+        }
+      }
+
+      const sessionsDir = clineSessionsDir();
+      for (const sessionId of await subdirectoryNames(sessionsDir)) {
+        await readSdkSession(join(sessionsDir, sessionId), sessionId, since, buckets, diagnostics, taskOptions);
+      }
+
+      const notes = describeDiagnostics(diagnostics);
+      return {
+        source: CLINE_SOURCE,
+        usage: buckets.toUsage(),
+        requestCount: buckets.size,
+        ...(notes.length > 0 ? { notes } : {}),
+      };
+    },
+  };
+}

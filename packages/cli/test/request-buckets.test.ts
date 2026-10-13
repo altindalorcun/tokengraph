@@ -1,0 +1,60 @@
+import type { SplitTokenCounts } from '@tokengraph/core';
+import { describe, expect, it } from 'vitest';
+import { RequestBuckets, tierForModel } from '../src/adapters/request-buckets.js';
+
+function counts(overrides: Partial<SplitTokenCounts> = {}): SplitTokenCounts {
+  return {
+    inputTokens: 10, outputTokens: 5, cacheCreationTokens: 0, cacheReadTokens: 0,
+    cacheCreation5mTokens: null, cacheCreation1hTokens: null, ...overrides,
+  };
+}
+
+describe('RequestBuckets', () => {
+  it('merges copies of one request by per-field max, not sum', () => {
+    const buckets = new RequestBuckets();
+    buckets.add('r1', { date: '2026-09-27', model: 'm', pricingTier: 'standard', counts: counts({ outputTokens: 3 }) });
+    buckets.add('r1', { date: '2026-09-27', model: 'm', pricingTier: 'standard', counts: counts({ outputTokens: 7 }) });
+    expect(buckets.size).toBe(1);
+    expect(buckets.toUsage()).toEqual([
+      { date: '2026-09-27', model: 'm', pricingTier: 'standard', counts: counts({ outputTokens: 7 }) },
+    ]);
+  });
+
+  it('keeps the first copy date and model, sums distinct requests, and keeps the null split', () => {
+    const buckets = new RequestBuckets();
+    buckets.add('a', { date: '2026-09-27', model: 'm', pricingTier: 'standard', counts: counts() });
+    buckets.add('b', { date: '2026-09-27', model: 'm', pricingTier: 'standard', counts: counts() });
+    buckets.add('c', { date: '2026-09-26', model: 'm', pricingTier: 'standard', counts: counts() });
+    const usage = buckets.toUsage();
+    expect(usage.map((u) => [u.date, u.counts.inputTokens])).toEqual([['2026-09-26', 10], ['2026-09-27', 20]]);
+    expect(usage[1]?.counts.cacheCreation5mTokens).toBeNull();
+  });
+});
+
+describe('tierForModel', () => {
+  it('applies the OpenAI 272K long-context rule only to gpt models', () => {
+    const long = counts({ inputTokens: 200_000, cacheReadTokens: 72_001 });
+    expect(tierForModel('gpt-5.4', long)).toBe('long-context');
+    expect(tierForModel('gpt-5.4', counts({ inputTokens: 272_000 }))).toBe('standard');
+    expect(tierForModel('claude-sonnet-4-5', long)).toBe('standard');
+    expect(tierForModel('gemini-2.5-pro', long)).toBe('standard');
+  });
+});
+
+describe('tierForModel for Claude models', () => {
+  it('moves a Haiku 5.5 request over 100K prompt tokens, cache included, to long context', () => {
+    expect(tierForModel('claude-haiku-5-5', counts({ inputTokens: 100_000 }))).toBe('standard');
+    expect(tierForModel('claude-haiku-5-5', counts({ inputTokens: 1, cacheReadTokens: 90_000, cacheCreationTokens: 10_000 }))).toBe(
+      'long-context',
+    );
+  });
+
+  it('keeps other Claude models standard however long the prompt', () => {
+    expect(tierForModel('claude-opus-5-5', counts({ inputTokens: 900_000 }))).toBe('standard');
+  });
+
+  it('records fast mode when the source reports it', () => {
+    expect(tierForModel('claude-opus-5-5', counts(), true)).toBe('fast');
+    expect(tierForModel('claude-haiku-5-5', counts({ inputTokens: 200_000 }), true)).toBe('fast-long-context');
+  });
+});
