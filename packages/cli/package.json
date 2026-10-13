@@ -43,6 +43,7 @@
     "@tokengraph/core": "0.1.0",
     "@types/react": "^19.3.0",
     "esbuild": "0.28.2",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.2.8",
     "satori": "^0.25.0"
   },
