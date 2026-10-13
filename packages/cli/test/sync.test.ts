@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGeminiCliAdapter } from '../src/adapters/gemini-cli/index.js';
-import { runSync } from '../src/commands/sync.js';
+import { runSync, SYNC_SKIPPED } from '../src/commands/sync.js';
 import { readConfig, writeConfig } from '../src/config.js';
-import { GitHubRateLimitError } from '../src/github/http.js';
+import { GitHubError, GitHubRateLimitError } from '../src/github/http.js';
 import { readLedger } from '../src/ledger.js';
 import { ledgerPath } from '../src/paths.js';
 import { machineFileName } from '../src/publish/machines.js';
@@ -275,6 +275,81 @@ describe('runSync across agents', () => {
       expect(output).toContain('could not be read');
       expect(output).toContain('npm install -g tokengraph');
       expect(data.files[machineFileName(MACHINE)]!.content).toBe('{"version":99}');
+    });
+
+    // Runs `change` once, in the middle of the publish (before the first write reaches GitHub).
+    function changeConfigDuringPublish(client: ReturnType<typeof fakeGitHubClient>, change: () => Promise<void>) {
+      const updateGist = client.updateGist.bind(client);
+      let done = false;
+      client.updateGist = async (id, files) => {
+        if (!done) {
+          done = true;
+          await change();
+        }
+        return updateGist(id, files);
+      };
+    }
+
+    it('does not undo a logout that happened while it was publishing', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      changeConfigDuringPublish(client, () => writeConfig({}));
+      const deps = { clientFor: () => client, fingerprint: async () => 'fp', newMachineId: () => MACHINE };
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps })).toBe(0);
+      const config = await readConfig();
+      expect(config.github).toBeUndefined();
+      expect(config.gists).toBeUndefined();
+    });
+
+    it('does not write gist ids back when another account logged in meanwhile', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      changeConfigDuringPublish(client, () => writeConfig({ github: { login: 'hubot', auth: { kind: 'token', token: 'u' } } }));
+      const deps = { clientFor: () => client, fingerprint: async () => 'fp', newMachineId: () => MACHINE };
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps })).toBe(0);
+      const config = await readConfig();
+      expect(config.github?.login).toBe('hubot');
+      expect(config.gists).toBeUndefined();
+    });
+
+    it('keeps a colour choice made while it was publishing', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      changeConfigDuringPublish(client, () => writeConfig({ ...LOGIN, graph: { colors: 'single' } }));
+      const deps = { clientFor: () => client, fingerprint: async () => 'fp', newMachineId: () => MACHINE };
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps })).toBe(0);
+      const config = await readConfig();
+      expect(config.graph).toEqual({ colors: 'single' });
+      expect(config.gists?.graph).toBeDefined();
+      expect(config.machineId).toBe(MACHINE);
+    });
+
+    it('keeps the machine id when the graph step fails, and reuses it next time', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      const updateGist = client.updateGist.bind(client);
+      let failGraph = true;
+      client.updateGist = async (id, files) => {
+        if (failGraph && 'README.md' in files) throw new GitHubError('boom', 500);
+        return updateGist(id, files);
+      };
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps: { clientFor: () => client, fingerprint: async () => 'fp', newMachineId: () => MACHINE } })).toBe(1);
+      expect((await readConfig()).machineId).toBe(MACHINE);
+      failGraph = false;
+      const second = '99999999-2222-4333-8444-555555555555';
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps: { clientFor: () => client, fingerprint: async () => 'other', newMachineId: () => second } })).toBe(0);
+      expect((await readConfig()).machineId).toBe(MACHINE);
+    });
+
+    it('reports a lock skip distinctly when asked, and still exits 0 otherwise', async () => {
+      const held = await acquireSyncLock();
+      expect(await runSync({ ...OPTIONS, detailedExit: true })).toBe(SYNC_SKIPPED);
+      expect(await runSync(OPTIONS)).toBe(0);
+      if (held.acquired) await held.release();
     });
 
     it('--quiet prints only the publish summary', async () => {

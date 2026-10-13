@@ -25,6 +25,14 @@ import { publish, type PublishResult } from '../publish/publish.js';
 import { readmeSnippet } from '../readme-snippet.js';
 import { acquireSyncLock } from '../sync-lock.js';
 
+/**
+ * Exit code `runSync` returns, when asked (`detailedExit`), for a run that did nothing because another
+ * sync holds the lock. Never an exit code of the CLI itself: a skip is success there.
+ */
+export const SYNC_SKIPPED = 3;
+/** Exit code `runSync` returns, when asked (`detailedExit`), when no agent has any usage on this machine. */
+export const SYNC_NO_AGENTS = 4;
+
 /** What started a sync: the user, the Claude Code hook, or a scheduled run. */
 export type SyncTrigger = 'manual' | 'hook' | 'schedule';
 
@@ -46,6 +54,8 @@ export interface SyncOptions {
   trigger?: SyncTrigger;
   /** Print only the publish summary (used when another command republishes). */
   quiet?: boolean;
+  /** Return SYNC_SKIPPED / SYNC_NO_AGENTS (silently) instead of 0 / 1 for those two cases, for callers that react to them. */
+  detailedExit?: boolean;
   deps?: Partial<SyncPublishDeps>;
 }
 
@@ -70,6 +80,7 @@ export async function runSync(options: SyncOptions): Promise<number> {
   // don't race on state.json. Skipping is success: the running sync covers the same data.
   const lock = await acquireSyncLock();
   if (!lock.acquired) {
+    if (options.detailedExit) return SYNC_SKIPPED;
     console.error(`Another tokengraph sync is already running${lock.pid ? ` (pid ${lock.pid})` : ''}; skipping.`);
     return 0;
   }
@@ -94,6 +105,7 @@ async function runSyncLocked(options: SyncOptions): Promise<number> {
     },
   });
   if (detected.length === 0) {
+    if (options.detailedExit) return SYNC_NO_AGENTS;
     console.error(noAgentsMessage());
     return 1;
   }
@@ -179,6 +191,10 @@ async function publishFromSync(ledger: Ledger, config: CliConfig, github: GitHub
       platform: process.platform,
       fingerprint: await deps.fingerprint(),
       newMachineId: deps.newMachineId,
+      persistMachineId: async (id) => {
+        const current = await readConfig();
+        if (current.machineId !== id) await writeConfig({ ...current, machineId: id });
+      },
     });
   } catch (error) {
     if (error instanceof GitHubAuthError) {
@@ -195,8 +211,15 @@ async function publishFromSync(ledger: Ledger, config: CliConfig, github: GitHub
   }
 
   if (result.restoredDays > 0 || result.ledger !== ledger) await writeLedger(ledgerPath(), result.ledger);
-  await writeConfig(result.config);
-  await writeMachinesCache(result.others);
+  // The publish took several round trips: a logout, login or `readme --colors` may have happened in
+  // between. Merge in only what this run learned, and nothing at all for another account.
+  const current = await readConfig();
+  const sameAccount = current.github?.login.toLowerCase() === github.login.toLowerCase();
+  if (sameAccount) {
+    const { machineId, gists } = result.config;
+    await writeConfig({ ...current, ...(machineId ? { machineId } : {}), ...(gists ? { gists } : {}) });
+    await writeMachinesCache(result.others);
+  }
 
   const graphUrl = `https://gist.github.com/${github.login}/${result.graphGistId}`;
   if (result.adopted) console.log(`\nRestored this machine's history (${result.restoredDays} days) from your data gist.`);

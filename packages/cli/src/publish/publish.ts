@@ -30,6 +30,8 @@ export interface PublishInput {
   platform: NodeJS.Platform;
   fingerprint: string;
   newMachineId: () => string;
+  /** Saves the machine id (called once it is known, before anything is written to GitHub). */
+  persistMachineId: (id: string) => Promise<void>;
 }
 
 export interface PublishResult {
@@ -74,6 +76,8 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
     fingerprint: input.fingerprint,
     newId: input.newMachineId,
   });
+  // A machine must never come back under a new id, even when a later step of this publish fails.
+  await input.persistMachineId(machineId);
   const own = files.find((file) => file.machineId === machineId) ?? null;
   // A file under our name that does not parse may hold more than our ledger: never overwrite it.
   const ownFileUnreadable = own === null && machineFileName(machineId) in data.gist.files;

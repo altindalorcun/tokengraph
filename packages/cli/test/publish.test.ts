@@ -23,11 +23,29 @@ function input(client: FakeGitHub, overrides: Partial<PublishInput> = {}): Publi
     platform: 'darwin',
     fingerprint: 'fp-a',
     newMachineId: () => A,
+    persistMachineId: async () => undefined,
     ...overrides,
   };
 }
 
 describe('publish', () => {
+  it('saves the machine id before the first write, so a failing graph step cannot lose it', async () => {
+    const client = fakeGitHubClient();
+    const events: string[] = [];
+    const updateGist = client.updateGist.bind(client);
+    client.updateGist = async (id, files) => {
+      events.push(`update ${Object.keys(files).join(',')}`);
+      if (Object.keys(files).includes('README.md')) throw new Error('graph step failed');
+      return updateGist(id, files);
+    };
+    const persistMachineId = async (id: string) => {
+      events.push(`persist ${id}`);
+    };
+    await expect(publish(input(client, { persistMachineId }))).rejects.toThrow('graph step failed');
+    expect(events[0]).toBe(`persist ${A}`);
+    expect(events[1]).toContain(machineFileName(A));
+  });
+
   it('replaces cached gist ids that another account owns instead of failing on every sync', async () => {
     const client = fakeGitHubClient('octocat');
     const foreignGraph = 'c'.repeat(20);

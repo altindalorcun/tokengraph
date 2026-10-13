@@ -1,7 +1,8 @@
 import { copyToClipboard } from '../clipboard.js';
 import { readConfig, writeConfig, type GraphColors } from '../config.js';
 import { readmeSnippet } from '../readme-snippet.js';
-import { runSync } from './sync.js';
+import { noAgentsMessage } from '../collect-local.js';
+import { runSync, SYNC_NO_AGENTS, SYNC_SKIPPED } from './sync.js';
 
 export interface ReadmeOptions {
   compact: boolean;
@@ -19,8 +20,16 @@ export async function runReadme(options: ReadmeOptions): Promise<number> {
   if (options.colors && options.colors !== (config.graph?.colors ?? 'model')) {
     config = { ...config, graph: { colors: options.colors } };
     await writeConfig(config);
-    const code = await (options.republish ?? (() => runSync({ sinceDays: 30, theme: 'light', quiet: true })))();
-    if (code !== 0) return code;
+    const code = await (options.republish ?? (() => runSync({ sinceDays: 30, theme: 'light', quiet: true, detailedExit: true })))();
+    if (code === SYNC_NO_AGENTS) {
+      console.error(noAgentsMessage());
+      return 1;
+    }
+    if (code === SYNC_SKIPPED) {
+      console.log('Another sync is running; your colour choice is saved and applies on the next sync.');
+    } else if (code !== 0) {
+      return code;
+    }
     config = await readConfig();
   }
   if (!config.gists?.graph || !config.github) {
