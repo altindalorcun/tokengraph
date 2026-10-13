@@ -28,6 +28,18 @@ function input(client: FakeGitHub, overrides: Partial<PublishInput> = {}): Publi
 }
 
 describe('publish', () => {
+  it('replaces cached gist ids that another account owns instead of failing on every sync', async () => {
+    const client = fakeGitHubClient('octocat');
+    const foreignGraph = 'c'.repeat(20);
+    const foreignData = 'd'.repeat(20);
+    client.gists.set(foreignGraph, { id: foreignGraph, description: null, public: true, html_url: '', files: { [GRAPH_MARKER]: { filename: GRAPH_MARKER } }, owner: { login: 'someone-else' } });
+    client.gists.set(foreignData, { id: foreignData, description: null, public: false, html_url: '', files: { 'tokengraph-data.md': { filename: 'tokengraph-data.md' } }, owner: { login: 'someone-else' } });
+    const result = await publish(input(client, { config: { github: { login: 'octocat', auth: { kind: 'token', token: 't' } }, gists: { graph: foreignGraph, data: foreignData } } }));
+    expect(result.graphGistId).not.toBe(foreignGraph);
+    expect(result.dataGistId).not.toBe(foreignData);
+    expect(result.graphGistReplaced).toBe(true);
+  });
+
   it('first run: creates both gists, writes the machine file and the graph', async () => {
     const client = fakeGitHubClient();
     const result = await publish(input(client));

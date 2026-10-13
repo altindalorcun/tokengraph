@@ -78,4 +78,26 @@ describe('login', () => {
     await runLogin({ method: 'device', openBrowser: false }, deps());
     expect((await readConfig()).machineId).toBe('3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40');
   });
+
+  describe('gist ids from an earlier login', () => {
+    const GISTS = { graph: 'aaaaaaaaaaaaaaaaaaaa', data: 'bbbbbbbbbbbbbbbbbbbb' };
+    const OLD = { login: 'octocat', auth: { kind: 'token' as const, token: 'old' } };
+
+    it('are dropped when a different account logs in', async () => {
+      const { writeConfig } = await import('../src/config.js');
+      await writeConfig({ github: OLD, gists: GISTS, machineId: '3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40' });
+      await runLogin({ method: 'device', openBrowser: false }, deps({ clientForToken: () => userClient('hubot', ['gist']) }));
+      const config = await readConfig();
+      expect(config.github?.login).toBe('hubot');
+      expect(config.gists).toBeUndefined();
+      expect(config.machineId).toBe('3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40');
+    });
+
+    it('are kept when the same account logs in again (case does not matter)', async () => {
+      const { writeConfig } = await import('../src/config.js');
+      await writeConfig({ github: OLD, gists: GISTS });
+      await runLogin({ method: 'device', openBrowser: false }, deps({ clientForToken: () => userClient('OctoCat', ['gist']) }));
+      expect((await readConfig()).gists).toEqual(GISTS);
+    });
+  });
 });

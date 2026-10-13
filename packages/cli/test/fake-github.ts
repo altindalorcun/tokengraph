@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-export interface StoredGist { id: string; description: string; public: boolean; files: Record<string, string> }
+export interface StoredGist { id: string; description: string; public: boolean; files: Record<string, string>; owner?: string; createdAt?: string }
 
 export async function startFakeGitHub(login = 'octocat') {
   const gists = new Map<string, StoredGist>();
@@ -9,6 +9,7 @@ export async function startFakeGitHub(login = 'octocat') {
   let nextId = 1;
   let url = '';
 
+  const owns = (gist: StoredGist) => !gist.owner || gist.owner.toLowerCase() === login.toLowerCase();
   const body = async (req: IncomingMessage) => {
     let text = '';
     for await (const chunk of req) text += chunk;
@@ -22,7 +23,9 @@ export async function startFakeGitHub(login = 'octocat') {
     id: gist.id,
     description: gist.description,
     public: gist.public,
-    html_url: `https://gist.github.com/${login}/${gist.id}`,
+    html_url: `https://gist.github.com/${gist.owner ?? login}/${gist.id}`,
+    owner: { login: gist.owner ?? login },
+    created_at: gist.createdAt ?? '2026-01-01T00:00:00Z',
     files: Object.fromEntries(
       Object.entries(gist.files).map(([name, content]) => [
         name,
@@ -42,7 +45,7 @@ export async function startFakeGitHub(login = 'octocat') {
     if (req.method === 'GET' && path === '/user') return send(res, 200, { login }, { 'x-oauth-scopes': 'gist' });
     if (req.method === 'GET' && path.startsWith('/gists?')) {
       const page = Number(new URL(path, url).searchParams.get('page') ?? '1');
-      return send(res, 200, page === 1 ? [...gists.values()].map((gist) => view(gist, false)) : []);
+      return send(res, 200, page === 1 ? [...gists.values()].filter((gist) => owns(gist)).map((gist) => view(gist, false)) : []);
     }
     const match = /^\/gists\/([^/?]+)$/.exec(path);
     if (req.method === 'POST' && path === '/gists') {
@@ -56,6 +59,7 @@ export async function startFakeGitHub(login = 'octocat') {
       if (!gist) return send(res, 404, { message: 'Not Found' });
       if (req.method === 'GET') return send(res, 200, view(gist, true));
       if (req.method === 'PATCH') {
+        if (!owns(gist)) return send(res, 404, { message: 'Not Found' });
         const input = JSON.parse(await body(req)) as { files: Record<string, { content: string } | null> };
         for (const [name, file] of Object.entries(input.files)) {
           if (file === null) delete gist.files[name];

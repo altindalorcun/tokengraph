@@ -41,23 +41,34 @@ export function gistLookup(client: GitHubClient): GistLookup {
   return { list: () => (listed ??= client.listGists()) };
 }
 
-async function getIfExists(client: GitHubClient, id: string | undefined): Promise<Gist | null> {
+/** A gist someone else owns can be read but never written: for this login it does not exist. */
+function ownedBy(gist: Gist, login: string | undefined): boolean {
+  return !gist.owner || login === undefined || gist.owner.login.toLowerCase() === login.toLowerCase();
+}
+
+async function getIfExists(client: GitHubClient, id: string | undefined, login: string | undefined): Promise<Gist | null> {
   if (!id) return null;
   try {
-    return await client.getGist(id);
+    const gist = await client.getGist(id);
+    return ownedBy(gist, login) ? gist : null;
   } catch (error) {
     if (error instanceof GitHubNotFoundError) return null;
     throw error;
   }
 }
 
-async function findByMarker(client: GitHubClient, lookup: GistLookup, marker: string): Promise<Gist | null> {
+async function findByMarker(client: GitHubClient, lookup: GistLookup, marker: string, login: string | undefined): Promise<Gist | null> {
   const found = (await lookup.list()).find((gist) => marker in gist.files);
-  return found ? getIfExists(client, found.id) : null;
+  return found ? getIfExists(client, found.id, login) : null;
 }
 
-export async function ensureDataGist(client: GitHubClient, cachedId: string | undefined, lookup: GistLookup): Promise<{ gist: Gist; created: boolean }> {
-  const existing = (await getIfExists(client, cachedId)) ?? (await findByMarker(client, lookup, DATA_MARKER));
+export async function ensureDataGist(
+  client: GitHubClient,
+  cachedId: string | undefined,
+  lookup: GistLookup,
+  login?: string,
+): Promise<{ gist: Gist; created: boolean }> {
+  const existing = (await getIfExists(client, cachedId, login)) ?? (await findByMarker(client, lookup, DATA_MARKER, login));
   if (existing) return { gist: existing, created: false };
   const gist = await client.createGist({ description: DATA_DESCRIPTION, public: false, files: { [DATA_MARKER]: dataGistReadme() } });
   return { gist, created: true };
@@ -68,10 +79,11 @@ export async function ensureGraphGist(
   cachedId: string | undefined,
   lookup: GistLookup,
   initialFiles: Record<string, string>,
+  login?: string,
 ): Promise<{ gist: Gist; created: boolean; replacedCached: boolean }> {
-  const cached = await getIfExists(client, cachedId);
+  const cached = await getIfExists(client, cachedId, login);
   if (cached) return { gist: cached, created: false, replacedCached: false };
-  const found = await findByMarker(client, lookup, GRAPH_MARKER);
+  const found = await findByMarker(client, lookup, GRAPH_MARKER, login);
   if (found) return { gist: found, created: false, replacedCached: cachedId !== undefined && found.id !== cachedId };
   const gist = await client.createGist({ description: GRAPH_DESCRIPTION, public: true, files: initialFiles });
   return { gist, created: true, replacedCached: cachedId !== undefined };

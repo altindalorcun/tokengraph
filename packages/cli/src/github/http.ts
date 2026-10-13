@@ -42,6 +42,8 @@ export interface Gist {
   public: boolean;
   html_url: string;
   files: Record<string, GistFile | null>;
+  owner?: { login: string };
+  created_at?: string;
 }
 
 export interface GitHubUser {

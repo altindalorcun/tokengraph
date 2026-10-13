@@ -53,6 +53,37 @@ describe('ensureGraphGist', () => {
   });
 });
 
+describe('gists the logged-in account does not own', () => {
+  function foreign(client: ReturnType<typeof fakeGitHubClient>, marker: string, extra: Record<string, unknown> = {}) {
+    const id = 'f'.repeat(20);
+    client.gists.set(id, { id, description: null, public: true, html_url: '', files: { [marker]: { filename: marker, content: 'x' } }, owner: { login: 'someone-else' }, ...extra });
+    return id;
+  }
+
+  it('ignores a cached data gist id owned by someone else and makes a new one', async () => {
+    const client = fakeGitHubClient('octocat');
+    const id = foreign(client, DATA_MARKER);
+    const { gist, created } = await ensureDataGist(client, id, gistLookup(client), 'octocat');
+    expect(created).toBe(true);
+    expect(gist.id).not.toBe(id);
+  });
+
+  it('ignores a cached graph gist id owned by someone else and says it replaced it', async () => {
+    const client = fakeGitHubClient('octocat');
+    const id = foreign(client, GRAPH_MARKER);
+    const result = await ensureGraphGist(client, id, gistLookup(client), svgs, 'octocat');
+    expect([result.created, result.replacedCached]).toEqual([true, true]);
+    expect(result.gist.id).not.toBe(id);
+  });
+
+  it('compares the owner case-insensitively', async () => {
+    const client = fakeGitHubClient('OctoCat');
+    const first = await ensureDataGist(client, undefined, gistLookup(client), 'octocat');
+    const again = await ensureDataGist(client, first.gist.id, gistLookup(client), 'octocat');
+    expect([again.created, again.gist.id]).toEqual([false, first.gist.id]);
+  });
+});
+
 describe('graphGistReadme', () => {
   it('shows the graph and links the project', () => {
     const readme = graphGistReadme('octocat', 'abc');

@@ -66,7 +66,7 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
   const lookup = gistLookup(client);
 
   // 1. The data gist: who else publishes, and this machine's own backup.
-  const data = await ensureDataGist(client, input.config.gists?.data, lookup);
+  const data = await ensureDataGist(client, input.config.gists?.data, lookup, input.login);
   const files = machineFiles(data.gist);
   const { machineId, adopted } = resolveMachineId({
     configured: input.config.machineId,
@@ -103,7 +103,7 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
   const since = dateKey(addDays(new Date(`${input.today}T12:00:00Z`), -GRAPH_WINDOW_DAYS), 'UTC');
   const colors = input.config.graph?.colors ?? 'model';
   const svgs: Record<string, string> = renderPublishedGraphs(combinedUsage(ledger, others, since), { today: input.today, colors });
-  const graph = await ensureGraphGist(client, input.config.gists?.graph, lookup, svgs);
+  const graph = await ensureGraphGist(client, input.config.gists?.graph, lookup, svgs, input.login);
   const wanted: Record<string, string> = { ...svgs, 'README.md': graphGistReadme(input.login, graph.gist.id) };
   const changed = Object.fromEntries(Object.entries(wanted).filter(([name, content]) => graph.gist.files[name]?.content !== content));
   if (Object.keys(changed).length > 0) await client.updateGist(graph.gist.id, changed);

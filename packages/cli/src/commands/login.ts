@@ -97,8 +97,10 @@ export async function runLogin(options: LoginOptions, overrides: Partial<LoginDe
     throw error;
   }
 
-  const config = await readConfig();
-  await writeConfig({ ...config, github: { login: account.login, auth: account.auth } });
+  const { gists, ...config } = await readConfig();
+  // Gist ids belong to the account that made them: another account must start with its own.
+  const sameAccount = config.github?.login.toLowerCase() === account.login.toLowerCase();
+  await writeConfig({ ...config, ...(sameAccount && gists ? { gists } : {}), github: { login: account.login, auth: account.auth } });
   console.log(`\n✓ Logged in as ${bold(`@${account.login}`)}${account.auth.kind === 'gh' ? ' (via the GitHub CLI)' : ''}\n`);
 
   const code = await deps.firstPublish();
