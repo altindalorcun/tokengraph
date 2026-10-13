@@ -2,12 +2,29 @@ import { ephemeralInstallError } from '../bin-path.js';
 import { askYesNo } from '../prompt.js';
 import { runReadme } from './readme.js';
 import { runSchedule } from './schedule.js';
-import { runSync } from './sync.js';
+import { runSync, SYNC_NO_AGENTS, SYNC_SKIPPED, type SyncOptions } from './sync.js';
 
-export async function firstPublish(): Promise<number> {
-  const code = await runSync({ sinceDays: 400, theme: 'light', trigger: 'manual', quiet: true });
+export interface FirstPublishDeps {
+  sync: (options: SyncOptions) => Promise<number>;
+  readme: () => Promise<number>;
+}
+
+export async function firstPublish(
+  deps: FirstPublishDeps = { sync: runSync, readme: () => runReadme({ compact: false }) },
+): Promise<number> {
+  console.log('Publishing your graph…');
+  const code = await deps.sync({ sinceDays: 400, theme: 'light', trigger: 'manual', quiet: true, detailedExit: true });
+  // Neither of these is a failed login: the graph simply comes later.
+  if (code === SYNC_SKIPPED) {
+    console.log('Another sync is running; your graph will be published when it finishes. Run `tokengraph readme` afterwards.');
+    return 0;
+  }
+  if (code === SYNC_NO_AGENTS) {
+    console.log('No agent usage found yet — your graph will appear after your first session.');
+    return 0;
+  }
   if (code !== 0) return code;
-  return runReadme({ compact: false });
+  return deps.readme();
 }
 
 export async function offerSchedule(): Promise<void> {
