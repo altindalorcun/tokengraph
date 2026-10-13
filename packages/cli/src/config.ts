@@ -2,40 +2,86 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { configPath } from './paths.js';
 
-export const DEFAULT_API_URL = 'http://localhost:3000';
+export type GitHubAuth = { kind: 'token'; token: string } | { kind: 'gh'; ghPath: string };
+
+export interface GitHubAccount {
+  login: string;
+  auth: GitHubAuth;
+}
+
+export type GraphColors = 'model' | 'single';
 
 export interface CliConfig {
-  apiUrl?: string;
-  apiKey?: string;
-  deviceId?: string;
-  username?: string;
-  /** false = never upload from this machine. Absent means true. */
-  uploads?: boolean;
+  /** This machine's id in the data gist. Kept on logout: a machine must never come back under a new id. */
+  machineId?: string;
+  github?: GitHubAccount;
+  /** Cached gist ids; found again by marker file when missing or deleted. */
+  gists?: { graph?: string; data?: string };
+  graph?: { colors?: GraphColors };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const GIST_ID = /^[0-9a-f]{20,40}$/i;
+// GitHub logins: alphanumerics and single hyphens, no leading or trailing hyphen, at most 39 chars.
+const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/i;
 
-/** Keeps only well-formed fields, so a hand-edited or damaged file degrades to "logged out". */
-export function parseConfig(raw: unknown): CliConfig {
-  if (typeof raw !== 'object' || raw === null) return {};
-  const fields = raw as Record<string, unknown>;
-  const text = (key: string) => (typeof fields[key] === 'string' && fields[key] !== '' ? fields[key] : undefined);
-
-  const config: CliConfig = {};
-  const apiUrl = text('apiUrl');
-  if (apiUrl && /^https?:\/\//.test(apiUrl)) config.apiUrl = apiUrl;
-  const apiKey = text('apiKey');
-  if (apiKey?.startsWith('tg_')) config.apiKey = apiKey;
-  const deviceId = text('deviceId');
-  if (deviceId && UUID.test(deviceId)) config.deviceId = deviceId;
-  const username = text('username');
-  if (username) config.username = username;
-  if (typeof fields['uploads'] === 'boolean') config.uploads = fields['uploads'];
-  return config;
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-export function resolveApiUrl(config: CliConfig, override?: string, env: NodeJS.ProcessEnv = process.env): string {
-  return (override ?? env['TOKENGRAPH_API_URL'] ?? config.apiUrl ?? DEFAULT_API_URL).replace(/\/+$/, '');
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+function parseAuth(raw: unknown): GitHubAuth | undefined {
+  const fields = record(raw);
+  if (!fields) return undefined;
+  if (fields['kind'] === 'token') {
+    const token = text(fields['token']);
+    return token ? { kind: 'token', token } : undefined;
+  }
+  if (fields['kind'] === 'gh') {
+    const ghPath = text(fields['ghPath']);
+    return ghPath ? { kind: 'gh', ghPath } : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Keeps only well-formed fields, so a hand-edited or damaged file degrades to "logged out". Fields
+ * from the hosted era (apiUrl, apiKey, username, uploads) are dropped; its deviceId becomes the
+ * machine id, so the machine keeps its identity.
+ */
+export function parseConfig(raw: unknown): CliConfig {
+  const fields = record(raw);
+  if (!fields) return {};
+  const config: CliConfig = {};
+
+  const machineId = [text(fields['machineId']), text(fields['deviceId'])].find((id) => id !== undefined && UUID.test(id));
+  if (machineId) config.machineId = machineId.toLowerCase();
+
+  const github = record(fields['github']);
+  if (github) {
+    const login = text(github['login']);
+    const auth = parseAuth(github['auth']);
+    if (login && LOGIN.test(login) && auth) config.github = { login, auth };
+  }
+
+  const gists = record(fields['gists']);
+  if (gists) {
+    const graph = text(gists['graph']);
+    const data = text(gists['data']);
+    const parsed: NonNullable<CliConfig['gists']> = {};
+    if (graph && GIST_ID.test(graph)) parsed.graph = graph;
+    if (data && GIST_ID.test(data)) parsed.data = data;
+    if (parsed.graph || parsed.data) config.gists = parsed;
+  }
+
+  const graph = record(fields['graph']);
+  const colors = graph?.['colors'];
+  if (colors === 'model' || colors === 'single') config.graph = { colors };
+
+  return config;
 }
 
 export async function readConfig(path = configPath()): Promise<CliConfig> {
@@ -48,8 +94,8 @@ export async function readConfig(path = configPath()): Promise<CliConfig> {
 
 export async function writeConfig(config: CliConfig, path = configPath()): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.tmp`;
-  // The file holds an API key, so only its owner may read it.
+  const temporary = `${path}.${process.pid}.tmp`;
+  // The file can hold a GitHub token, so only its owner may read it.
   await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   await rename(temporary, path);
 }

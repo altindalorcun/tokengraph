@@ -4,16 +4,10 @@ import { join } from 'node:path';
 import { formatTokens, isKnownSource } from '@tokengraph/core';
 import { inspectAutoSync, type AutoSyncEntry, type AutoSyncHealth } from '../auto-sync-health.js';
 import { cliVersion } from '../bin-path.js';
-import { readConfig, resolveApiUrl, type CliConfig } from '../config.js';
+import { readConfig } from '../config.js';
 import { allLedgerUsage, readLedger } from '../ledger.js';
 import { configHome, hookSyncLogPath, ledgerPath, legacyConfigHome } from '../paths.js';
-import { uploadMode } from '../upload-mode.js';
 import { summariseByDay } from './sync.js';
-
-function statusUploads(config: CliConfig): string {
-  const mode = uploadMode(config);
-  return mode === 'upload' ? 'on' : mode === 'off' ? 'off' : 'local only (not logged in)';
-}
 
 export interface StatusDeps {
   autoSync: () => Promise<AutoSyncHealth>;
@@ -37,10 +31,8 @@ export async function runStatus(overrides: Partial<StatusDeps> = {}): Promise<nu
   const days = summariseByDay(allLedgerUsage(ledger));
 
   console.log(`version: ${cliVersion()}`);
-  console.log(`account: ${config.apiKey ? (config.username ?? 'logged in') : 'not logged in'}`);
-  console.log(`server:  ${resolveApiUrl(config)}`);
-  console.log(`device:  ${config.deviceId ?? 'not linked'}`);
-  console.log(`uploads: ${statusUploads(config)}`);
+  console.log(`github:  ${config.github ? `@${config.github.login} (${config.github.auth.kind === 'gh' ? 'via gh' : 'tokengraph login'})` : 'not logged in'}`);
+  console.log(`machine: ${config.machineId ?? 'not set yet (set on first publish)'}`);
   console.log(`ledger:  ${days.length} active days in ${ledgerPath()}`);
   for (const source of Object.keys(ledger.sources).filter(isKnownSource)) {
     console.log(`  ${source}: ${Object.keys(ledger.sources[source] ?? {}).length} days`);

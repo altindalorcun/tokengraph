@@ -34,11 +34,8 @@
     "bundle"
   ],
   "scripts": {
-    "build": "tsc --build && esbuild dist/bin.js --bundle --platform=node --format=esm --target=node22 --external:zod --outfile=bundle/bin.js --log-level=warning",
+    "build": "tsc --build && esbuild dist/bin.js --bundle --platform=node --format=esm --target=node22 --outfile=bundle/bin.js --log-level=warning",
     "prepack": "npm run build"
-  },
-  "dependencies": {
-    "zod": "^4.6.1"
   },
   "devDependencies": {
     "@tokengraph/core": "0.1.0",

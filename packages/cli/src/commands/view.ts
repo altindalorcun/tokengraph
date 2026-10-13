@@ -5,7 +5,6 @@ import { readConfig } from '../config.js';
 import { ledgerToUsage, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
 import { acquireSyncLock } from '../sync-lock.js';
-import { uploadMode } from '../upload-mode.js';
 import { runApp, type AppDeps } from '../tui/app.js';
 import { detectAutoSync } from '../tui/auto-sync.js';
 import { detectColorDepth, openTerminal } from '../tui/terminal.js';
@@ -51,14 +50,7 @@ async function persistLedger(ledger: Ledger): Promise<'saved' | 'busy'> {
 
 async function modeLabel(): Promise<string> {
   const config = await readConfig();
-  switch (uploadMode(config)) {
-    case 'upload':
-      return `↑ syncing as @${config.username ?? 'you'}`;
-    case 'off':
-      return 'uploads off';
-    case 'local':
-      return 'local only';
-  }
+  return config.github ? `↑ publishing as @${config.github.login}` : 'local only';
 }
 
 /** Scans with sync's adapter set, so the view matches what sync records. */

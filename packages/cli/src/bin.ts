@@ -4,13 +4,12 @@ import { cliVersion } from './bin-path.js';
 import { runCursorHook } from './commands/cursor-hook.js';
 import { runHookSync } from './commands/hook-sync.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
-import { runLogin } from './commands/login.js';
 import { runLogout } from './commands/logout.js';
 import { runSchedule } from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync.js';
-import { runUploads } from './commands/uploads.js';
 import { runView } from './commands/view.js';
+import { removeHostedLeftovers } from './hosted-leftovers.js';
 import { migrateLegacyHome } from './paths.js';
 
 const USAGE = `tokengraph — track how many tokens your AI coding agents burn each day
@@ -20,10 +19,8 @@ Usage: tokengraph [command] [options]
 Commands:
   view                 Explore your usage in the terminal (the default in a terminal)
   sync                 Read local agent data and upload daily totals when logged in
-  login                Link this machine to your account
   logout               Forget this machine's API key
   status               Show the account, ledger and background syncs on this machine
-  uploads [on|off]     Show or set whether sync uploads from this machine
   install-hook         Sync automatically when Claude Code, Cursor or Codex finishes
   schedule             Sync every hour in the background
 
@@ -32,7 +29,7 @@ Run \`tokengraph <command> --help\` for a command's options.
   -h, --help           Show this help
   -v, --version        Show the version
 
-Everything works without logging in: usage stays on this machine until you run \`tokengraph login\`.
+Everything works without logging in: usage stays on this machine until you publish it.
 `;
 
 type Options = NonNullable<ParseArgsConfig['options']>;
@@ -130,31 +127,6 @@ Options:
     },
   },
 
-  login: {
-    help: `Usage: tokengraph login [options]
-
-Links this machine to your account: open the link it prints and confirm the code.
-
-Options:
-  --api-url <url>      Server to link with (default: $TOKENGRAPH_API_URL, or the one this machine used before)
-  --no-open            Do not open the browser automatically
-  --new-device         Link under a fresh device ID (only when the server says this one belongs to another account)
-`,
-    options: {
-      'api-url': { type: 'string' },
-      'new-device': { type: 'boolean', default: false },
-      'no-open': { type: 'boolean', default: false },
-    },
-    run: (values) => {
-      const apiUrl = typeof values['api-url'] === 'string' ? values['api-url'] : undefined;
-      if (apiUrl !== undefined && !/^https?:\/\/[^\s]+$/.test(apiUrl)) {
-        console.error('--api-url must be an http or https URL.');
-        return 1;
-      }
-      return runLogin({ apiUrl, newDevice: values['new-device'] === true, openBrowser: !values['no-open'] });
-    },
-  },
-
   logout: {
     help: `Usage: tokengraph logout
 
@@ -171,15 +143,6 @@ Shows the account, the local ledger and which background syncs are installed on 
 `,
     options: {},
     run: () => runStatus(),
-  },
-
-  uploads: {
-    help: `Usage: tokengraph uploads [on|off]
-
-Without an argument, shows whether sync uploads from this machine. \`off\` keeps everything local.
-`,
-    options: {},
-    run: (_values, positionals) => runUploads(positionals[0]),
   },
 
   'install-hook': {
@@ -262,6 +225,7 @@ function parse(command: Command, args: string[]): { values: Values; positionals:
 
 async function main(argv: string[]): Promise<number> {
   migrateLegacyHome();
+  await removeHostedLeftovers();
 
   const [first, ...rest] = argv;
   if (first === '-v' || first === '--version') {

@@ -62,7 +62,7 @@ export function syncLockPath(): string {
   return join(configHome(), 'sync.lock');
 }
 
-/** What automatic syncs last uploaded, per day, so they only send what changed (`upload-record.ts`). */
-export function uploadRecordPath(): string {
-  return join(configHome(), 'uploaded.json');
+/** Other machines' files from the data gist, as of the last publish (`publish/machines-cache.ts`). */
+export function machinesCachePath(): string {
+  return join(configHome(), 'machines.json');
 }

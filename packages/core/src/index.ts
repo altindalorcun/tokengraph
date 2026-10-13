@@ -9,7 +9,6 @@ export * from './model-makers.js';
 export * from './models.js';
 export * from './pricing.js';
 export * from './pricing-tiers.js';
-export * from './schemas.js';
 export * from './sources.js';
 export * from './tokens.js';
 export * from './types.js';

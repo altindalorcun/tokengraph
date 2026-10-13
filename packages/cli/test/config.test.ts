@@ -1,68 +1,66 @@
-import { mkdtemp, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_API_URL, parseConfig, readConfig, resolveApiUrl, writeConfig } from '../src/config.js';
+import { parseConfig, readConfig, writeConfig } from '../src/config.js';
 
-const DEVICE = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+const ID = '3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40';
 
 describe('parseConfig', () => {
-  it('keeps well-formed fields', () => {
+  it('reads the local-first fields', () => {
     expect(
-      parseConfig({ apiUrl: 'https://tg.example', apiKey: 'tg_abc', deviceId: DEVICE, username: 'someone' }),
-    ).toEqual({ apiUrl: 'https://tg.example', apiKey: 'tg_abc', deviceId: DEVICE, username: 'someone' });
+      parseConfig({
+        machineId: ID,
+        github: { login: 'octocat', auth: { kind: 'token', token: 'gho_abc' } },
+        gists: { graph: 'aa11bb22cc33dd44ee55', data: '0123456789abcdef0123456789abcdef' },
+        graph: { colors: 'single' },
+      }),
+    ).toEqual({
+      machineId: ID,
+      github: { login: 'octocat', auth: { kind: 'token', token: 'gho_abc' } },
+      gists: { graph: 'aa11bb22cc33dd44ee55', data: '0123456789abcdef0123456789abcdef' },
+      graph: { colors: 'single' },
+    });
   });
 
-  it('drops malformed fields instead of trusting them', () => {
+  it('keeps a gh-backed account', () => {
+    expect(parseConfig({ github: { login: 'octocat', auth: { kind: 'gh', ghPath: '/opt/homebrew/bin/gh' } } }).github).toEqual({
+      login: 'octocat',
+      auth: { kind: 'gh', ghPath: '/opt/homebrew/bin/gh' },
+    });
+  });
+
+  it('turns a hosted-era deviceId into the machine id and drops the server fields', () => {
+    expect(parseConfig({ apiUrl: 'http://localhost:3000', apiKey: 'tg_x', deviceId: ID, username: 'o', uploads: false })).toEqual({ machineId: ID });
+  });
+
+  it('prefers machineId over a legacy deviceId', () => {
+    const other = '11111111-2222-4333-8444-555555555555';
+    expect(parseConfig({ machineId: ID, deviceId: other }).machineId).toBe(ID);
+  });
+
+  it('drops malformed values instead of failing', () => {
     expect(
-      parseConfig({ apiUrl: 'javascript:alert(1)', apiKey: 'ghp_other', deviceId: 'my-laptop', username: 42 }),
+      parseConfig({
+        machineId: 'nope',
+        github: { login: 'bad login!', auth: { kind: 'token', token: 'x' } },
+        gists: { graph: 'not hex', data: 42 },
+        graph: { colors: 'rainbow' },
+      }),
     ).toEqual({});
+    expect(parseConfig({ github: { login: 'octocat', auth: { kind: 'token', token: '' } } })).toEqual({});
     expect(parseConfig(null)).toEqual({});
-    expect(parseConfig('nope')).toEqual({});
   });
 });
 
-describe('resolveApiUrl', () => {
-  it('prefers the flag, then the environment, then the config, then the default', () => {
-    const config = { apiUrl: 'https://from-config.example' };
-    const env = { TOKENGRAPH_API_URL: 'https://from-env.example' };
-    expect(resolveApiUrl(config, 'https://from-flag.example', env)).toBe('https://from-flag.example');
-    expect(resolveApiUrl(config, undefined, env)).toBe('https://from-env.example');
-    expect(resolveApiUrl(config, undefined, {})).toBe('https://from-config.example');
-    expect(resolveApiUrl({}, undefined, {})).toBe(DEFAULT_API_URL);
-  });
-
-  it('strips trailing slashes so paths join cleanly', () => {
-    expect(resolveApiUrl({}, 'https://tg.example//', {})).toBe('https://tg.example');
-  });
-});
-
-describe('config persistence', () => {
-  it('round-trips and is readable only by its owner', async () => {
-    const path = join(await mkdtemp(join(tmpdir(), 'token-graph-')), 'nested', 'config.json');
-    await writeConfig({ apiKey: 'tg_secret', deviceId: DEVICE }, path);
-    expect(await readConfig(path)).toEqual({ apiKey: 'tg_secret', deviceId: DEVICE });
-    // Windows has no POSIX file modes, so this bit is only meaningful on POSIX platforms.
-    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600);
-  });
-
-  it('treats a missing file as an empty config', async () => {
-    expect(await readConfig(join(tmpdir(), 'token-graph-does-not-exist.json'))).toEqual({});
-  });
-});
-
-describe('uploads flag', () => {
-  it('keeps a boolean and drops anything else', () => {
-    expect(parseConfig({ uploads: false })).toEqual({ uploads: false });
-    expect(parseConfig({ uploads: true })).toEqual({ uploads: true });
-    expect(parseConfig({ uploads: 'no' })).toEqual({});
-    expect(parseConfig({ uploads: 0 })).toEqual({});
-  });
-
-  it('round-trips through writeConfig/readConfig', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'cfg-'));
-    const path = join(dir, 'config.json');
-    await writeConfig({ uploads: false }, path);
-    expect(await readConfig(path)).toEqual({ uploads: false });
+describe('writeConfig', () => {
+  it('writes an owner-only file that reads back the same', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tg-config-'));
+    const path = join(dir, 'nested', 'config.json');
+    const config = { machineId: ID, github: { login: 'octocat', auth: { kind: 'token' as const, token: 'gho_abc' } } };
+    await writeConfig(config, path);
+    expect(await readConfig(path)).toEqual(config);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(config);
   });
 });

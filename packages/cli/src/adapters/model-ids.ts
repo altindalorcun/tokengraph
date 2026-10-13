@@ -1,4 +1,4 @@
-/** Mirrors the server's `modelUsageSchema` limit (`packages/core/src/schemas.ts`). */
+/** Longest model id kept; longer ids are cut so a damaged record cannot bloat the ledger. */
 export const MAX_MODEL_NAME_LENGTH = 120;
 
 const CLAUDE_FAMILIES = new Set(['opus', 'sonnet', 'haiku', 'fable']);
