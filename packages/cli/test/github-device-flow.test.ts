@@ -73,4 +73,33 @@ describe('pollForToken', () => {
     const short = { ...code, expiresIn: 12 };
     await expect(pollForToken(short, { fetch: sequence([{ error: 'authorization_pending' }]).fetch, ...clock() })).rejects.toBeInstanceOf(DeviceFlowError);
   });
+
+  it('retries a transient network failure, up to three times in a row', async () => {
+    let calls = 0;
+    const flaky = (async () => {
+      calls += 1;
+      if (calls <= 3) throw new TypeError('fetch failed');
+      return json({ access_token: 'gho_x', scope: 'gist' });
+    }) as typeof globalThis.fetch;
+    expect((await pollForToken(code, { fetch: flaky, ...clock() })).accessToken).toBe('gho_x');
+    expect(calls).toBe(4);
+
+    let down = 0;
+    const dead = (async () => {
+      down += 1;
+      throw new TypeError('fetch failed');
+    }) as typeof globalThis.fetch;
+    await expect(pollForToken(code, { fetch: dead, ...clock() })).rejects.toMatchObject({ reason: 'failed' });
+    expect(down).toBe(4);
+  });
+
+  it('gives each request a timeout signal', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const fetch = (async (_url: string | URL, init: RequestInit = {}) => {
+      seen.push(init.signal);
+      return json({ access_token: 'gho_x', scope: 'gist' });
+    }) as typeof globalThis.fetch;
+    await pollForToken(code, { fetch, ...clock() });
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+  });
 });

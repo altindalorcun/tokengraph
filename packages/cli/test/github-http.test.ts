@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createGitHubClient,
   GitHubAuthError,
+  GitHubError,
   GitHubNotFoundError,
   GitHubRateLimitError,
   githubApiBase,
@@ -105,5 +106,31 @@ describe('GitHub client', () => {
     }) as typeof globalThis.fetch;
     const error = await client(fetch).getUser().catch((e: unknown) => e);
     expect((error as { status: number }).status).toBe(0);
+  });
+
+  it('gives every request a timeout signal, raw downloads included', async () => {
+    const truncated = { id: 'g', description: null, public: true, html_url: '', files: { 'a.md': { filename: 'a.md', truncated: true, raw_url: 'https://raw.test/a' } } };
+    const { fetch, calls } = fakeFetch((call) => (call.url === 'https://raw.test/a' ? new Response('hello') : json(truncated)));
+    await client(fetch).getGist('g');
+    expect(calls).toHaveLength(2);
+    for (const call of calls) expect(call.init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('turns a timeout into a GitHubError that says GitHub did not answer in time', async () => {
+    const fetch = (async () => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    }) as typeof globalThis.fetch;
+    const error = (await client(fetch).getUser().catch((e: unknown) => e)) as GitHubError;
+    expect(error).toBeInstanceOf(GitHubError);
+    expect(error.status).toBe(0);
+    expect(error.message).toBe('GitHub did not answer in time');
+  });
+
+  it('wraps an unparseable answer and a non-array gist list in GitHubError', async () => {
+    const html = fakeFetch(() => new Response('<html>bad gateway</html>', { status: 200 }));
+    await expect(client(html.fetch).getGist('x')).rejects.toMatchObject({ name: 'GitHubError', message: 'Unexpected answer from GitHub' });
+    await expect(client(html.fetch).getUser()).rejects.toMatchObject({ name: 'GitHubError', message: 'Unexpected answer from GitHub' });
+    const notList = fakeFetch(() => json({ message: 'surprise' }));
+    await expect(client(notList.fetch).listGists()).rejects.toMatchObject({ name: 'GitHubError', message: 'Unexpected answer from GitHub' });
   });
 });

@@ -28,11 +28,15 @@ export class DeviceFlowError extends Error {
   constructor(
     readonly reason: DeviceFlowFailure,
     detail?: string,
+    /** The request never got an answer (network down, timeout): worth asking again. */
+    readonly transient = false,
   ) {
     super(detail ? `${MESSAGES[reason]} (${detail})` : MESSAGES[reason]);
     this.name = 'DeviceFlowError';
   }
 }
+
+const MAX_NETWORK_RETRIES = 3;
 
 export interface DeviceFlowDeps {
   fetch?: typeof fetch;
@@ -51,9 +55,10 @@ async function post(deps: DeviceFlowDeps, path: string, params: Record<string, s
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(params).toString(),
+      signal: AbortSignal.timeout(30_000),
     });
   } catch (error) {
-    throw new DeviceFlowError('failed', error instanceof Error ? error.message : String(error));
+    throw new DeviceFlowError('failed', error instanceof Error ? error.message : String(error), true);
   }
   try {
     return (await response.json()) as Record<string, unknown>;
@@ -86,13 +91,22 @@ export async function pollForToken(code: DeviceCode, deps: DeviceFlowDeps = {}):
   const now = deps.now ?? Date.now;
   const deadline = now() + code.expiresIn * 1000;
   let interval = Math.max(1, code.interval);
+  let networkFailures = 0;
   while (now() < deadline) {
     await sleep(interval * 1000);
-    const body = await post(deps, '/login/oauth/access_token', {
-      client_id: deps.clientId ?? GITHUB_CLIENT_ID,
-      device_code: code.deviceCode,
-      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-    });
+    let body: Record<string, unknown>;
+    try {
+      body = await post(deps, '/login/oauth/access_token', {
+        client_id: deps.clientId ?? GITHUB_CLIENT_ID,
+        device_code: code.deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      });
+    } catch (error) {
+      // A flaky connection must not cost the user an approval they are about to give.
+      if (error instanceof DeviceFlowError && error.transient && (networkFailures += 1) <= MAX_NETWORK_RETRIES) continue;
+      throw error;
+    }
+    networkFailures = 0;
     if (typeof body['access_token'] === 'string') {
       const scope = typeof body['scope'] === 'string' ? body['scope'] : '';
       return { accessToken: body['access_token'], scopes: scope.split(/[,\s]+/).filter(Boolean) };

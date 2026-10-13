@@ -70,6 +70,9 @@ export interface GitHubClientOptions {
 }
 
 const MAX_GIST_PAGES = 30;
+/** A hung connection must not hang a hook, a schedule run or a login for ever. */
+const REQUEST_TIMEOUT_MS = 30_000;
+const UNEXPECTED_ANSWER = 'Unexpected answer from GitHub';
 
 function rateLimitReset(headers: Headers): Date | null {
   // retry-after is the more precise (and secondary-limit) signal, so it wins.
@@ -78,6 +81,24 @@ function rateLimitReset(headers: Headers): Date | null {
   const reset = Number(headers.get('x-ratelimit-reset'));
   if (headers.has('x-ratelimit-reset') && Number.isFinite(reset) && reset > 0) return new Date(reset * 1000);
   return null;
+}
+
+async function reach(doFetch: typeof fetch, url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await doFetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') throw new GitHubError('GitHub did not answer in time', 0);
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new GitHubError(`Could not reach GitHub (${reason})`, 0);
+  }
+}
+
+async function parseJson<T>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new GitHubError(UNEXPECTED_ANSWER, response.status);
+  }
 }
 
 async function errorFor(response: Response): Promise<GitHubError> {
@@ -110,32 +131,20 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       Authorization: `Bearer ${await options.token()}`,
     };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
-    let response: Response;
-    try {
-      response = await doFetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new GitHubError(`Could not reach GitHub (${reason})`, 0);
-    }
+    const response = await reach(doFetch, `${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     if (!response.ok) throw await errorFor(response);
     return response;
   }
 
   async function sendJson<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return (await (await send(method, path, body)).json()) as T;
+    return parseJson<T>(await send(method, path, body));
   }
 
   async function fillTruncated(gist: Gist): Promise<Gist> {
     for (const file of Object.values(gist.files)) {
       if (!file?.truncated || !file.raw_url) continue;
-      let response: Response;
-      try {
-        // Raw URLs need no token, and it is not sent anywhere it is not needed.
-        response = await doFetch(file.raw_url, { headers: { 'User-Agent': userAgent } });
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        throw new GitHubError(`Could not reach GitHub (${reason})`, 0);
-      }
+      // Raw URLs need no token, and it is not sent anywhere it is not needed.
+      const response = await reach(doFetch, file.raw_url, { headers: { 'User-Agent': userAgent } });
       if (!response.ok) throw await errorFor(response);
       file.content = await response.text();
       file.truncated = false;
@@ -146,7 +155,8 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
   return {
     async getUser() {
       const response = await send('GET', '/user');
-      const user = (await response.json()) as { login: string };
+      const user = await parseJson<{ login?: unknown }>(response);
+      if (typeof user.login !== 'string') throw new GitHubError(UNEXPECTED_ANSWER, response.status);
       const header = response.headers.get('x-oauth-scopes');
       const scopes = header === null ? null : header.split(',').map((scope) => scope.trim()).filter(Boolean);
       return { login: user.login, scopes };
@@ -155,6 +165,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       const all: Gist[] = [];
       for (let page = 1; page <= MAX_GIST_PAGES; page += 1) {
         const batch = await sendJson<Gist[]>('GET', `/gists?per_page=100&page=${page}`);
+        if (!Array.isArray(batch)) throw new GitHubError(UNEXPECTED_ANSWER, 200);
         all.push(...batch);
         if (batch.length < 100) break;
       }
