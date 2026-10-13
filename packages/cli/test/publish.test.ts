@@ -57,6 +57,7 @@ describe('publish', () => {
   it('a second machine adds up, and only ever writes its own file', async () => {
     const client = fakeGitHubClient();
     const first = await publish(input(client));
+    const firstLight = client.gists.get(first.graphGistId)!.files['tokengraph-light.svg']!.content;
     client.calls.length = 0;
     const second = await publish(
       input(client, { config: { github: first.config.github }, ledger: ledgerWith('2026-10-12', 500), fingerprint: 'fp-b', newMachineId: () => B }),
@@ -64,7 +65,24 @@ describe('publish', () => {
     expect(second.config.machineId).toBe(B);
     expect(second.others.map((other) => other.machineId)).toEqual([A]);
     const patches = client.calls.filter((call) => call.method === 'updateGist' && call.id === second.dataGistId);
-    for (const patch of patches) expect(Object.keys(patch.files!)).toEqual([machineFileName(B)]);
+    expect(patches).toHaveLength(1);
+    expect(Object.keys(patches[0]!.files!)).toEqual([machineFileName(B)]);
+    expect(client.calls.some((call) => call.method === 'createGist')).toBe(false);
+    expect(client.gists.get(second.graphGistId)!.files['tokengraph-light.svg']!.content).not.toBe(firstLight);
+  });
+
+  it('never overwrites its own machine file when it cannot be read', async () => {
+    const client = fakeGitHubClient();
+    const first = await publish(input(client));
+    const name = machineFileName(A);
+    client.gists.get(first.dataGistId)!.files[name] = { filename: name, content: '{"schema":2}' };
+    client.calls.length = 0;
+    const again = await publish(input(client, { config: first.config, ledger: ledgerWith('2026-10-12', 5) }));
+    expect(again.ownFileUnreadable).toBe(true);
+    expect(again.wroteMachineFile).toBe(false);
+    expect(client.calls.some((call) => call.method === 'updateGist' && name in (call.files ?? {}))).toBe(false);
+    expect(client.gists.get(first.dataGistId)!.files[name]!.content).toBe('{"schema":2}');
+    expect(first.ownFileUnreadable).toBe(false);
   });
 
   it('restores lost local history from its own file and never shrinks', async () => {

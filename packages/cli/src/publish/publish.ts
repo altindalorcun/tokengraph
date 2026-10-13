@@ -45,6 +45,8 @@ export interface PublishResult {
   /** Days this machine's ledger gained back from its gist copy. */
   restoredDays: number;
   wroteMachineFile: boolean;
+  /** This machine's file exists in the data gist but could not be read: it was left untouched. */
+  ownFileUnreadable: boolean;
   updatedGraphFiles: string[];
   graphGistCreated: boolean;
   /** A cached graph gist was gone: the README snippet changed. */
@@ -73,6 +75,8 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
     newId: input.newMachineId,
   });
   const own = files.find((file) => file.machineId === machineId) ?? null;
+  // A file under our name that does not parse may hold more than our ledger: never overwrite it.
+  const ownFileUnreadable = own === null && machineFileName(machineId) in data.gist.files;
   const others = files.filter((file) => file.machineId !== machineId);
 
   // 2. Within one machine totals only grow: take back anything the local ledger lost.
@@ -81,7 +85,7 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
 
   // 3. Write this machine's file only when its usage changed; never touch another machine's file.
   let wroteMachineFile = false;
-  if (!own || sourcesDigest(own.sources) !== sourcesDigest(ledger.sources)) {
+  if (!ownFileUnreadable && (!own || sourcesDigest(own.sources) !== sourcesDigest(ledger.sources))) {
     const file: MachineFile = {
       schema: 1,
       machineId,
@@ -113,6 +117,7 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
     adopted: adopted !== null,
     restoredDays: Math.max(0, restoredDays),
     wroteMachineFile,
+    ownFileUnreadable,
     updatedGraphFiles: Object.keys(changed).sort(),
     graphGistCreated: graph.created,
     graphGistReplaced: graph.replacedCached,
