@@ -12,8 +12,8 @@ export const CLINE_SOURCE = 'cline';
 export const OPENCODE_SOURCE = 'opencode';
 
 /**
- * Sources the server accepts uploads from. Each is produced by a CLI adapter: uploads are CLI-only,
- * so the leaderboard is not fed by hand-written requests. Add a source together with its adapter.
+ * Sources a ledger may hold. Each is produced by a CLI adapter, and the data-gist reader accepts
+ * only these. Add a source together with its adapter.
  */
 export const KNOWN_SOURCES = [
   CLAUDE_CODE_SOURCE,
@@ -26,7 +26,7 @@ export const KNOWN_SOURCES = [
 export type KnownSource = (typeof KNOWN_SOURCES)[number];
 
 export interface AgentEntry {
-  /** The source string its adapter would upload under. */
+  /** The source string its adapter records usage under. */
   source: string;
   name: string;
 }

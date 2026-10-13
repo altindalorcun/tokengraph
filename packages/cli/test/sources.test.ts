@@ -11,22 +11,22 @@ import {
 import { describe, expect, it } from 'vitest';
 import { createClaudeCodeAdapter } from '../src/adapters/claude-code/index.js';
 
-describe('upload sources', () => {
-  it('uploads Claude Code usage under a source the server accepts', () => {
+describe('known sources', () => {
+  it('knows the source Claude Code usage is recorded under', () => {
     expect(KNOWN_SOURCES).toContain(createClaudeCodeAdapter().name);
   });
 
-  it('accepts Codex CLI uploads', () => {
+  it('knows Codex CLI', () => {
     expect(CODEX_CLI_SOURCE).toBe('codex-cli');
     expect(KNOWN_SOURCES).toContain(CODEX_CLI_SOURCE);
   });
 
-  it('accepts Cursor uploads', () => {
+  it('knows Cursor', () => {
     expect(CURSOR_SOURCE).toBe('cursor');
     expect(KNOWN_SOURCES).toContain(CURSOR_SOURCE);
   });
 
-  it('accepts Gemini CLI, Cline and OpenCode uploads', () => {
+  it('knows Gemini CLI, Cline and OpenCode', () => {
     expect(GEMINI_CLI_SOURCE).toBe('gemini-cli');
     expect(CLINE_SOURCE).toBe('cline');
     expect(OPENCODE_SOURCE).toBe('opencode');

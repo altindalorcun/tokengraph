@@ -112,10 +112,10 @@ describe('renderFrame', () => {
   it('uses a short mode pill instead of clipping it at 80 columns', () => {
     const header = (mode: string, width: number) =>
       toPlainText(renderFrame({ ...state(), mode }, { theme: 'dark' }, width, 24, STILL).buffer).split('\n')[0]!;
-    expect(header('↑ syncing as @orcun', 80)).toContain('↑ @orcun');
-    expect(header('↑ syncing as @orcun', 80)).not.toContain('…');
+    expect(header('↑ publishing as @orcun', 80)).toContain('↑ @orcun');
+    expect(header('↑ publishing as @orcun', 80)).not.toContain('…');
     expect(header('local only', 80)).toMatch(/idle\s+local\s*$/);
-    expect(header('↑ syncing as @orcun', 140)).toContain('↑ syncing as @orcun');
+    expect(header('↑ publishing as @orcun', 140)).toContain('↑ publishing as @orcun');
   });
 
   it('asks for a bigger window below 80×24 and survives absurd sizes', () => {

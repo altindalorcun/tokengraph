@@ -6,7 +6,7 @@ export const CRON_MARKER = '# tokengraph-sync';
 const LEGACY_CRON_MARKER = '# token-graph-sync';
 const WINDOWS_TASK_NAME = 'tokengraph-sync';
 
-/** The argv of one scheduled run. Paths contain no shell syntax; the sync is tagged so the server can tell it apart. */
+/** The argv of one scheduled run. Paths contain no shell syntax; the sync is tagged with its trigger. */
 export function scheduledArgs(node: string, bin: string): string[] {
   return [node, bin, 'sync', '--since', '30', '--trigger', 'schedule'];
 }
@@ -58,7 +58,7 @@ function cronEscape(text: string): string {
 
 /**
  * `minute` is picked at random when the schedule is installed: one fixed minute would have every
- * Linux machine upload in the same minute of every hour. launchd (`StartInterval`) and Task
+ * Linux machine sync in the same minute of every hour. launchd (`StartInterval`) and Task
  * Scheduler (`/SC HOURLY` from the time of creation) already spread on their own.
  */
 export function cronLine(args: readonly string[], logPath: string, minute: number): string {

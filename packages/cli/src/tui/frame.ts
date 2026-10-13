@@ -44,11 +44,10 @@ function ago(ms: number): string {
   return s < 3600 ? `${Math.floor(s / 60)}m ago` : `${Math.floor(s / 3600)}h ago`;
 }
 
-/** Compact form of the mode text: 'local only' -> 'local', 'uploads off' -> 'off', '↑ syncing as @u' -> '↑ @u'. */
+/** Compact form of the mode text: 'local only' -> 'local', '↑ publishing as @u' -> '↑ @u'. */
 function shortMode(mode: string): string {
   if (mode === 'local only') return 'local';
-  if (mode === 'uploads off') return 'off';
-  return mode.replace(/^(↑) syncing as /, '$1 ');
+  return mode.replace(/^(↑) publishing as /, '$1 ');
 }
 
 /** Row 0, right-hand side: the LIVE indicator and the mode pill, clipped so they never run into the tabs. */

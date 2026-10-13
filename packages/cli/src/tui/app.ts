@@ -29,7 +29,7 @@ export interface AppDeps {
   loadLedger: () => Promise<Ledger>;
   scan: (ledger: Ledger, since: Date, onProgress: (p: CollectProgress) => void) => Promise<LocalCollection>;
   persist: (ledger: Ledger) => Promise<'saved' | 'busy'>;
-  /** 'local only' | 'uploads off' | '↑ syncing as @user' */
+  /** 'local only' | '↑ publishing as @user' */
   modeLabel: () => Promise<string>;
   autoSync: () => Promise<AutoSyncStatus>;
   /** Returns a cancel function. */

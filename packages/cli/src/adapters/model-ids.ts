@@ -37,8 +37,7 @@ export function normalizeClaudeModel(raw: string): string {
 
 /**
  * `model_id` is a tool's own field and not documented to have a length limit, so it is
- * truncated (base first, so a suffix always fits) to stay within what the server accepts —
- * an over-length name would otherwise be dropped from every upload forever.
+ * truncated (base first, so a suffix always fits) so one over-long name cannot bloat the ledger.
  */
 export function capModelName(base: string, suffix = ''): string {
   const appliedSuffix = suffix && !base.endsWith(suffix) ? suffix : '';
@@ -49,9 +48,9 @@ export function capModelName(base: string, suffix = ''): string {
 /**
  * A model id that looks like a filesystem path or an AWS ARN rather than a real model
  * identifier — starts with `/`, `~`, `arn:`, a Windows drive letter (`C:\` / `C:/`), or contains
- * `/Users/` or `/home/`. Privacy: uploads never carry file paths or account ids (an ARN embeds an
+ * `/Users/` or `/home/`. Privacy: published files never carry file paths or account ids (an ARN embeds an
  * AWS account id), so a value shaped like one is treated as leaked/mistaken input and reported as
- * `unknown` rather than uploaded verbatim.
+ * `unknown` rather than kept verbatim.
  */
 const WINDOWS_DRIVE_PREFIX = /^[A-Za-z]:[\\/]/;
 function looksLikePathOrArn(model: string): boolean {

@@ -234,6 +234,7 @@ graph-dark.svg  graph-light.svg  graph-compact-dark.svg  graph-compact-light.svg
 story-skyline.png  story-receipt.png  story-sticker.png
 landing.json      { schema: 1, generatedFrom, totals, families, recentBars, grid }  (documented in the script)
 og.png            1200×630 social preview
+qr-repo.svg       a QR code of the project URL, for the site's story section
 ```
 
 The site commits these under `public/samples/` and never computes them itself.

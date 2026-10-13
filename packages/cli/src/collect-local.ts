@@ -34,7 +34,7 @@ export function defaultAdapters(): Adapter[] {
 
 /**
  * Detects and collects every adapter, merging into `ledger` (max-merge, so it never shrinks). Never writes the
- * ledger, uploads or prints: callers decide what to do with the result.
+ * ledger, publishes or prints: callers decide what to do with the result.
  */
 export async function collectLocal(
   ledger: Ledger,

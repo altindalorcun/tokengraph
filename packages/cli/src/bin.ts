@@ -18,8 +18,8 @@ Usage: tokengraph [command] [options]
 
 Commands:
   view                 Explore your usage in the terminal (the default in a terminal)
-  sync                 Read local agent data and upload daily totals when logged in
-  logout               Forget this machine's API key
+  sync                 Read local agent data; publish your graph when logged in
+  logout               Disconnect GitHub on this machine
   status               Show the account, ledger and background syncs on this machine
   install-hook         Sync automatically when Claude Code, Cursor or Codex finishes
   schedule             Sync every hour in the background
@@ -55,7 +55,7 @@ const VIEW_OPTIONS: Options = {
 
 const VIEW_HELP = `Usage: tokengraph view [options]
 
-Opens an interactive view of your usage. Reads local data only; it never uploads.
+Opens an interactive view of your usage. Reads local data only; it never publishes.
 
 Options:
   --print              Print a static snapshot and exit (the default when not in a terminal)
@@ -84,13 +84,13 @@ const COMMANDS: Record<string, Command> = {
   sync: {
     help: `Usage: tokengraph sync [options]
 
-Reads every supported agent's local data into the ledger (~/.tokengraph/state.json), then uploads
-daily totals if this machine is logged in and uploads are on. A sync you run sends every day in
-the window; background syncs (hooks, schedule) send only the days that changed.
+Reads every supported agent's local data into the ledger (~/.tokengraph/state.json). When this
+machine is logged in with GitHub, it also publishes the graph to your own gist. Background syncs
+(hooks, schedule) do the same.
 
 Options:
   --since <days>       How far back to read, 1-400 (default: 90)
-  --local              Update the local ledger only, never upload
+  --local              Update the local ledger only, never touch the network
 `,
     options: {
       since: { type: 'string', default: '90' },
@@ -130,7 +130,8 @@ Options:
   logout: {
     help: `Usage: tokengraph logout
 
-Removes this machine's API key. Local data and the device ID are kept.
+Forgets the GitHub login and gist ids on this machine. Local data and the machine id are kept,
+and your gists stay on GitHub.
 `,
     options: {},
     run: () => runLogout(),
@@ -187,7 +188,7 @@ Options:
     help: `Usage: tokengraph schedule [options]
 
 Runs a sync every hour in the background (launchd on macOS, cron on Linux, Task Scheduler on Windows).
-Use it for agents without a hook (Gemini CLI, Cline, OpenCode) or to upload Cursor's recorded turns.
+Use it for agents without a hook (Gemini CLI, Cline, OpenCode) or to pick up Cursor's recorded turns.
 
 Options:
   --remove             Remove the hourly sync

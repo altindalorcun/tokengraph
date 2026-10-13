@@ -121,7 +121,7 @@ async function installCursorHook(options: InstallHookOptions): Promise<number> {
   console.log(`hooks: ${path}`);
   if (!options.remove) {
     console.log('\nRestart Cursor so it picks the hook up. From now on each agent turn is recorded locally;');
-    console.log('run `tokengraph sync` (for example once at the end of the day) to upload it.');
+    console.log('run `tokengraph sync` (for example once at the end of the day) to add it to your graph.');
     console.log('Cursor keeps no usable token counts on disk, so usage from before now cannot be recovered.');
   }
   return hasCursorHook(next, command) === !options.remove ? 0 : 1;

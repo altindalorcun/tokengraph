@@ -74,7 +74,7 @@ async function readAllStdin(): Promise<string> {
  * "proceed", but a broken hook would still be noise in the user's session — so every step is
  * best-effort and the hook always answers `{}` and exits 0.
  *
- * The hook only records the turn locally; it never uploads. Uploading happens when the user
+ * The hook only records the turn locally; it never publishes. Publishing happens when the user
  * runs `tokengraph sync` (for example once at the end of the day), the same as Claude Code
  * and Codex.
  */
