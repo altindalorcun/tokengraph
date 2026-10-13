@@ -5,7 +5,7 @@ import {
   dateKey,
   emptyCounts,
   formatTokens,
-  renderGraphSvg,
+  renderPublishedGraphs,
   weightedTokens,
   type DailyModelUsage,
   type Theme,
@@ -116,8 +116,8 @@ async function runSyncLocked(options: SyncOptions): Promise<number> {
   console.log(`ledger: ${ledgerPath()}`);
 
   if (options.svgPath) {
-    const svg = renderGraphSvg(days, { endDate: dateKey(new Date()), theme: options.theme });
-    await writeFile(options.svgPath, svg, 'utf8');
+    const files = renderPublishedGraphs(allLedgerUsage(ledger), { today: dateKey(new Date()), colors: 'model' });
+    await writeFile(options.svgPath, files[options.theme === 'dark' ? 'tokengraph-dark.svg' : 'tokengraph-light.svg'], 'utf8');
     console.log(`wrote ${options.svgPath}`);
   }
 
