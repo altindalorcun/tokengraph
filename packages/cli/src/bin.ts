@@ -4,6 +4,7 @@ import { cliVersion } from './bin-path.js';
 import { runCursorHook } from './commands/cursor-hook.js';
 import { runHookSync } from './commands/hook-sync.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
+import { runLogin } from './commands/login.js';
 import { runLogout } from './commands/logout.js';
 import { runReadme } from './commands/readme.js';
 import { runSchedule } from './commands/schedule.js';
@@ -20,6 +21,7 @@ Usage: tokengraph [command] [options]
 Commands:
   view                 Explore your usage in the terminal (the default in a terminal)
   sync                 Read local agent data; publish your graph when logged in
+  login                Connect GitHub to publish your graph to your own gist
   readme               Print the README snippet for your graph (and copy it)
   logout               Disconnect GitHub on this machine
   status               Show the account, ledger and background syncs on this machine
@@ -147,6 +149,32 @@ Options:
         return 1;
       }
       return runReadme({ compact: values['compact'] === true, colors });
+    },
+  },
+
+  login: {
+    help: `Usage: tokengraph login [options]
+
+Connects GitHub so sync can publish your graph to your own gist. Uses your GitHub CLI login when
+you have one (asks first), otherwise a one-time code you approve in the browser. Asks for gist
+access only.
+
+Options:
+  --gh                 Use the GitHub CLI login without asking
+  --device             Always use a one-time code, even when the GitHub CLI is logged in
+  --no-open            Do not open the browser automatically
+`,
+    options: {
+      gh: { type: 'boolean', default: false },
+      device: { type: 'boolean', default: false },
+      'no-open': { type: 'boolean', default: false },
+    },
+    run: (values) => {
+      if (values['gh'] && values['device']) {
+        console.error('Choose one of --gh and --device.');
+        return 1;
+      }
+      return runLogin({ method: values['gh'] ? 'gh' : values['device'] ? 'device' : 'auto', openBrowser: !values['no-open'] });
     },
   },
 
