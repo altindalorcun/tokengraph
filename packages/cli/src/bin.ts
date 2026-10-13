@@ -84,9 +84,9 @@ const COMMANDS: Record<string, Command> = {
   sync: {
     help: `Usage: tokengraph sync [options]
 
-Reads every supported agent's local data into the ledger (~/.tokengraph/state.json). When this
-machine is logged in with GitHub, it also publishes the graph to your own gist. Background syncs
-(hooks, schedule) do the same.
+Reads every supported agent's local data into the ledger (~/.tokengraph/state.json), then, when you
+are logged in, publishes your graph to your gist. \`--local\` never touches the network. Background
+syncs (hooks, schedule) do the same.
 
 Options:
   --since <days>       How far back to read, 1-400 (default: 90)

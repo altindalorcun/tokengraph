@@ -4,7 +4,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGeminiCliAdapter } from '../src/adapters/gemini-cli/index.js';
 import { runSync } from '../src/commands/sync.js';
+import { readConfig, writeConfig } from '../src/config.js';
+import { GitHubRateLimitError } from '../src/github/http.js';
+import { readLedger } from '../src/ledger.js';
+import { ledgerPath } from '../src/paths.js';
+import { machineFileName } from '../src/publish/machines.js';
+import { readMachinesCache } from '../src/publish/machines-cache.js';
 import { acquireSyncLock } from '../src/sync-lock.js';
+import { fakeGitHubClient } from './fake-github-client.js';
 
 vi.mock('../src/adapters/gemini-cli/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/adapters/gemini-cli/index.js')>();
@@ -204,5 +211,80 @@ describe('runSync across agents', () => {
     const lock = await acquireSyncLock();
     expect(lock.acquired).toBe(true);
     if (lock.acquired) await lock.release();
+  });
+
+  describe('publishing', () => {
+    const LOGIN = { github: { login: 'octocat', auth: { kind: 'token' as const, token: 't' } } };
+    const MACHINE = '3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40';
+
+    it('stays local when not logged in', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps: { clientFor: () => client } })).toBe(0);
+      expect(client.calls).toEqual([]);
+    });
+
+    it('publishes when logged in and saves machine id and gist ids', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      const code = await runSync({
+        sinceDays: 30,
+        theme: 'light',
+        deps: { clientFor: () => client, fingerprint: async () => 'fp', newMachineId: () => MACHINE },
+      });
+      expect(code).toBe(0);
+      const config = await readConfig();
+      expect(config.machineId).toBe(MACHINE);
+      expect(config.gists?.graph).toBeDefined();
+      expect(await readMachinesCache()).toEqual([]);
+    });
+
+    it('--local never touches GitHub', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      await runSync({ sinceDays: 30, theme: 'light', local: true, deps: { clientFor: () => client } });
+      expect(client.calls).toEqual([]);
+    });
+
+    it('keeps the ledger and exits 1 when GitHub rate-limits', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      client.getGist = async () => {
+        throw new GitHubRateLimitError('limited', 403, new Date('2026-10-13T12:00:00Z'));
+      };
+      client.listGists = client.getGist as never;
+      await writeConfig(LOGIN);
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps: { clientFor: () => client, fingerprint: async () => 'fp' } })).toBe(1);
+      expect(Object.keys((await readLedger(ledgerPath())).sources).length).toBeGreaterThan(0);
+    });
+
+    it('warns and still exits 0 when this machine\'s gist file cannot be read', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      const deps = { clientFor: () => client, fingerprint: async () => 'fp', newMachineId: () => MACHINE };
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps })).toBe(0);
+      // A newer tokengraph rewrote our file in a format this version cannot parse.
+      const data = [...client.gists.values()].find((gist) => machineFileName(MACHINE) in gist.files)!;
+      data.files[machineFileName(MACHINE)] = { filename: machineFileName(MACHINE), content: '{"version":99}' };
+      vi.mocked(console.log).mockClear();
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps })).toBe(0);
+      const output = vi.mocked(console.log).mock.calls.flat().join('\n');
+      expect(output).toContain('could not be read');
+      expect(output).toContain('npm install -g tokengraph');
+      expect(data.files[machineFileName(MACHINE)]!.content).toBe('{"version":99}');
+    });
+
+    it('--quiet prints only the publish summary', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      expect(await runSync({ sinceDays: 30, theme: 'light', quiet: true, deps: { clientFor: () => client, fingerprint: async () => 'fp' } })).toBe(0);
+      const output = vi.mocked(console.log).mock.calls.flat().join('\n');
+      expect(output).not.toContain('source:');
+      expect(output).toContain('Graph published');
+    });
   });
 });
