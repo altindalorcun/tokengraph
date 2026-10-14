@@ -2,7 +2,7 @@
 // Default: packages/cli/bundle/bin.js. With --packed: also `npm pack` the package, extract the tarball and run
 // the shipped layout (bundle/ + assets/ only), which proves asset resolution and that nothing needs node_modules.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,20 +36,25 @@ runStory('source bundle', join(root, 'packages/cli/bundle/bin.js'));
 if (packed) {
   const work = mkdtempSync(join(tmpdir(), 'tg-smoke-pack-'));
   try {
-    const packOut = execFileSync('npm', ['pack', '-w', 'tokengraph', '--pack-destination', work, '--json', '--ignore-scripts'], {
-      cwd: root,
-      encoding: 'utf8',
-    });
-    const tarball = join(work, JSON.parse(packOut)[0].filename);
-    const extracted = join(work, 'extracted');
-    execFileSync('mkdir', ['-p', extracted]);
-    execFileSync('tar', ['-xzf', tarball, '-C', extracted]);
-    const pkgDir = join(extracted, 'package');
+    // npm is npm.cmd on Windows, which only runs through a shell; quote the one path that can hold spaces there.
+    const windows = process.platform === 'win32';
+    const packOut = execFileSync(
+      windows ? 'npm.cmd' : 'npm',
+      ['pack', '-w', 'tokengraph', '--pack-destination', windows ? `"${work}"` : work, '--json', '--ignore-scripts'],
+      { cwd: root, encoding: 'utf8', shell: windows },
+    );
+    const tarball = JSON.parse(packOut)[0].filename;
+    // Relative names with cwd = work: no drive letter or space can confuse tar (present on Windows 10+).
+    mkdirSync(join(work, 'extracted'), { recursive: true });
+    execFileSync('tar', ['-xzf', tarball, '-C', 'extracted'], { cwd: work });
+    const pkgDir = join(work, 'extracted', 'package');
     const manifest = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
     if (manifest.dependencies && Object.keys(manifest.dependencies).length > 0) {
       throw new Error(`packed package has runtime dependencies: ${Object.keys(manifest.dependencies).join(', ')}`);
     }
-    for (const needed of ['bundle/bin.js', 'assets/resvg.wasm', 'assets/fonts/plex-sans-400.ttf']) {
+    const fonts = ['mono-400', 'mono-500', 'mono-600', 'sans-400', 'sans-500', 'sans-600', 'sans-700'].map((name) => `assets/fonts/plex-${name}.ttf`);
+    const neededFiles = ['bundle/bin.js', 'THIRD-PARTY-NOTICES.md', 'assets/resvg.wasm', 'assets/fonts/OFL.txt', ...fonts];
+    for (const needed of neededFiles) {
       if (!existsSync(join(pkgDir, needed))) throw new Error(`packed package is missing ${needed}`);
     }
     runStory('packed tarball', join(pkgDir, 'bundle/bin.js'));
