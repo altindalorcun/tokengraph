@@ -38,6 +38,20 @@ describe('qr', () => {
     }
   });
 
+  it('prints the same half-blocks without any escape codes when colour is off', () => {
+    const matrix = qrMatrix(url);
+    const colored = qrLines(matrix);
+    const plain = qrLines(matrix, { color: false });
+    expect(plain.join('\n')).not.toContain('\x1b');
+    expect(plain).toEqual(colored.map((line) => line.replace(/\x1b\[[0-9;]*m/g, '')));
+    expect(plain.join('')).toMatch(/[█▀▄]/);
+  });
+
+  it('still takes the quiet zone as an option', () => {
+    const matrix = qrMatrix(url);
+    expect(qrLines(matrix, { quiet: 2, color: false })[0]).toHaveLength(matrix.length + 4);
+  });
+
   it('decodes from the printed half-block characters themselves', () => {
     const lines = qrLines(qrMatrix(url)).map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
     const scale = 6;

@@ -10,6 +10,9 @@ describe('detectImageProtocol', () => {
     expect(detectImageProtocol({ TERM_PROGRAM: 'ghostty' })).toBe('kitty');
     expect(detectImageProtocol({ TERM_PROGRAM: 'Apple_Terminal' })).toBe('none');
     expect(detectImageProtocol({ TERM_PROGRAM: 'iTerm.app', TMUX: '/tmp/tmux' })).toBe('none');
+    expect(detectImageProtocol({ TERM_PROGRAM: 'iTerm.app', STY: '1234.pts-0.host' })).toBe('none');
+    expect(detectImageProtocol({ TERM_PROGRAM: 'WezTerm', TERM: 'screen-256color' })).toBe('none');
+    expect(detectImageProtocol({ KITTY_WINDOW_ID: '1', TERM: 'screen' })).toBe('none');
   });
 
   it('reads truecolor support from COLORTERM', () => {

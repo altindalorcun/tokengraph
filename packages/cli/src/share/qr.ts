@@ -15,9 +15,12 @@ const RESET = '\x1b[0m';
 
 /**
  * Two module rows per text line. Colours are forced (black ink on white paper) because a phone
- * camera reads dark-on-light; a dark terminal theme would otherwise invert the code.
+ * camera reads dark-on-light; a dark terminal theme would otherwise invert the code. With `color: false`
+ * (no terminal) the same blocks are printed with no escape codes.
  */
-export function qrLines(matrix: boolean[][], quiet = 4): string[] {
+export function qrLines(matrix: boolean[][], options: { quiet?: number; color?: boolean } = {}): string[] {
+  const quiet = options.quiet ?? 4;
+  const color = options.color ?? true;
   const size = matrix.length + quiet * 2;
   const dark = (row: number, col: number) => {
     const r = row - quiet;
@@ -32,7 +35,7 @@ export function qrLines(matrix: boolean[][], quiet = 4): string[] {
       const bottom = dark(row + 1, col);
       line += top && bottom ? '█' : top ? '▀' : bottom ? '▄' : ' ';
     }
-    lines.push(`${INK}${PAPER}${line}${RESET}`);
+    lines.push(color ? `${INK}${PAPER}${line}${RESET}` : line);
   }
   return lines;
 }

@@ -47,6 +47,8 @@ export interface StoryDeps {
   startShare: typeof startShareServer;
   reveal: (path: string) => void;
   out: (text: string) => void;
+  /** Raw output with no newline added, for the in-place progress line in a terminal. */
+  write: (text: string) => void;
   onInterrupt: (handler: () => void) => () => void;
 }
 
@@ -93,6 +95,7 @@ function defaultDeps(): StoryDeps {
     startShare: startShareServer,
     reveal: revealInFileManager,
     out: (text) => process.stdout.write(`${text}\n`),
+    write: (text) => process.stdout.write(text),
     onInterrupt: (handler) => {
       process.once('SIGINT', handler);
       return () => process.off('SIGINT', handler);
@@ -100,6 +103,7 @@ function defaultDeps(): StoryDeps {
   };
 }
 
+const CLEAR_LINE = '\r\x1b[2K';
 const dim = (text: string, tty: boolean) => (tty ? `\x1b[2m${text}\x1b[22m` : text);
 const bold = (text: string, tty: boolean) => (tty ? `\x1b[1m${text}\x1b[22m` : text);
 
@@ -115,6 +119,9 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   const data = await deps.loadData(options.range, options.handle);
   deps.out('');
   deps.out(`  ${bold('tokengraph story', tty)}  ${dim(`${options.range} · @${data.handle}`, tty)}`);
+  if (data.total === 0) {
+    deps.out('  No usage in this range yet. Run `tokengraph sync` first, or try --range 30d.');
+  }
   deps.out('');
 
   const renderer = await deps.renderer();
@@ -123,13 +130,16 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   const fileHandle = safeFileHandle(data.handle);
   try {
     for (const template of options.templates) {
+      const label = STORY_TEMPLATE_LABELS[template].name;
+      if (tty) deps.write(`${CLEAR_LINE}  ${dim(`Rendering ${label}…`, tty)}`);
       const png = await renderer.render(template, { data, showCost: options.showCost, cta: STORY_CTA });
       const fileName = storyFileName(fileHandle, data.endDate, { template, range: options.range, showCost: options.showCost });
       await deps.writeFile(join(outDir, fileName), png);
       cards.push({ id: template, title: STORY_TEMPLATE_LABELS[template].name, fileName, png, ...STORY_SIZES[template] });
-      deps.out(`  ${tty ? '✓' : '-'} ${STORY_TEMPLATE_LABELS[template].name}`);
+      deps.out(`${tty ? CLEAR_LINE : ''}  ${tty ? '✓' : '-'} ${label}`);
     }
   } catch (error) {
+    if (tty) deps.write(CLEAR_LINE);
     deps.out('');
     deps.out(`  Could not save the cards to ${outDir}: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
@@ -147,7 +157,7 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
 
   const share = options.qr === 'yes' || (options.qr === 'ask' && tty && (await deps.ask('\n  Send them to your phone?')));
   if (!share) {
-    if (tty && deps.platform === 'darwin') deps.reveal(join(outDir, cards[0]!.fileName));
+    if (tty && deps.platform === 'darwin' && (await deps.ask('\n  Show them in Finder?'))) deps.reveal(join(outDir, cards[0]!.fileName));
     deps.out('');
     return 0;
   }
@@ -169,7 +179,7 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
       handle: data.handle,
       onEvent: (event) => {
         if (event.kind === 'page') deps.out(`  ${tty ? '📱' : '-'} Phone connected`);
-        else deps.out(`  ${tty ? '✓' : '-'} ${cards.find((c) => c.id === event.id)?.title ?? event.id} saved to the phone`);
+        else if (event.kind === 'saved') deps.out(`  ${tty ? '✓' : '-'} ${cards.find((c) => c.id === event.id)?.title ?? event.id} downloaded`);
       },
     });
   } catch (error) {
@@ -181,7 +191,7 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   }
 
   deps.out('');
-  for (const line of qrLines(qrMatrix(server.url))) deps.out(`  ${line}`);
+  for (const line of qrLines(qrMatrix(server.url), { color: tty })) deps.out(`  ${line}`);
   deps.out('');
   deps.out(`  Scan with your phone's camera  ${dim(server.url, tty)}`);
   deps.out('');

@@ -1,8 +1,8 @@
 export type ImageProtocol = 'iterm' | 'kitty' | 'none';
 
-/** Terminals that draw real images inline. Inside tmux the escapes need passthrough, so no. */
+/** Terminals that draw real images inline. Inside tmux or GNU screen the escapes need passthrough, so no. */
 export function detectImageProtocol(env: NodeJS.ProcessEnv): ImageProtocol {
-  if (env['TMUX']) return 'none';
+  if (env['TMUX'] || env['STY'] || env['TERM']?.startsWith('screen')) return 'none';
   const program = env['TERM_PROGRAM'];
   if (program === 'iTerm.app' || program === 'WezTerm') return 'iterm';
   if (env['KITTY_WINDOW_ID'] || env['TERM'] === 'xterm-kitty' || program === 'ghostty') return 'kitty';

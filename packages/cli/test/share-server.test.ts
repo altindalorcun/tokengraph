@@ -44,7 +44,52 @@ describe('share server', () => {
     expect((await fetch(`${origin}wrongtoken/`)).status).toBe(404);
     expect((await fetch(`${server.url}card/nope.png`)).status).toBe(404);
     expect((await fetch(server.url, { method: 'POST' })).status).toBe(405);
-    expect(events).toEqual([{ kind: 'page', userAgent: 'iPhone' }, { kind: 'saved', id: 'receipt' }]);
+    expect(events).toEqual([
+      { kind: 'page', userAgent: 'iPhone' },
+      { kind: 'viewed', id: 'skyline' },
+      { kind: 'saved', id: 'receipt' },
+    ]);
+  });
+
+  it('reports a plain image GET once per card as viewed (the iPhone touch-and-hold path), never a HEAD', async () => {
+    const events: ShareEvent[] = [];
+    server = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat', onEvent: (e) => events.push(e) });
+    await (await fetch(`${server.url}card/skyline.png`, { method: 'HEAD' })).arrayBuffer();
+    for (let i = 0; i < 3; i += 1) await (await fetch(`${server.url}card/skyline.png`)).arrayBuffer();
+    await (await fetch(`${server.url}card/receipt.png`)).arrayBuffer();
+    expect(events).toEqual([
+      { kind: 'viewed', id: 'skyline' },
+      { kind: 'viewed', id: 'receipt' },
+    ]);
+  });
+
+  it('does not stop after every card was only viewed', async () => {
+    server = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat', afterAllSavedMs: 20, idleMs: 150 });
+    for (const card of cards) await (await fetch(`${server.url}card/${card.id}.png`)).arrayBuffer();
+    expect(await server.done).toBe('idle');
+  });
+
+  it('does not let requests to a wrong path keep the server alive', async () => {
+    server = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat', idleMs: 80 });
+    const origin = server.url.replace(/[^/]+\/$/, '');
+    const started = Date.now();
+    const scanner = setInterval(() => void fetch(`${origin}wrongtoken/`).then((r) => r.arrayBuffer()).catch(() => undefined), 15);
+    try {
+      expect(await server.done).toBe('idle');
+    } finally {
+      clearInterval(scanner);
+    }
+    expect(Date.now() - started).toBeLessThan(400);
+  });
+
+  it('keeps the idle timer alive for requests under the token', async () => {
+    server = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat', idleMs: 120 });
+    const started = Date.now();
+    const poll = setInterval(() => void fetch(server!.url).then((r) => r.arrayBuffer()).catch(() => undefined), 30);
+    await new Promise((r) => setTimeout(r, 300));
+    clearInterval(poll);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+    expect(await Promise.race([server.done, Promise.resolve('still-running')])).toBe('still-running');
   });
 
   it('stops after every card was saved', async () => {

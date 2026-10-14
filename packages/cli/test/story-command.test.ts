@@ -26,6 +26,7 @@ function deps(overrides: Partial<StoryDeps> = {}) {
     lanAddress: () => '127.0.0.1',
     reveal: () => undefined,
     out: (text) => output.push(text),
+    write: (text) => output.push(text),
     onInterrupt: () => () => undefined,
     ...overrides,
   };
@@ -157,5 +158,91 @@ describe('runStory', () => {
     });
     expect(await runStory(parseStoryArgs({ 'no-qr': true }) as never, d)).toBe(1);
     expect(output.join('\n')).toContain('EACCES');
+  });
+
+  it('prints the QR with no colour escapes when there is no terminal, and forced black on white in one', async () => {
+    const startShare = vi.fn(async () => ({ url: 'http://127.0.0.1:1/tok/', done: Promise.resolve('all-saved' as const), stop: () => undefined }));
+    const plain = deps({ isTTY: false, startShare });
+    await runStory(parseStoryArgs({ qr: true }) as never, plain.deps);
+    expect(plain.output.join('\n')).not.toContain('\x1b');
+    expect(plain.output.join('\n')).toMatch(/[█▀▄]/);
+
+    const colored = deps({ startShare });
+    await runStory(parseStoryArgs({ qr: true }) as never, colored.deps);
+    expect(colored.output.join('\n')).toContain('\x1b[38;5;16m\x1b[48;5;231m');
+  });
+
+  it('asks before opening Finder, and only on macOS in a terminal', async () => {
+    const reveal = vi.fn();
+    const questions: string[] = [];
+    const ask = vi.fn(async (question: string) => {
+      questions.push(question);
+      return question.includes('Finder');
+    });
+    const mac = deps({ platform: 'darwin', ask, reveal });
+    await runStory(parseStoryArgs({}) as never, mac.deps);
+    expect(questions).toHaveLength(2);
+    expect(questions[0]).toContain('phone');
+    expect(questions[1]).toContain('Show them in Finder?');
+    expect(reveal).toHaveBeenCalledOnce();
+
+    reveal.mockClear();
+    const no = deps({ platform: 'darwin', ask: async () => false, reveal });
+    await runStory(parseStoryArgs({}) as never, no.deps);
+    expect(reveal).not.toHaveBeenCalled();
+
+    const linux = deps({ platform: 'linux', ask, reveal });
+    questions.length = 0;
+    await runStory(parseStoryArgs({}) as never, linux.deps);
+    expect(questions).toHaveLength(1);
+    expect(reveal).not.toHaveBeenCalled();
+
+    const notty = deps({ platform: 'darwin', isTTY: false, ask, reveal });
+    await runStory(parseStoryArgs({}) as never, notty.deps);
+    expect(reveal).not.toHaveBeenCalled();
+  });
+
+  it('shows a progress line per card in a terminal and only the final lines otherwise', async () => {
+    const tty = deps();
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, tty.deps);
+    const lines = tty.output.join('\n');
+    expect(lines).toContain('Rendering Skyline…');
+    expect(lines).toContain('\r\x1b[2K');
+    expect(lines).toContain('✓ Skyline');
+
+    const plain = deps({ isTTY: false });
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, plain.deps);
+    expect(plain.output.join('\n')).not.toContain('Rendering');
+    expect(plain.output.join('\n')).not.toContain('\r');
+    expect(plain.output.join('\n')).toContain('- Skyline');
+  });
+
+  it('says so when the range has no usage yet, and still renders the cards', async () => {
+    const empty = deps({
+      loadData: async (range, handle) => ({ ...demoStory(range, new Date('2026-10-11T12:00:00Z')), handle: handle ?? 'octocat', demo: false, total: 0 }),
+    });
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, empty.deps);
+    expect(empty.output.join('\n')).toContain('No usage in this range yet. Run `tokengraph sync` first, or try --range 30d.');
+    expect(empty.written).toHaveLength(1);
+
+    const full = deps();
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, full.deps);
+    expect(full.output.join('\n')).not.toContain('No usage in this range');
+  });
+
+  it('prints "downloaded" for a saved card and nothing for a viewed one', async () => {
+    let emit: (event: { kind: string; id?: string; userAgent?: string }) => void = () => undefined;
+    const startShare = vi.fn(async (options: { onEvent?: typeof emit }) => {
+      emit = options.onEvent!;
+      return { url: 'http://127.0.0.1:1/tok/', done: Promise.resolve('all-saved' as const), stop: () => undefined };
+    });
+    const { deps: d, output } = deps({ startShare: startShare as never });
+    await runStory(parseStoryArgs({ qr: true }) as never, d);
+    const before = output.length;
+    emit({ kind: 'viewed', id: 'skyline' });
+    expect(output).toHaveLength(before);
+    emit({ kind: 'saved', id: 'skyline' });
+    expect(output.slice(before).join('\n')).toContain('✓ Skyline downloaded');
+    expect(output.join('\n')).not.toContain('saved to the phone');
   });
 });

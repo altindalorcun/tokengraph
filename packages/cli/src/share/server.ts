@@ -6,7 +6,10 @@ import { phonePage, type PageCard } from './page.js';
 export interface ShareCard extends PageCard {
   png: Uint8Array;
 }
-export type ShareEvent = { kind: 'page'; userAgent: string } | { kind: 'saved'; id: string };
+export type ShareEvent =
+  | { kind: 'page'; userAgent: string }
+  | { kind: 'viewed'; id: string }
+  | { kind: 'saved'; id: string };
 export type StopReason = 'all-saved' | 'idle' | 'stopped';
 export interface ShareServer {
   url: string;
@@ -47,6 +50,7 @@ export async function startShareServer(options: {
   const prefix = `/${token}/`;
   const page = phonePage(options.cards, { handle: options.handle });
   const saved = new Set<string>();
+  const viewed = new Set<string>();
   let finish: (reason: StopReason) => void = () => undefined;
   const done = new Promise<StopReason>((resolve) => {
     finish = resolve;
@@ -56,7 +60,6 @@ export async function startShareServer(options: {
   let stopped = false;
 
   const server = createServer((req, res) => {
-    armIdle();
     // Route on the raw target: URL parsing can throw on targets Node's parser accepts, and nothing
     // before the token check may be able to take the process down.
     const target = req.url ?? '';
@@ -66,6 +69,8 @@ export async function startShareServer(options: {
       res.writeHead(404, SECURITY_HEADERS).end();
       return;
     }
+    // Only a request under the token counts as activity: a scanner hitting other paths must not keep the server alive.
+    armIdle();
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405, { ...SECURITY_HEADERS, Allow: 'GET, HEAD' }).end();
       return;
@@ -102,6 +107,11 @@ export async function startShareServer(options: {
       ...(download ? { 'Content-Disposition': contentDisposition(card.fileName) } : {}),
     });
     res.end(req.method === 'HEAD' ? undefined : card.png);
+    if (!download && req.method === 'GET' && !viewed.has(card.id)) {
+      // iPhone's touch-and-hold fetches the plain image, so this is the only sign that the card reached the phone.
+      viewed.add(card.id);
+      emit({ kind: 'viewed', id: card.id });
+    }
     if (download && req.method === 'GET') {
       saved.add(card.id);
       emit({ kind: 'saved', id: card.id });
