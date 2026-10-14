@@ -48,9 +48,10 @@ export function storyRows(usage: readonly DailyModelUsage[]): { rows: ModelDayTo
   return { rows: [...rows.values()], costRows: [...costRows.values()] };
 }
 
+/** The name on the cards: --handle, else the GitHub login, else the OS user. Blank values fall through. */
 export function storyHandle(config: CliConfig, override: string | undefined, osUser: string): string {
-  const handle = override?.replace(/^@/, '') || config.github?.login || osUser;
-  return handle || 'me';
+  const clean = (value: string | undefined) => value?.trim().replace(/^@+/, '').trim() ?? '';
+  return clean(override) || clean(config.github?.login) || clean(osUser) || 'me';
 }
 
 function osUserName(): string {

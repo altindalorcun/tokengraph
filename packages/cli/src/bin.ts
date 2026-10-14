@@ -9,6 +9,7 @@ import { runLogout } from './commands/logout.js';
 import { runReadme } from './commands/readme.js';
 import { runSchedule } from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
+import { parseStoryArgs, runStory } from './commands/story.js';
 import { runSync } from './commands/sync.js';
 import { runView } from './commands/view.js';
 import { removeHostedLeftovers } from './hosted-leftovers.js';
@@ -27,6 +28,7 @@ Commands:
   status               Show the account, ledger and background syncs on this machine
   install-hook         Sync automatically when Claude Code, Cursor or Codex finishes
   schedule             Sync every hour in the background
+  story                Turn your usage into story cards and send them to your phone
 
 Run \`tokengraph <command> --help\` for a command's options.
 
@@ -250,6 +252,43 @@ Options:
       'dry-run': { type: 'boolean', default: false },
     },
     run: (values) => runSchedule({ remove: values['remove'] === true, dryRun: values['dry-run'] === true }),
+  },
+
+  story: {
+    help: `Usage: tokengraph story [options]
+
+Draws your usage as Instagram / TikTok story cards, saves them as PNG files, and can send them to
+your phone: scan the QR code it shows (same Wi-Fi) and save them from the page that opens.
+Reads local data only.
+
+Options:
+  --template <name>    skyline, receipt, sticker or all (default: all)
+  --range <range>      today, 7d, 30d or 1y (default: today)
+  --no-cost            Leave the estimated API cost off the cards
+  --out <dir>          Where to save (default: ~/Downloads)
+  --qr                 Send to the phone without asking
+  --no-qr              Only save the files
+  --no-preview         Do not draw the cards in the terminal
+  --handle <name>      The name on the cards (default: your GitHub login)
+`,
+    options: {
+      template: { type: 'string' },
+      range: { type: 'string' },
+      'no-cost': { type: 'boolean', default: false },
+      out: { type: 'string' },
+      qr: { type: 'boolean', default: false },
+      'no-qr': { type: 'boolean', default: false },
+      'no-preview': { type: 'boolean', default: false },
+      handle: { type: 'string' },
+    },
+    run: (values) => {
+      const options = parseStoryArgs(values);
+      if (typeof options === 'string') {
+        console.error(options);
+        return 1;
+      }
+      return runStory(options);
+    },
   },
 
   // Run by Cursor's stop hook (see `install-hook --agent cursor`); not meant to be run by hand.

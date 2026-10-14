@@ -55,3 +55,15 @@ describe('storyHandle', () => {
     expect(storyHandle({}, '@me', 'os')).toBe('me');
   });
 });
+
+describe('storyHandle trimming', () => {
+  it('trims, strips every leading @ and falls through on a blank value', () => {
+    const config = { github: { login: 'octocat', auth: { kind: 'token' as const, token: 't' } } };
+    expect(storyHandle(config, '  me  ', 'os')).toBe('me');
+    expect(storyHandle(config, ' @@me ', 'os')).toBe('me');
+    expect(storyHandle(config, '  ', 'os')).toBe('octocat');
+    expect(storyHandle(config, '@', 'os')).toBe('octocat');
+    expect(storyHandle({}, undefined, '  os user ')).toBe('os user');
+    expect(storyHandle({}, '', '   ')).toBe('me');
+  });
+});
