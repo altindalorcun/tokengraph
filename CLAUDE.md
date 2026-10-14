@@ -2,7 +2,7 @@
 
 tokengraph is a GitHub-contribution-style heatmap of daily AI coding agent token usage (Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode). It is **local-first and has no server**: the CLI reads each agent's local logs, keeps a ledger on the machine, and publishes the README graph as SVG files to the user's own public GitHub gist; a secret gist holds every machine's ledger so machines merge and history survives a reinstall. Story cards (Instagram/TikTok PNGs) are rendered on the machine and handed to the phone with a QR code over the local network.
 
-`docs/product.md` holds the vision and non-goals; `docs/specs/` holds designs and `docs/agents/` one note per agent on how it stores usage locally; execution plans live in the private site repo. The private promo site lives in a separate repo and never imports this code.
+`docs/product.md` holds the vision and non-goals. Design notes: `docs/architecture.md`; per-agent log formats: `docs/agents/`.
 
 ## Commands
 

@@ -17,6 +17,9 @@ node packages/cli/dist/bin.js view --print             # try the CLI you just bu
 node packages/cli/dist/bin.js sync --local             # never touches the network
 ```
 
+After editing `README.md` run `node scripts/sync-readme.mjs`; it writes the copy npm shows
+(`packages/cli/README.md`), and CI fails when the two are out of sync.
+
 Vitest resolves `@tokengraph/core` to its source, so tests need no build. The CLI at runtime
 resolves it through `dist/`, so run `npx tsc --build` after changing core and before running the
 CLI by hand.
@@ -28,7 +31,8 @@ CLI by hand.
 | `packages/core` | Pure logic with no runtime dependencies and no file or network I/O: token types and the weighted-token formula, pricing with dated rates, model names and families, allowed sources, colour levels, the SVG graph renderer, story data. |
 | `packages/cli` | Everything that touches the outside world: agent adapters (`src/adapters/<agent>/`), the ledger, the terminal view, GitHub publishing, story-card rendering, the QR share server. |
 | `docs/agents/` | One note per agent describing how it stores usage locally. |
-| `docs/specs/` | Design documents. |
+| `docs/architecture.md` | How the pieces fit together: data flow, machines, story cards, the QR hand-off. |
+| `docs/specs/` | Design rules for the story cards. |
 | `scripts/` | Samples generator and font builders. |
 
 The boundary rule: if code needs the file system, sockets, Satori or resvg, it belongs in

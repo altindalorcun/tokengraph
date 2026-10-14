@@ -1,7 +1,7 @@
 # Story cards: design rules
 
-Date: 2026-10-11 (first drawn for the hosted app; carried over to the CLI on 2026-10-13, where
-`tokengraph story` renders them on your machine). This note keeps the design decisions and the
+Date: 2026-10-11 (updated 2026-10-13 for the CLI, where `tokengraph story` renders them on your
+machine). This note keeps the design decisions and the
 rules the cards follow. Where the code lives now: pure story data in `packages/core/src/story/`,
 the Satori + resvg pipeline and the card layouts in `packages/cli/src/story/`.
 
