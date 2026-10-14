@@ -171,7 +171,8 @@ is developed on macOS and Linux, so expect rough edges and please open an issue.
 ## Contributing
 
 Bug reports and pull requests are welcome; see [CONTRIBUTING.md](https://github.com/altindalorcun/tokengraph/blob/main/CONTRIBUTING.md). New agents
-arrive as adapter PRs.
+arrive as adapter PRs. What tokengraph is for, and what it will not do, is in the
+[product notes](https://github.com/altindalorcun/tokengraph/blob/main/docs/product.md).
 
 ---
 

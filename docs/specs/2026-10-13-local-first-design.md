@@ -163,7 +163,7 @@ A user with no usage yet gets the existing "No tokens synced yet" title, never a
 
 ### Rendering
 
-- Pure data (`buildStory` and its helpers from `apps/web/lib/story/data.ts`, `format.ts`,
+- Pure data (`buildStory` and its helpers from the archived hosted app's `lib/story/data.ts`, `format.ts`,
   `color.ts`, `skyline.ts`, `art.ts`, the needed parts of `lib/dashboard/{aggregate,cost,range,
   stats}`, `lib/model-makers.ts`, `lib/logo.ts`, `lib/demo-usage.ts`) moves to
   `packages/core/src/story/`: it is pure and dependency-free.

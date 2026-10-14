@@ -1,0 +1,35 @@
+name: Support a new agent
+description: Ask for an AI coding agent that tokengraph does not read yet.
+labels: [new-agent]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A tool can be supported only when its token usage is stored in local files that can be read reliably. See [CONTRIBUTING.md](https://github.com/altindalorcun/tokengraph/blob/main/CONTRIBUTING.md) if you would like to write the adapter yourself.
+  - type: input
+    id: name
+    attributes:
+      label: Agent name and version
+      placeholder: "Aider 0.86"
+    validations:
+      required: true
+  - type: textarea
+    id: location
+    attributes:
+      label: Where it stores usage locally
+      description: Folder or database path on each OS you know, and whether an environment variable moves it.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: A sample record
+      description: One real record that contains token counts. Remove secrets, prompts, answers, paths and anything personal first.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Does it write the same message more than once? Does it run models that other agents also run (for example through Claude Code)?

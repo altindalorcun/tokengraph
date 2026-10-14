@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in tokengraph does not work or shows wrong numbers.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: tokengraph version
+      description: Output of `tokengraph --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and Node.js version
+      placeholder: "macOS 15, Node 22.11"
+    validations:
+      required: true
+  - type: input
+    id: agents
+    attributes:
+      label: Agents you use
+      description: Which AI coding agents' usage is involved.
+      placeholder: "Claude Code, Codex CLI"
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `tokengraph status`
+      description: Remove the gist URLs if you prefer to keep them private. Never paste tokens or the contents of `~/.tokengraph/config.json`.
+      render: text
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got instead. For wrong numbers, say how you checked them.
+    validations:
+      required: true
