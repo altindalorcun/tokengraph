@@ -65,7 +65,7 @@ family (`--colors model` switches back).
 `tokengraph story` draws three cards (a skyline, a receipt and a sticker) as PNG files sized for
 Instagram and TikTok stories, then shows a QR code. Scan it with your phone on the same Wi-Fi and
 save the cards straight to Photos. Nothing is uploaded anywhere: your computer serves the files to
-your phone for a few minutes, then stops. Pick a period with `--range today|7d|30d|1y`, and leave
+your phone until you have saved the cards, or after 10 idle minutes. Pick a period with `--range today|7d|30d|1y`, and leave
 the estimated cost off with `--no-cost`.
 
 ## How it works
@@ -96,12 +96,12 @@ re-reading a big cached context would drown a day of real work. It measures work
 
 | | |
 | --- | --- |
-| **What leaves your machine** | The SVG graph, to a public gist on your account: daily token totals and the names of the model families it is coloured by. Per-day, per-model token counts, to a secret gist on your account. Both only after `tokengraph login`, and only when you sync. |
+| **What leaves your machine** | To a public gist on your account: the SVG graphs (daily token totals and the names of the model families they are coloured by) and a README with the embed snippet and a link. To a secret gist on your account: per-day, per-model token counts, a random machine id, a label such as `darwin-3f2a1c`, a hashed machine fingerprint, the CLI version and the time of the last update. Both only after `tokengraph login`, and only when tokengraph publishes (`sync`, a hook, the schedule, or `login`). `sync --local`, `view` and `story` never do. |
 | **What never does** | Prompts, answers, code, file names, paths. Nothing is sent to any tokengraph server: there is none. |
 | **How to remove it** | `tokengraph logout` forgets the login on this machine. Delete the two gists on [gist.github.com](https://gist.github.com) to remove what was published. |
 
-A secret gist is unlisted, not private: anyone who has its URL can read it. It holds only counts,
-a machine label such as `darwin-3f2a1c` and a hashed machine fingerprint, never a hostname. Until
+A secret gist is unlisted, not private: anyone who has its URL can read it. It holds the fields
+listed above and never a hostname. Until
 you run `tokengraph login`, nothing is sent anywhere.
 
 ## Supported agents

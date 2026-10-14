@@ -35,7 +35,7 @@ Vitest aliases `@tokengraph/core` to `packages/core/src`; the CLI at runtime res
 - **Pricing tier is a key dimension**; pricing changes append a new `effectiveFrom` entry, never edit a rate.
 - **New adapter/source:** also add it to `KNOWN_SOURCES` in `packages/core/src/sources.ts`.
 - **The view never publishes.** Only `sync` (manual, hook or schedule), `login` and `readme --colors` talk to GitHub. `status`, `view`, `story` are offline.
-- **The public graph gist holds only SVGs and a README** — family colours and names, never model ids or raw counts. Those live only in the secret data gist.
+- **The public graph gist holds only SVGs and a README** — family colours and names, never model ids or per-model counts (only daily totals). Those live only in the secret data gist.
 - **Codex `notify` is single-valued**; never overwrite one that is not ours.
 - **The Claude Code hook must return instantly** (runs hidden `hook-sync`, which spawns a detached `sync`).
 - **Hook, script and asset paths resolve through `bin-path.ts`** (`binPath()`, `assetsDir()`), never `import.meta.url` in a command: inside the bundle every module shares one URL.

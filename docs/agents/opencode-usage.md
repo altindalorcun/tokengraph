@@ -433,9 +433,9 @@ equality is available, it must be used before the version rule.
 
 - A new source must be added to `packages/core/src/sources.ts` (for example `opencode`), or the
   ledger rejects its usage.
-- Reading SQLite is necessary. The CLI targets Node >= 20; the built-in `node:sqlite` exists in
-  Node 22.5+ (flag-free use in newer 22.x/23.x versions). Either a dependency (for example
-  `better-sqlite3`) or raising the minimum Node version needs to be decided.
+- Reading SQLite is necessary. The CLI requires Node 22, and reading OpenCode's database needs
+  Node 22.13 or newer, where the built-in `node:sqlite` works without a flag. The adapter uses it,
+  so there is no native dependency.
 - Only the counter and identity fields should be read (with `json_extract`); `content`, text,
   tool output and file paths (`path.cwd/root`, `session.directory`) must not be stored or
   published.

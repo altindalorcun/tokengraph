@@ -616,10 +616,10 @@ every tier (the standard one included) unpriced, so the `fast` tier stays unpric
 way. In both unpriced cases the cost is shown as "unknown", never `$0`.
 
 **Side effect on cost totals:** if the same Claude model has usage from both Claude Code (priced)
-and Cursor (unpriced, merged into the same model+day row), that model's cost is no longer fully
-priced: it is marked "partial" (`complete: false`), because if any source in a model group is
-unpriced the whole group becomes partial. This is expected, not a bug: the priority is a correct
-token count, and cost is secondary.
+and Cursor (unpriced, merged into the same model+day row), that model's cost estimate is no longer
+fully priced. The CLI's story cards and cost figure treat a model as partly priced when any of its
+usage is unpriced, and then show the estimate as a lower bound (for example "≥ $12"). This is
+expected, not a bug: the priority is a correct token count, and cost is secondary.
 
 ## Per-LLM usage summary: what to read from which file
 

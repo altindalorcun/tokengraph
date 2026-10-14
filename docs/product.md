@@ -45,7 +45,7 @@ an agent prunes its logs, is worse than no graph. So:
 - **Open source.** MIT-licensed, and everything that runs is in this repository.
 - **Local-first and free to run.** Nothing the project pays for scales with its users.
 - **Token counts only.** tokengraph never reads, stores or sends prompts, answers or code. The
-  public gist holds an SVG graph with family colours and names, never model ids or raw counts.
+  public gist holds an SVG graph with family colours and names, never model ids or per-model counts (only daily totals).
 - **Publishing is opt-in and goes to you.** The only thing that leaves your machine is what you
   choose to publish, and it goes to gists on your own GitHub account.
 
