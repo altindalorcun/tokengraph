@@ -1,3 +1,4 @@
+import { connect } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startShareServer, type ShareEvent, type ShareServer } from '../src/share/server.js';
 
@@ -33,7 +34,9 @@ describe('share server', () => {
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(png);
 
     const saved = await fetch(`${server.url}card/receipt.png?download=1`);
-    expect(saved.headers.get('content-disposition')).toBe('attachment; filename="a-receipt.png"');
+    expect(saved.headers.get('content-disposition')).toBe(
+      `attachment; filename="a-receipt.png"; filename*=UTF-8''a-receipt.png`,
+    );
     await saved.arrayBuffer();
 
     const origin = server.url.replace(/[^/]+\/$/, '');
@@ -56,5 +59,50 @@ describe('share server', () => {
     const other = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat' });
     other.stop();
     expect(await other.done).toBe('stopped');
+  });
+
+  it('survives request targets that URL parsing rejects', async () => {
+    server = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat' });
+    const { hostname, port } = new URL(server.url);
+    for (const target of ['//', '//[', 'http://[/']) {
+      const reply = await new Promise<string>((resolve) => {
+        const socket = connect(Number(port), hostname);
+        let received = '';
+        socket.on('data', (chunk) => (received += chunk));
+        socket.on('close', () => resolve(received));
+        socket.on('error', () => resolve(received));
+        socket.write(`GET ${target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`);
+      });
+      expect(reply).toMatch(/^HTTP\/1\.1 404/);
+    }
+    expect((await fetch(server.url)).status).toBe(200);
+  });
+
+  it('builds a safe Content-Disposition and the CSP forbids base, forms and framing', async () => {
+    const odd = { ...cards[0]!, id: 'sticker', fileName: 'my "card".png' };
+    server = await startShareServer({ address: '127.0.0.1', cards: [odd], handle: 'octocat' });
+    const saved = await fetch(`${server.url}card/sticker.png?download=1`);
+    expect(saved.headers.get('content-disposition')).toBe(
+      `attachment; filename="my--card-.png"; filename*=UTF-8''my%20%22card%22.png`,
+    );
+    await saved.arrayBuffer();
+    const csp = (await fetch(server.url)).headers.get('content-security-policy') ?? '';
+    expect(csp).toContain("base-uri 'none'");
+    expect(csp).toContain("form-action 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  it('keeps serving when the event callback throws', async () => {
+    server = await startShareServer({
+      address: '127.0.0.1',
+      cards,
+      handle: 'octocat',
+      onEvent: () => {
+        throw new Error('boom');
+      },
+    });
+    expect((await fetch(server.url)).status).toBe(200);
+    expect((await fetch(`${server.url}card/skyline.png?download=1`)).status).toBe(200);
+    expect((await fetch(server.url)).status).toBe(200);
   });
 });

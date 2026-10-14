@@ -9,7 +9,7 @@ export function isPrivateIPv4(address: string): boolean {
 
 // Wi-Fi and Ethernet first; VPN tunnels and VM bridges are where a phone cannot reach.
 const PREFERRED = /^(en|eth|wlan|wl|wlp|enp|eno|ens|Wi-?Fi|Ethernet)/i;
-const VIRTUAL = /^(utun|tun|tap|bridge|vboxnet|vmnet|docker|br-|veth|virbr|lo|awdl|llw|zt|tailscale)/i;
+const VIRTUAL = /^(utun|tun|tap|bridge|vboxnet|vmnet|docker|br-|veth|virbr|lo\d*$|awdl|llw|zt|tailscale)/i;
 
 export function pickLanAddress(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>): string | null {
   const candidates: { name: string; address: string }[] = [];

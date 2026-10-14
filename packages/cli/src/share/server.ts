@@ -23,6 +23,13 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
 };
 
+/** A plain ASCII name plus the exact one in RFC 5987 form, so a quote or newline can never break the header. */
+function contentDisposition(fileName: string): string {
+  const plain = fileName.replace(/[^A-Za-z0-9._-]/g, '-');
+  const exact = encodeURIComponent(fileName).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${plain}"; filename*=UTF-8''${exact}`;
+}
+
 /**
  * A one-off web server for the phone on the same network: one random path token, the cards from
  * memory, nothing from disk, and it always ends.
@@ -50,8 +57,12 @@ export async function startShareServer(options: {
 
   const server = createServer((req, res) => {
     armIdle();
-    const url = new URL(req.url ?? '/', 'http://local');
-    if (!url.pathname.startsWith(prefix)) {
+    // Route on the raw target: URL parsing can throw on targets Node's parser accepts, and nothing
+    // before the token check may be able to take the process down.
+    const target = req.url ?? '';
+    const queryAt = target.indexOf('?');
+    const path = queryAt === -1 ? target : target.slice(0, queryAt);
+    if (!path.startsWith(prefix)) {
       res.writeHead(404, SECURITY_HEADERS).end();
       return;
     }
@@ -59,15 +70,16 @@ export async function startShareServer(options: {
       res.writeHead(405, { ...SECURITY_HEADERS, Allow: 'GET, HEAD' }).end();
       return;
     }
-    const rest = url.pathname.slice(prefix.length);
+    const rest = path.slice(prefix.length);
     if (rest === '') {
       res.writeHead(200, {
         ...SECURITY_HEADERS,
         'Content-Type': 'text/html; charset=utf-8',
-        'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
+        'Content-Security-Policy':
+          "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
       });
       res.end(req.method === 'HEAD' ? undefined : page);
-      if (req.method === 'GET') options.onEvent?.({ kind: 'page', userAgent: String(req.headers['user-agent'] ?? '') });
+      if (req.method === 'GET') emit({ kind: 'page', userAgent: String(req.headers['user-agent'] ?? '') });
       return;
     }
     const match = /^card\/([a-z]+)\.png$/.exec(rest);
@@ -76,23 +88,38 @@ export async function startShareServer(options: {
       res.writeHead(404, SECURITY_HEADERS).end();
       return;
     }
-    const download = url.searchParams.get('download') === '1';
+    let download = false;
+    try {
+      download = queryAt !== -1 && new URLSearchParams(target.slice(queryAt + 1)).get('download') === '1';
+    } catch {
+      res.writeHead(404, SECURITY_HEADERS).end();
+      return;
+    }
     res.writeHead(200, {
       ...SECURITY_HEADERS,
       'Content-Type': 'image/png',
       'Content-Length': String(card.png.length),
-      ...(download ? { 'Content-Disposition': `attachment; filename="${card.fileName}"` } : {}),
+      ...(download ? { 'Content-Disposition': contentDisposition(card.fileName) } : {}),
     });
     res.end(req.method === 'HEAD' ? undefined : card.png);
     if (download && req.method === 'GET') {
       saved.add(card.id);
-      options.onEvent?.({ kind: 'saved', id: card.id });
+      emit({ kind: 'saved', id: card.id });
       if (saved.size === options.cards.length) {
         clearTimeout(endTimer);
         endTimer = setTimeout(() => stop('all-saved'), options.afterAllSavedMs ?? AFTER_ALL_SAVED_MS);
       }
     }
   });
+
+  // A throwing listener must not take a request handler (and with it the process) down.
+  function emit(event: ShareEvent) {
+    try {
+      options.onEvent?.(event);
+    } catch {
+      /* ignore */
+    }
+  }
 
   function armIdle() {
     clearTimeout(idleTimer);

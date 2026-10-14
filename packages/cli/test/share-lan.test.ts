@@ -25,4 +25,9 @@ describe('lan', () => {
     expect(pickLanAddress({ eth7: [nic('10.0.0.9')] })).toBe('10.0.0.9');
     expect(pickLanAddress({ lo0: [nic('127.0.0.1', true)], utun0: [nic('100.64.0.1')] })).toBeNull();
   });
+
+  it('does not mistake Windows "Local Area Connection" for loopback', () => {
+    expect(pickLanAddress({ 'Local Area Connection': [nic('192.168.1.5')] })).toBe('192.168.1.5');
+    expect(pickLanAddress({ lo: [nic('10.0.0.1')], lo0: [nic('10.0.0.2')] })).toBeNull();
+  });
 });
