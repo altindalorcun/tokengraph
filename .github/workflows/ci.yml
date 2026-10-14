@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:
@@ -25,4 +29,7 @@ jobs:
       - run: npx tsc --build
       - run: npx vitest run
       - run: npm run smoke
+      - name: npm README is in sync
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: node scripts/sync-readme.mjs && git diff --exit-code packages/cli/README.md
       - run: npm run check:pack
