@@ -16,6 +16,11 @@ const AGENT_LABELS = {
   opencode: 'OpenCode',
 };
 
+/** Plain code-unit order, so the result never depends on the machine's ICU data. */
+function compareText(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function shiftDate(date, days) {
   const shifted = new Date(`${date}T12:00:00Z`);
   shifted.setUTCDate(shifted.getUTCDate() + days);
@@ -70,7 +75,7 @@ export function familyShares(core, modelRows) {
   if (total <= 0) return [];
   return weights
     .map((entry) => ({ family: entry.family, label: core.FAMILY_LABELS[entry.family], weighted: entry.weighted, share: entry.weighted / total }))
-    .sort((a, b) => b.weighted - a.weighted || a.family.localeCompare(b.family));
+    .sort((a, b) => b.weighted - a.weighted || compareText(a.family, b.family));
 }
 
 /** The last `count` calendar days up to `endDate`, oldest first; a day with no usage is a zero bar. */
@@ -101,7 +106,7 @@ export function dayModels(core, modelRows, dates) {
     const entries = [...byDate.get(date)]
       .map(([label, entry]) => ({ label, family: entry.family, weighted: core.weightedTokens(entry.counts) }))
       .filter((entry) => entry.weighted > 0)
-      .sort((a, b) => b.weighted - a.weighted || a.label.localeCompare(b.label));
+      .sort((a, b) => b.weighted - a.weighted || compareText(a.label, b.label));
     const total = entries.reduce((sum, entry) => sum + entry.weighted, 0);
     if (total <= 0) continue;
     result[date] = entries.slice(0, TOP_MODELS).map((entry) => ({ ...entry, share: entry.weighted / total }));
@@ -115,6 +120,9 @@ export function buildLanding(core, { referenceDate, handle }) {
   const endDate = core.graphEndDate(referenceDate, days.map((day) => day.date));
   const grid = core.buildGraphGrid(days, endDate);
   const cells = grid.columns.flat().filter((cell) => cell !== null);
+  // The shares describe the same window the grid draws, not the demo's whole history.
+  const windowStart = cells[0].date;
+  const windowRows = modelRows.filter((row) => row.date >= windowStart && row.date <= endDate);
   const best = cells.reduce((top, cell) => (cell.weighted > (top?.weighted ?? 0) ? cell : top), null);
   const stats = core.summarizeStats(days, endDate);
 
@@ -140,7 +148,7 @@ export function buildLanding(core, { referenceDate, handle }) {
       streak: stats.streak,
       best: best ? { date: best.date, weighted: best.weighted } : null,
     },
-    families: familyShares(core, modelRows),
+    families: familyShares(core, windowRows),
     recentBars: recentBars(days, endDate),
     dayModels: dayModels(core, modelRows, cells.filter((cell) => cell.weighted > 0).map((cell) => cell.date)),
     paletteCss: paletteCss(core),
