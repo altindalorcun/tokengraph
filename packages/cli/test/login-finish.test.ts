@@ -24,6 +24,24 @@ describe('firstPublish', () => {
     expect(readme).toHaveBeenCalledOnce();
   });
 
+  it('asks for a star once the snippet is shown, and not before', async () => {
+    const order: string[] = [];
+    const readme = vi.fn(async () => {
+      order.push('readme');
+      return 0;
+    });
+    vi.mocked(console.log).mockImplementation((line: unknown) => {
+      if (String(line).includes('github.com/altindalorcun/tokengraph')) order.push('star');
+    });
+    expect(await firstPublish({ sync: async () => 0, readme })).toBe(0);
+    expect(order).toEqual(['readme', 'star']);
+  });
+
+  it('does not ask for a star when the snippet could not be printed', async () => {
+    expect(await firstPublish({ sync: async () => 0, readme: async () => 1 })).toBe(1);
+    expect(out.join('\n')).not.toContain('github.com/altindalorcun');
+  });
+
   it('is not an error when another sync holds the lock', async () => {
     const readme = vi.fn(async () => 1);
     expect(await firstPublish({ sync: async () => SYNC_SKIPPED, readme })).toBe(0);

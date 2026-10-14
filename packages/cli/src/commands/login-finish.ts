@@ -1,5 +1,6 @@
 import { ephemeralInstallError } from '../bin-path.js';
 import { askYesNo } from '../prompt.js';
+import { PROJECT_URL } from '../readme-snippet.js';
 import { runReadme } from './readme.js';
 import { runSchedule } from './schedule.js';
 import { runSync, SYNC_NO_AGENTS, SYNC_SKIPPED, type SyncOptions } from './sync.js';
@@ -24,7 +25,9 @@ export async function firstPublish(
     return 0;
   }
   if (code !== 0) return code;
-  return deps.readme();
+  const readmeCode = await deps.readme();
+  if (readmeCode === 0) console.log(`\nIf you like it, a ⭐ on GitHub helps other people find it: ${PROJECT_URL}`);
+  return readmeCode;
 }
 
 export async function offerSchedule(): Promise<void> {

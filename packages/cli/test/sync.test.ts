@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createGeminiCliAdapter } from '../src/adapters/gemini-cli/index.js';
 import { runSync, SYNC_SKIPPED } from '../src/commands/sync.js';
 import { readConfig, writeConfig } from '../src/config.js';
-import { GitHubError, GitHubRateLimitError } from '../src/github/http.js';
+import { GitHubError, GitHubNotFoundError, GitHubRateLimitError } from '../src/github/http.js';
 import { readLedger } from '../src/ledger.js';
 import { ledgerPath } from '../src/paths.js';
 import { machineFileName } from '../src/publish/machines.js';
@@ -259,6 +259,26 @@ describe('runSync across agents', () => {
       await writeConfig(LOGIN);
       expect(await runSync({ sinceDays: 30, theme: 'light', deps: { clientFor: () => client, fingerprint: async () => 'fp' } })).toBe(1);
       expect(Object.keys((await readLedger(ledgerPath())).sources).length).toBeGreaterThan(0);
+    });
+
+    it('explains a gist that belongs to another account and keeps the usage', async () => {
+      await writeClaude();
+      const client = fakeGitHubClient();
+      await writeConfig(LOGIN);
+      const deps = { clientFor: () => client, fingerprint: async () => 'fp', newMachineId: () => MACHINE };
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps })).toBe(0);
+      // `gh auth switch`: the cached gist ids are readable but the new account cannot write them.
+      client.updateGist = async () => {
+        throw new GitHubNotFoundError('Not Found', 404);
+      };
+      const later = new Date(Date.now() + 3 * 24 * 3600 * 1000);
+      vi.mocked(console.error).mockClear();
+      expect(await runSync({ sinceDays: 30, theme: 'light', deps: { ...deps, now: () => later } })).toBe(1);
+      const output = vi.mocked(console.error).mock.calls.flat().join('\n');
+      expect(output).toContain('belong to a different GitHub account');
+      expect(output).toContain('tokengraph login');
+      expect(output).toContain('saved locally');
+      expect(output).not.toContain('Could not publish');
     });
 
     it('warns and still exits 0 when this machine\'s gist file cannot be read', async () => {

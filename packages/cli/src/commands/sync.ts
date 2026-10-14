@@ -16,7 +16,7 @@ import { cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
 import { readConfig, writeConfig, type CliConfig, type GitHubAccount, type GitHubAuth } from '../config.js';
 import { clientFor } from '../github/auth.js';
-import { GitHubAuthError, GitHubError, GitHubRateLimitError, type GitHubClient } from '../github/http.js';
+import { GitHubAuthError, GitHubError, GitHubNotFoundError, GitHubRateLimitError, type GitHubClient } from '../github/http.js';
 import { allLedgerUsage, ledgerToUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
 import { currentFingerprint } from '../publish/machine-identity.js';
@@ -199,6 +199,11 @@ async function publishFromSync(ledger: Ledger, config: CliConfig, github: GitHub
   } catch (error) {
     if (error instanceof GitHubAuthError) {
       console.error('\nGitHub no longer accepts this login. Run `tokengraph login` again. Your usage is saved locally.');
+    } else if (error instanceof GitHubNotFoundError) {
+      // After `gh auth switch` the stored login is stale: the cached gists are readable but not writable.
+      console.error(
+        '\nYour gists belong to a different GitHub account than the one you are signed in with now. Run `tokengraph login` to publish as the current account. Your usage is saved locally.',
+      );
     } else if (error instanceof GitHubRateLimitError) {
       const when = error.resetAt ? ` after ${error.resetAt.toLocaleTimeString()}` : ' later';
       console.error(`\nGitHub is rate-limiting requests; the graph will update on a sync${when}. Your usage is saved locally.`);
