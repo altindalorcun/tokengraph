@@ -10,7 +10,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --build",
     "build": "npm run build --workspaces --if-present",
-    "bundle": "npm run build -w tokengraph"
+    "bundle": "npm run build -w tokengraph",
+    "smoke": "npm run build -w tokengraph && node scripts/smoke-story.mjs --packed"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
