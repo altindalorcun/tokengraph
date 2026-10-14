@@ -32,7 +32,8 @@
   },
   "files": [
     "bundle",
-    "assets"
+    "assets",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "scripts": {
     "build": "tsc --build && esbuild dist/bin.js --bundle --platform=node --format=esm --target=node22 --define:process.env.NODE_ENV=\\\"production\\\" --outfile=bundle/bin.js --log-level=warning",
