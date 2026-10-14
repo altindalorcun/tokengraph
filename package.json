@@ -11,6 +11,7 @@
     "typecheck": "tsc --build",
     "build": "npm run build --workspaces --if-present",
     "bundle": "npm run build -w tokengraph",
+    "samples": "npm run build -w tokengraph && node scripts/samples.mjs",
     "smoke": "npm run build -w tokengraph && node scripts/smoke-story.mjs --packed"
   },
   "devDependencies": {
