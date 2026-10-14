@@ -12,7 +12,8 @@
     "build": "npm run build --workspaces --if-present",
     "bundle": "npm run build -w tokengraph",
     "samples": "npm run build -w tokengraph && node scripts/samples.mjs",
-    "smoke": "npm run build -w tokengraph && node scripts/smoke-story.mjs --packed"
+    "smoke": "npm run build -w tokengraph && node scripts/smoke-story.mjs --packed",
+    "check:pack": "node scripts/check-pack.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
