@@ -4,8 +4,8 @@ import { FAMILY_LOGOS, type Maker, type ModelFamily } from '../model-makers.js';
 
 /**
  * Small SVG pieces for the story cards, as strings. The PNG renderer takes nested SVG only as an
- * image, so each piece becomes a data: URI the card drops into an <img>. Runs in the browser (the
- * cards are drawn there) as well as on the server, so nothing here may touch Node APIs.
+ * image, so each piece becomes a data: URI the card drops into an <img>. Plain string work that
+ * runs in Node and in a worker alike, so nothing here may touch Node APIs.
  */
 
 /** Base64 of a string's UTF-8 bytes, in the browser, a worker or Node alike (no Buffer). */
@@ -20,7 +20,7 @@ export function svgUri(svg: string): string {
   return `data:image/svg+xml;base64,${base64(svg)}`;
 }
 
-/** Claude, OpenAI and Gemini use the agents' artwork, as the dashboard's ModelLogo does. */
+/** Claude, OpenAI and Gemini use the agents' artwork, as the graph legend does. */
 const MAKER_ART: Partial<Record<Maker, BrandLogoArt>> = {
   ...MAKER_LOGOS,
   anthropic: AGENT_LOGOS['claude-code'],

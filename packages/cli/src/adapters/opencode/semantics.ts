@@ -103,10 +103,10 @@ const AISDK6_WINDOW_START_MS = Date.parse('2026-03-27T20:24:30Z');
  * OpenCode v1 (SQLite `message`/`part`, and the pre-1.2.0 JSON storage) request semantics.
  *
  * `getUsage()` (`packages/opencode/src/session/session.ts`) changed what `tokens.input` and
- * `tokens.output` mean four times across OpenCode's history (see `docs/opencode-usage.md`,
- * "Alan semantiği" and "Eski kayıtlar için karar kuralı" — that note is the source of truth
- * for the arithmetic below; this function encodes its "eski kayıtlar için karar kuralı"
- * exactly). The short version: from 1.3.16 onward the five fields are disjoint and can be
+ * `tokens.output` mean four times across OpenCode's history (see `docs/agents/opencode-usage.md`,
+ * "Field semantics: the history of `getUsage()`" and "Decision rule for old records" — that
+ * note is the source of truth for the arithmetic below; this function encodes its "Decision rule
+ * for old records" exactly). The short version: from 1.3.16 onward the five fields are disjoint and can be
  * read directly (the "period-D shortcut"); before that, `tokens.total` (when present, from
  * 1.1.57) lets the four possible readings of input/output be tried against it, and the
  * reading is kept only when exactly one is arithmetically consistent. The one dangerous

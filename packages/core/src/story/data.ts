@@ -10,10 +10,10 @@ import { rangeWindow, shiftDate } from './range.js';
 import { summarizeStats } from './stats.js';
 
 /**
- * Everything a story card prints, worked out once from the same rows the dashboard reads. The
- * cards themselves only lay this out; every number here follows the dashboard's rules (days are
+ * Everything a story card prints, worked out once from the same rows the graph and the terminal view
+ * read. The cards themselves only lay this out; every number here follows their rules (days are
  * weighted first and then summed, unpriced is unknown and never $0, levels are the person's own
- * percentiles), so a card never disagrees with the page it was shared from.
+ * percentiles), so a card never disagrees with the graph it was made from.
  */
 
 export interface StoryModel {
@@ -64,7 +64,7 @@ export interface StoryData {
   highlight: StoryHighlight | null;
   /** Whole weeks ending with the period's last day, Sunday first, oldest week first. Future days are null. */
   weeks: (StoryDay | null)[][];
-  /** Made-up data for the landing page and signed-out visitors. */
+  /** Made-up demo data (the sample cards), not the person's usage. */
   demo: boolean;
 }
 

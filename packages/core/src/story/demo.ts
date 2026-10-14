@@ -10,9 +10,9 @@ import { shiftDate } from './range.js';
 const LOOKBACK = 14;
 
 /**
- * The landing page's made-up account as story rows. The demo year skips days at random, so its
+ * The made-up demo account as story rows (used for the sample cards in the README). The demo year skips days at random, so its
  * real today is often empty; the whole year is slid forward so the heaviest of its last two weeks
- * lands on today, and a visitor always sees a card worth sharing. Still never real data.
+ * lands on today, and the sample card is always worth showing. Still never real data.
  */
 export function demoStoryRows(now: Date): { rows: ModelDayRow[]; costRows: CostRow[]; todayUtc: string } {
   const todayUtc = dateKey(now, 'UTC');

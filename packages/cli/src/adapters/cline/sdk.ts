@@ -47,7 +47,7 @@ function importedAtCutoff(importedFrom: Record<string, unknown>): number | null 
 
 /**
  * Reads one SDK session file (the main agent's or a subagent's `.messages.json`) and adds its
- * billable assistant turns to `buckets`. See `docs/cline-usage.md` "B. SDK oturumu" for the shape
+ * billable assistant turns to `buckets`. See `docs/agents/cline-usage.md`, "B. SDK sessions", for the shape
  * and the imported/legacy-migration edge cases implemented here.
  */
 export function addSdkMessages(

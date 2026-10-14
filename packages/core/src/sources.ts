@@ -32,7 +32,7 @@ export interface AgentEntry {
 }
 
 /**
- * The agents token-graph reads, in the order the landing page lists them. Every entry has a
+ * The agents tokengraph reads, in the order the README and the CLI list them. Every entry has a
  * shipped adapter, so its source must be in KNOWN_SOURCES (a test holds this); an agent without
  * an adapter does not belong here.
  */

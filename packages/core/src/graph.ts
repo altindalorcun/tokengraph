@@ -61,14 +61,14 @@ interface Layout {
   legendGap: number;
 }
 
-/** The app's rule: 17px cells get 4px corners, 13px get 3, smaller get 2. */
+/** Corner rule: 17px cells get 4px corners, 13px get 3, smaller get 2. */
 function cellRadiusFor(cell: number): number {
   return cell >= 16 ? 4 : cell >= 13 ? 3 : 2;
 }
 
 /**
  * Designed at 900px because GitHub shows README images at most ~830px wide: the 11px labels land
- * near 10px on screen. The dashboard's proportions, scaled to that width rather than copied.
+ * near 10px on screen. The proportions are scaled to that width rather than copied from another size.
  */
 const FULL: Layout = {
   width: 900,

@@ -96,13 +96,13 @@ function canonicalKey(id: string, fingerprint: string, idToKey: Map<string, stri
 
 /**
  * Reads OpenCode's own local, per-request usage (never a provider bill — see
- * `docs/opencode-usage.md`) into tokengraph's four counters. v1 (SQLite `message`/`part`, and
+ * `docs/agents/opencode-usage.md`) into tokengraph's four counters. v1 (SQLite `message`/`part`, and
  * the pre-1.2.0 JSON storage) and v2 (`session_message`) are buffered separately and resolved
  * in {@link result}, so the caller can add sessions and messages in any order.
  *
  * v1's request unit is a step-finish part, or the message's own tokens when it has none — never
  * both, since the message's tokens are overwritten to equal its last step (see
- * `docs/opencode-usage.md`, "Kayıtlar nasıl yazılıyor"). v1 fork clones are deduplicated by a
+ * `docs/agents/opencode-usage.md`, "How the records are written"). v1 fork clones are deduplicated by a
  * content fingerprint under a fresh id. A v2 row whose id matches a v1 message's id is a
  * migrated copy of that v1 message and is dropped outright (v1's step-finish record is
  * authoritative); a v2 *fork copy* of such a migrated row carries the same data under a new

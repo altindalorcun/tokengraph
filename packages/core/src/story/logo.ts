@@ -184,7 +184,7 @@ export function logoLockupSvg(theme: LogoTheme): string {
   return `${head(LOGO_LOCKUP_VIEWBOX)}${logoCellMarkup()}<path d="${LOGO_WORDMARK_PATH}" transform="${LOGO_WORDMARK_TRANSFORM}" fill="${SURFACE[theme].ink}"/></svg>\n`;
 }
 
-/** Bounds of the flame, used to centre it exactly in the app tile. */
+/** Bounds of the flame, used to centre it exactly in the app icon tile. */
 function flameBounds() {
   const xs = LOGO_CELLS.map(([x]) => x);
   const ys = LOGO_CELLS.map(([, y]) => y);

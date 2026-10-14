@@ -1,11 +1,11 @@
 /**
- * Brand artwork for the agents token-graph reads, as 24x24 structured data (never raw SVG markup).
+ * Brand artwork for the agents tokengraph reads, as 24x24 structured data (never raw SVG markup).
  * The Claude and Gemini marks are the colour variants from Lobe Icons (MIT), fills and gradients
  * unchanged. Codex CLI (OpenAI), Cursor, Cline and OpenCode have no colour mark, so they are
  * monochrome path data from Simple Icons (CC0) painted with the `ink` paint: callers resolve it to
  * the surrounding text colour (black on light, white on dark), as the brands' own guidance for
  * mono marks. The marks themselves are trademarks of their owners and are used only to identify
- * the tools token-graph reads. The app's `AgentLogo` and the README embed's legend both read this
+ * the tools tokengraph reads. The terminal view and the README graph's legend both read this
  * one table, keyed by source id; a source without a mark has no entry.
  */
 

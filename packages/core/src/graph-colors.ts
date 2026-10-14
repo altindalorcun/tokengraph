@@ -42,7 +42,7 @@ export const FAMILY_RAMPS: Record<ModelFamily, Ramp> = {
   other: ['#292524', '#1e293b', '#334155', '#475569', '#64748b', '#cbd5e1'],
 };
 
-/** The same hues inverted for a light surface (pale means little). The app and the embed both read these. */
+/** The same hues inverted for a light surface (pale means little). The README graph and the terminal view both read these. */
 export const FAMILY_RAMPS_LIGHT: Record<ModelFamily, Ramp> = {
   claude: CLAUDE_RAMP_LIGHT,
   gpt: ['#e7e5e4', '#dbeafe', '#93c5fd', '#3b82f6', '#1d4ed8', '#1e3a8a'],
@@ -67,10 +67,9 @@ export const FAMILY_HUES: Record<ModelFamily, string> = {
 };
 
 /**
- * The graph screen (the app's `Display`) per theme: surface, inks and the empty-cell colour. The
- * README embed draws the same screen, so the app (`lib/graph-css.ts`, via these values) and
- * `renderGraphSvg` stay one design. `ring` and `shade` are the screen's hairline and inset
- * top shadow (`--display-well`).
+ * The graph screen per theme: surface, inks and the empty-cell colour. `renderGraphSvg` and the
+ * terminal view read these values, so they stay one design. `ring` and `shade` are the screen's
+ * hairline and inset top shadow.
  */
 export interface DisplaySurface {
   background: string;
