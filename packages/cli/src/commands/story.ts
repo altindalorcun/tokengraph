@@ -119,7 +119,7 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
 
   const renderer = await deps.renderer();
   const cards: ShareCard[] = [];
-  const outDir = options.outDir ?? (deps.exists(join(deps.home, 'Downloads')) ? join(deps.home, 'Downloads') : deps.home);
+  const outDir = options.outDir?.trim() || (deps.exists(join(deps.home, 'Downloads')) ? join(deps.home, 'Downloads') : deps.home);
   const fileHandle = safeFileHandle(data.handle);
   try {
     for (const template of options.templates) {

@@ -92,6 +92,20 @@ describe('runStory', () => {
     expect(output.join('\n')).toContain('http://127.0.0.1:1/tok/');
   });
 
+  it('does not share when the question is aborted or answered no', async () => {
+    const startShare = vi.fn();
+    const { deps: d, output } = deps({ ask: async () => false, startShare });
+    expect(await runStory(parseStoryArgs({}) as never, d)).toBe(0);
+    expect(startShare).not.toHaveBeenCalled();
+    expect(output.join('\n')).not.toContain('Scan with');
+  });
+
+  it('treats an empty --out as unset', async () => {
+    const { deps: d, written } = deps();
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline', out: '' }) as never, d);
+    expect(written).toEqual(['/home/me/Downloads/tokengraph-octocat-2026-10-11-skyline.png']);
+  });
+
   it('stops the server on Ctrl+C and says so', async () => {
     let resolveDone: (reason: 'stopped') => void = () => undefined;
     const done = new Promise<'stopped'>((resolve) => {
