@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir, networkInterfaces } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, posix, win32 } from 'node:path';
 import {
   STORY_RANGES,
   STORY_SIZES,
@@ -126,7 +126,9 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
 
   const renderer = await deps.renderer();
   const cards: ShareCard[] = [];
-  const outDir = options.outDir?.trim() || (deps.exists(join(deps.home, 'Downloads')) ? join(deps.home, 'Downloads') : deps.home);
+  const { join } = deps.platform === 'win32' ? win32 : posix;
+  const downloads = join(deps.home, 'Downloads');
+  const outDir = options.outDir?.trim() || (deps.exists(downloads) ? downloads : deps.home);
   const fileHandle = safeFileHandle(data.handle);
   try {
     for (const template of options.templates) {

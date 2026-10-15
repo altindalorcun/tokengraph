@@ -101,6 +101,12 @@ describe('runStory', () => {
     expect(output.join('\n')).not.toContain('Scan with');
   });
 
+  it('builds Windows paths on Windows', async () => {
+    const { deps: d, written } = deps({ platform: 'win32', home: 'C:\\Users\\me', exists: (path) => path === 'C:\\Users\\me\\Downloads' });
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, d);
+    expect(written).toEqual(['C:\\Users\\me\\Downloads\\tokengraph-octocat-2026-10-11-skyline.png']);
+  });
+
   it('treats an empty --out as unset', async () => {
     const { deps: d, written } = deps();
     await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline', out: '' }) as never, d);

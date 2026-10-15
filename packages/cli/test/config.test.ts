@@ -68,7 +68,7 @@ describe('writeConfig', () => {
     const config = { machineId: ID, github: { login: 'octocat', auth: { kind: 'token' as const, token: 'gho_abc' } } };
     await writeConfig(config, path);
     expect(await readConfig(path)).toEqual(config);
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(config);
   });
 });
