@@ -9,18 +9,19 @@ export function shortName(name: string, max: number): string {
 /**
  * Building blocks shared by the story cards. These render through Satori (next/og), not the
  * browser: every element with more than one child needs display:flex, styles are inline, and
- * there is no CSS cascade, so each piece sets its own font.
+ * there is no CSS cascade, so each piece sets its own font. The cards are laid out border-box;
+ * Satori 0.51 defaults to content-box, so anything with padding or a border says so itself.
  */
 
 export const SANS = 'Plex Sans';
 export const MONO = 'Plex Mono';
 
 export function Row({ style, children }: { style?: CSSProperties; children: ReactNode }) {
-  return <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', ...style }}>{children}</div>;
+  return <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', boxSizing: 'border-box', ...style }}>{children}</div>;
 }
 
 export function Column({ style, children }: { style?: CSSProperties; children: ReactNode }) {
-  return <div style={{ display: 'flex', flexDirection: 'column', ...style }}>{children}</div>;
+  return <div style={{ display: 'flex', flexDirection: 'column', boxSizing: 'border-box', ...style }}>{children}</div>;
 }
 
 /** A model's mark, or a dot in its colour when the maker is unknown, so rows stay aligned. */

@@ -107,6 +107,7 @@ export function SkylineCard({ data, showCost, cta }: CardContext) {
                   alignItems: 'center',
                   gap: 10,
                   padding: '7px 16px 7px 13px',
+                  boxSizing: 'border-box',
                   borderRadius: 40,
                   background: alpha(accent, 0.16),
                   border: `2px solid ${alpha(accent, 0.45)}`,
