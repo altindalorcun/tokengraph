@@ -83,12 +83,14 @@ describe('share server', () => {
   });
 
   it('keeps the idle timer alive for requests under the token', async () => {
-    server = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat', idleMs: 120 });
+    const idleMs = 120;
+    server = await startShareServer({ address: '127.0.0.1', cards, handle: 'octocat', idleMs });
     const started = Date.now();
     const poll = setInterval(() => void fetch(server!.url).then((r) => r.arrayBuffer()).catch(() => undefined), 30);
     await new Promise((r) => setTimeout(r, 300));
     clearInterval(poll);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+    // Outlived two idle windows. Not >= 300: a timer can fire a millisecond early by Date.now().
+    expect(Date.now() - started).toBeGreaterThan(2 * idleMs);
     expect(await Promise.race([server.done, Promise.resolve('still-running')])).toBe('still-running');
   });
 
