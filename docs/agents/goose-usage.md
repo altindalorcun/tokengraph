@@ -98,7 +98,7 @@ Goose can drive other agents as providers; `sessions.provider_name` names the pr
 | `claude-code`, `claude-acp` | Claude Code | excluded (Claude Code adapter) |
 | `codex`, `codex-acp` | Codex CLI | excluded (Codex adapter) |
 | `gemini-cli` | Gemini CLI | excluded (Gemini CLI adapter) |
-| `cursor-agent` | Cursor's CLI | excluded (Cursor adapter) |
+| `cursor-agent` | Cursor's CLI | excluded (Cursor adapter), with a gap: the Cursor adapter's only source is the event file written by tokengraph's Cursor `stop` hook. It is not verified that this hook fires for `cursor-agent --print` runs started by Goose, so without the hook, or if it does not fire, such Goose requests are counted by neither adapter. Double counting was judged worse than this disclosed undercount |
 | `copilot-acp` | Copilot CLI | excluded (Copilot CLI adapter) |
 | `pi-acp` | pi | excluded (pi adapter) |
 | `amp-acp` | Amp | counted: no tokengraph adapter reads Amp (threads are server-side). Goose's ACP rows carry the model name `current` (`ACP_CURRENT_MODEL`, `acp/provider.rs` L52), so they show under that model, unpriced |
@@ -108,7 +108,7 @@ Goose can drive other agents as providers; `sessions.provider_name` names the pr
 
 No ACP wrapper for Qwen Code, Kilo or OpenCode exists upstream (the ACP providers are `claude_acp`, `codex_acp`,
 `copilot_acp`, `amp_acp`, `pi_acp`). Names are compared trimmed and case-insensitively. The list is
-`EXCLUDED_PROVIDERS` in `aggregator.ts`. A row whose session or provider is missing is counted. Caveat: the provider is
+`EXCLUDED_PROVIDERS` in `aggregator.ts`. The exclusions assume the wrapped CLI runs on this same machine and writes the logs tokengraph reads here. A row whose session or provider is missing is counted. Caveat: the provider is
 session-level and can change mid-session, while the ledger has no provider column, so a session that switched providers
 is attributed by its last provider (the residual risk is small).
 
@@ -158,6 +158,8 @@ checkable here; the negative-input guard is the mitigation.
 - No Goose database was inspected: Goose is not installed on the maintainer's machine. Everything comes from the source
   at the commit above.
 - The legacy macOS and Linux locations come from a third-party note, not Goose's source.
+- Whether the Cursor `stop` hook fires for `cursor-agent --print` runs started by Goose. Without the hook (or if it does not fire), `cursor-agent` requests made through Goose are counted by neither the Cursor nor the Goose adapter.
+- Whether `copilot --acp` (Goose's `copilot-acp`) writes `assistant_usage_events` to Copilot CLI's `session-store.db`. The exclusion assumes it does.
 - Behaviour of old builds (before schema 15, and the input convention before it was unified) is untested.
 - Verify with a real `sessions.db` before relying on the numbers.
 
