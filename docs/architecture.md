@@ -139,7 +139,7 @@ time, so scheduled runs with a minimal `PATH` still work and our file holds no c
 `install-hook` makes an agent run the hidden `hook-sync` command, which only spawns a detached
 `sync`, so the hook returns instantly. `schedule` installs an hourly `sync --since 30` (launchd,
 cron or Task Scheduler). Both take `~/.tokengraph/sync.lock`, so two syncs never run at once, and
-`status` checks that the installed commands still point at an existing node and script. `status` also reports each agent's log-retention policy (`--json` for scripts). `uninstall` removes the hooks and the schedule; `--purge` also deletes only tokengraph's own files in the state folder, never the user's gists or the agents' logs.
+`status` checks that the installed commands still point at an existing node and script. `status` also reports the log-retention policy of Claude Code, Gemini CLI and Qwen Code (`--json` for scripts). `uninstall` removes the hooks and the schedule; `--purge` also deletes only tokengraph's own files in the state folder (anything else there is kept), never the user's gists or the agents' logs.
 
 ## Invariants
 

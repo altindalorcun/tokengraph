@@ -135,12 +135,12 @@ Every command takes `--help`. An unknown option is an error.
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
 | `tokengraph readme` | Prints the README snippet and copies it. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | Draws story cards, saves the PNGs (to your Downloads folder unless `--out <dir>`) and offers to send them to your phone. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>`. |
-| `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, which background syncs are installed and healthy, and how long each agent keeps its logs, with a warning when a short retention puts history at risk. `--json` prints it as one JSON object for scripts and AI agents. |
+| `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, which background syncs are installed and healthy, and how long Claude Code, Gemini CLI and Qwen Code keep their logs, with a warning when a short retention puts history at risk. `--json` prints it as one JSON object for scripts and AI agents. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off. |
 | `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. Reads the ledger only. |
 | `tokengraph import cursor <file.csv>` | Adds Cursor history from before the hook: download the usage CSV from the Cursor dashboard (Usage, export CSV) and pass it here. Importing the same or an overlapping file twice adds nothing twice. Import on one machine only: machines are added together, so the same file on two machines counts twice. Never publishes. |
-| `tokengraph uninstall` | Removes the Claude Code, Cursor and Codex hooks and the hourly schedule. `--purge` also deletes tokengraph's own files in `~/.tokengraph`, `--yes` skips the question, `--dry-run` changes nothing. Your gists are never touched. |
+| `tokengraph uninstall` | Removes the Claude Code, Cursor and Codex hooks and the hourly schedule. `--purge` also deletes tokengraph's own files in `~/.tokengraph` (ledger, login, logs, Cursor event and import files) and keeps anything else there, `--yes` skips the question, `--dry-run` changes nothing. Your gists are never touched. |
 
 Hooks and the schedule store the path of the installed program, so install tokengraph globally
 (`npm install -g tokengraph`) before using them; both refuse to run from an `npx` cache.
@@ -170,7 +170,7 @@ them at a tenth keeps the graph about work done. The formula is under [How it wo
 Only publishing needs GitHub.
 
 **How do I stop?** `tokengraph uninstall` removes the Claude Code, Cursor and Codex hooks and the hourly
-schedule; add `--purge` to also delete `~/.tokengraph` (the ledger, the login and the Cursor event and import files).
+schedule; add `--purge` to also delete tokengraph's own files in `~/.tokengraph` (the ledger, the login, logs, and the Cursor event and import files). Anything else in that folder stays.
 Then `npm uninstall -g tokengraph`. Your gists stay on GitHub until you delete them.
 
 **Windows?** Paths, hooks and the hourly Task Scheduler job are written for Windows, but tokengraph
