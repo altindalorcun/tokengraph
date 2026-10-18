@@ -121,7 +121,7 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
   model names only.
 - Nothing is sent to a tokengraph server, because there is none. The CLI talks only to GitHub
   (`api.github.com`, `github.com`, `gist.githubusercontent.com`) for the logged-in user.
-- `status`, `view` and `story` work offline from local files. `sync --local` never uses the
+- `status`, `view`, `story`, `export` and `import` work offline from local files. `sync --local` never uses the
   network. `view` never publishes.
 - The public gist exposes daily totals, model family names and colours, and never model ids or
   per-model counts. Those are only in the secret data gist.
@@ -139,7 +139,7 @@ time, so scheduled runs with a minimal `PATH` still work and our file holds no c
 `install-hook` makes an agent run the hidden `hook-sync` command, which only spawns a detached
 `sync`, so the hook returns instantly. `schedule` installs an hourly `sync --since 30` (launchd,
 cron or Task Scheduler). Both take `~/.tokengraph/sync.lock`, so two syncs never run at once, and
-`status` checks that the installed commands still point at an existing node and script.
+`status` checks that the installed commands still point at an existing node and script. `status` also reports each agent's log-retention policy (`--json` for scripts). `uninstall` removes the hooks and the schedule; `--purge` also deletes only tokengraph's own files in the state folder, never the user's gists or the agents' logs.
 
 ## Invariants
 

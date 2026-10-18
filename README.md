@@ -96,7 +96,7 @@ re-reading a big cached context would drown a day of real work. It measures work
 
 | | |
 | --- | --- |
-| **What leaves your machine** | To a public gist on your account: the SVG graphs (daily token totals and the names of the model families they are coloured by) and a README with the embed snippet and a link. To a secret gist on your account: per-day, per-model token counts, a random machine id, a label such as `darwin-3f2a1c`, a hashed machine fingerprint, the CLI version and the time of the last update. Both only after `tokengraph login`, and only when tokengraph publishes (`sync`, a hook, the schedule, or `login`). `sync --local`, `view` and `story` never do. |
+| **What leaves your machine** | To a public gist on your account: the SVG graphs (daily token totals and the names of the model families they are coloured by) and a README with the embed snippet and a link. To a secret gist on your account: per-day, per-model token counts, a random machine id, a label such as `darwin-3f2a1c`, a hashed machine fingerprint, the CLI version and the time of the last update. Both only after `tokengraph login`, and only when tokengraph publishes (`sync`, a hook, the schedule, or `login`). `sync --local`, `view`, `story`, `status`, `export` and `import` never do. |
 | **What never does** | Prompts, answers, code, file names, paths. Nothing is sent to any tokengraph server: there is none. |
 | **How to remove it** | `tokengraph logout` forgets the login on this machine. Delete the two gists on [gist.github.com](https://gist.github.com) to remove what was published. |
 
@@ -135,7 +135,7 @@ Every command takes `--help`. An unknown option is an error.
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
 | `tokengraph readme` | Prints the README snippet and copies it. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | Draws story cards, saves the PNGs (to your Downloads folder unless `--out <dir>`) and offers to send them to your phone. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>`. |
-| `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, and which background syncs are installed and healthy. `--json` prints it as one JSON object for scripts and AI agents. |
+| `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, which background syncs are installed and healthy, and how long each agent keeps its logs, with a warning when a short retention puts history at risk. `--json` prints it as one JSON object for scripts and AI agents. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off. |
 | `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. Reads the ledger only. |
@@ -166,11 +166,11 @@ the total and marked unpriced, never counted as $0, so the total can only be a l
 **Why weighted tokens?** Raw totals are mostly cache reads, which are cheap and large. Counting
 them at a tenth keeps the graph about work done. The formula is under [How it works](#how-it-works).
 
-**Does it work offline?** Yes. `view`, `story`, `status` and `sync --local` never use the network.
+**Does it work offline?** Yes. `view`, `story`, `status`, `export`, `import` and `sync --local` never use the network.
 Only publishing needs GitHub.
 
 **How do I stop?** `tokengraph uninstall` removes the Claude Code, Cursor and Codex hooks and the hourly
-schedule; add `--purge` to also delete `~/.tokengraph` (the ledger, the login and the Cursor event file).
+schedule; add `--purge` to also delete `~/.tokengraph` (the ledger, the login and the Cursor event and import files).
 Then `npm uninstall -g tokengraph`. Your gists stay on GitHub until you delete them.
 
 **Windows?** Paths, hooks and the hourly Task Scheduler job are written for Windows, but tokengraph

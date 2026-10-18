@@ -15,7 +15,14 @@ The first public release.
 - **Story cards.** `tokengraph story` draws three Instagram and TikTok story cards (skyline,
   receipt and sticker) on your machine and can send them to your phone with a QR code over the
   local network.
-- **Agents.** Claude Code, Codex CLI, Cursor, Gemini CLI, Cline and OpenCode. Claude Code, Codex
-  and Cursor can start a background sync when they finish.
+- **Agents.** Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI,
+  pi, Qwen Code and Goose. Claude Code, Codex and Cursor can start a background sync when they
+  finish; the others are picked up by the hourly schedule.
+- **Retention warnings.** `tokengraph status` shows how long Claude Code, Gemini CLI and Qwen Code
+  keep their logs and warns when history is at risk. `status --json` prints it for scripts.
+- **Export.** `tokengraph export` writes daily usage as CSV or JSON from the local ledger.
+- **Cursor import.** `tokengraph import cursor <csv>` adds history from a Cursor dashboard export.
+- **Uninstall.** `tokengraph uninstall` removes the hooks and the schedule. `--purge` also deletes
+  tokengraph's own files and nothing else.
 - **No server.** Nothing is sent to a tokengraph server, because there is none. Prompts, answers,
   code and file names are never read.
