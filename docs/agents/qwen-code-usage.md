@@ -230,16 +230,20 @@ pre-JSONL Gemini-fork era (0.0.x) layout was not checked, and a newer "managed" 
 
 ## Checked against real runs
 
-Qwen Code 0.25.2 was run against a fake LLM endpoint on the OpenAI and the Anthropic protocols, with two prompts
-per run. Chat records, `ui_telemetry` and the usage ledger were inspected. The endpoint served 4 requests; the
-chat records held 2 of them. The memory extractor's requests are only in the ledger (and as `ui_telemetry`
+Qwen Code 0.25.2 was run against a fake LLM endpoint (method as in the other agents' notes): two prompts on the
+OpenAI protocol, one on the Anthropic protocol, and one prompt that made the model call the `glob` tool first.
+Chat records, `ui_telemetry` and the usage ledger were inspected. In the two-prompt run the endpoint served 4
+requests; the chat records held 2 of them. The memory extractor's requests are only in the ledger (and as `ui_telemetry`
 `qwen-code.api_response` events, which are not read). With the ledger read, the OpenAI run matched the endpoint
-exactly (input 4070, cache read 830, output 140). On the Anthropic run the ledger's `inputTokens` was fresh input
+exactly (input 4070, cache read 830, output 140), and so did the tool run (3 requests: the tool call, the answer and
+the extractor). On the Anthropic run the ledger's `inputTokens` was fresh input
 plus cache read plus cache write (1261 = 1007 + 203 + 51), so cache writes land in input and the cache-write
 figure is 0, as described above.
 
-## Not verified against real data
+## Still not verified
 
+- The subagent (agent tool) path was not run: headless Qwen Code did not offer the agent tool to the model
+  directly. Subagent transcripts under `subagents/` and their sidecar model are still from the source only.
 - Only those fake-endpoint runs were seen; no transcript from a real provider session was. The example figures in
   this note's chat record are invented.
 - Which protocol produced a record is not recorded, so `total - prompt` for output and the cache clamp are rules

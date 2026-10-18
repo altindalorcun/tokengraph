@@ -7,11 +7,10 @@ it into tokengraph's fields. The adapter lives in `packages/cli/src/adapters/kil
 thresholds. Read `docs/agents/opencode-usage.md` first: the storage layout, the `getUsage()` history,
 the dedup rules and the arithmetic are all defined there, and this note only records what differs.
 
-Kilo was not installed on the machine where the research was done. Everything below was worked out
-from the source code (`main`, commit
+Everything below was worked out from the source code (`main`, commit
 [`2a1903f`](https://github.com/Kilo-Org/kilocode/tree/2a1903f29186e25adec0bace14f6ee589095f7eb),
-17 October 2026, version 7.8.14, full git history fetched to date the version boundaries); it was not
-verified against a real local file.
+17 October 2026, version 7.8.14, full git history fetched to date the version boundaries), then checked by
+running Kilo CLI 7.8.12 against a fake endpoint (see "Checked against real runs").
 
 In short: `packages/opencode` in Kilo's repository is a fork of OpenCode v1 (changes are marked
 `kilocode_change`). It writes the same `session` / `message` / `part` SQLite tables and the same
@@ -153,9 +152,15 @@ response text, tool output, `session.directory` and `title` are never selected.
 - Cross-check only: tokscale's `kilo.rs` fixture (a Kilo message with `providerID: "kilo"`,
   `modelID: "minimax/m2.5"`).
 
-## Not verified against real data
+## Checked against real runs
 
-No Kilo installation was available. The field names, version boundaries and write paths come from the
-cited source and git history only. Open questions: whether any released build wrote `DATA/opencode.db`
-before the rename; whether the released CLI writes `session_message` rows; and whether gateway ids other
-than the vendor prefixes handled by `canonicalModelId` need more normalisation.
+Kilo CLI 7.8.12 (`@kilocode/cli`). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
+
+- Providers: `@ai-sdk/openai-compatible` and `@ai-sdk/anthropic` with a custom `baseURL` in
+  `~/.config/kilo/kilo.json`. Runs: `kilo run` on each, `kilo run -c` (continue), and one prompt per provider
+  that made the model call the `glob` tool first (two steps in one message). 7 requests in all, read from
+  `~/.local/share/kilo/kilo.db`; every field matched the endpoint exactly, so the step-finish rule holds for
+  multi-step messages.
+- Still open: whether any released build wrote `DATA/opencode.db` before the rename; whether the released CLI
+  writes `session_message` rows; and whether gateway ids other than the vendor prefixes handled by
+  `canonicalModelId` need more normalisation.

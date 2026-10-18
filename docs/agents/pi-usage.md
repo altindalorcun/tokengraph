@@ -115,15 +115,17 @@ loads them. `usage` entries, `cacheWrite1h` and `reasoning` are newer additions,
 the four counters is treated as optional. The npm package was renamed to `@earendil-works/*` in 2026; the folder
 did not change.
 
-## Not verified against real data
+## Checked against real runs
 
-- No pi installation exists on the maintainer's machine, so no real session file was inspected. Every field name,
-  the exclusive-input rule and the fork behaviour come from pi's source at the commit below; the adapter's tests
-  use fixtures built from that source.
-- Whether `/fork` always reuses the original `responseId` (it copies entries verbatim in the code read) was not
-  observed on disk.
-- Compaction, branch-summary and nested tool-call usage is skipped because it names no model; for a heavy user
-  this undercounts a small amount. The note reports how many records were skipped.
+pi 0.73.1 (`@mariozechner/pi-coding-agent`). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
+
+- Runs: two `-p` prompts on an `openai-completions` provider and two on an `anthropic-messages` provider (one of
+  them `--continue`), then one prompt per provider that made the model call the `bash` tool first. 8 requests in
+  all; fresh input, cache read, cache write and output matched the endpoint exactly, so `input` is indeed
+  exclusive of cache and the per-request entries are complete.
+- Not observed: whether `/fork` always reuses the original `responseId` (it copies entries verbatim in the code
+  read). Compaction, branch-summary and nested tool-call usage is skipped because it names no model; for a heavy
+  user this undercounts a small amount, and the note reports how many records were skipped.
 
 ## Sources
 

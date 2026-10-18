@@ -153,15 +153,21 @@ Ledger introduced by migration 15; the exact Goose release is not determinable f
 schema is 17. Whether the inclusive-input convention held for every build before the unified `Usage` struct is not
 checkable here; the negative-input guard is the mitigation.
 
-## Not verified against real data
+## Checked against real runs
 
-- No Goose database was inspected: Goose is not installed on the maintainer's machine. Everything comes from the source
-  at the commit above.
-- The legacy macOS and Linux locations come from a third-party note, not Goose's source.
-- Whether the Cursor `stop` hook fires for `cursor-agent --print` runs started by Goose. Without the hook (or if it does not fire), `cursor-agent` requests made through Goose are counted by neither the Cursor nor the Goose adapter.
-- Whether `copilot --acp` (Goose's `copilot-acp`) writes `assistant_usage_events` to Copilot CLI's `session-store.db`. The exclusion assumes it does.
-- Behaviour of old builds (before schema 15, and the input convention before it was unified) is untested.
-- Verify with a real `sessions.db` before relying on the numbers.
+Goose 1.55.0 (the `goose-aarch64-apple-darwin` release binary). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
+
+- Providers: `openai` (which used the Responses API for `gpt-5.4`) and `anthropic`, both with a custom host,
+  `goose run -t`, plus one prompt that made the model call the `shell` tool first. Every `usage_ledger` row matched
+  the request it came from exactly, so `input_tokens` includes cache read and cache write as assumed.
+- **Gap: the session-naming request.** Each new session's first request asks the model for a session name. It is
+  not in `usage_ledger` or `sessions` (Goose's own totals miss it too). It appears only in the rotating debug
+  logs `~/.local/state/goose/logs/llm_request.<n>.jsonl`, which keep the last few requests and hold full prompts,
+  so they are not read. The undercount is one short request per session.
+- Still unverified: the legacy macOS and Linux locations (from a third-party note, not Goose's source); whether
+  the Cursor `stop` hook fires for `cursor-agent --print` runs started by Goose (without it, those requests are
+  counted by neither adapter); whether `copilot --acp` writes `assistant_usage_events` (the exclusion assumes
+  it does); and old builds (before schema 15, and the input convention before it was unified).
 
 ## Sources
 

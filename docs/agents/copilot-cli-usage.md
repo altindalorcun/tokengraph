@@ -7,10 +7,9 @@ is the research behind it.
 
 **Copilot CLI is closed source and publishes no schema.** Its repository holds only the changelog,
 issues and docs. Every table and column name below comes from two third-party tools that read real
-`session-store.db` files, so there is no upstream authority to cite for the format, and Copilot CLI
-was not installed on the machine where the research was done (the maintainer's `~/.copilot` holds
-only `config.json` and `logs/`). Treat every field name as reverse-engineered, and see "Not verified
-against real data" before trusting a number.
+`session-store.db` files, so there is no upstream authority to cite for the format. The meanings were then
+checked on a store written by Copilot CLI 1.0.98 against a fake endpoint (see "Checked against a real store");
+the field names are still reverse-engineered and may change with any release.
 
 In short: Copilot CLI 1.0.70 and later write one row per LLM request into the SQLite table
 `assistant_usage_events` in `~/.copilot/session-store.db`. `input_tokens` **includes** cache reads and
@@ -179,17 +178,23 @@ release the third-party parsers cite for `assistant_usage_events`; the latest ch
 | tokscale `copilot_session_store.rs` | table and columns, the `input - read - write` rule, dedup key, model preference, UTC reading of `created_at` |
 | TokenTracker `rollout.js` (L19147-L19470), `copilot-session-store-parser.test.js` | `schema_version` table and `SELECT version`, the lean column set, "CLI input includes both cache reads and writes", reasoning treated as a subset of output |
 
-## Not verified against real data
+## Checked against a real store
 
-- No real `session-store.db` was inspected: not on the maintainer's machine, and the upstream is closed source.
-  Every column name, the meaning of `input_tokens`, the `created_at` format and `schema_version` 6 come from the
-  two parsers above.
-- Whether `output_tokens` includes reasoning is unconfirmed (see above).
-- Whether `copilot_usage_model` differs from `model` (for example, a routed `auto` model resolved to a real one)
-  is not documented.
-- Whether Copilot Chat's CLI-type sessions always reach `session-store.db` is not confirmed.
-- Whether resuming or forking a session copies its rows into a new session id (which would double count them) is unverified.
-- Verify with a real database from Copilot CLI 1.0.70 or newer before relying on the numbers.
+Copilot CLI 1.0.98 (`@github/copilot`), in BYOK offline mode (`COPILOT_OFFLINE=true`,
+`COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_TYPE` `openai` and `anthropic`), so no GitHub account was used.
+Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
+
+- The store had `schema_version` 8 and the column set in the adapter test (`V8_COLUMNS`); `created_at` is an ISO
+  instant with `Z`. `input_tokens` = fresh + cache read on the OpenAI type (1210 = 1007 + 203) and fresh + cache
+  read + cache write on the Anthropic type (1272 = 1014 + 206 + 52), as assumed.
+- Runs: one prompt per provider type, one prompt that made the model call the `glob` tool first, and a
+  `--resume` of that session. Resuming added one row to the same session id and copied nothing. Every field
+  matched the endpoint exactly.
+- Before version 8 was accepted, the guard skipped these stores (limit 6, from TokenTracker's fixtures), so a
+  current Copilot CLI counted nothing.
+- Still unverified: whether `output_tokens` includes reasoning (the fake endpoint sent none); what
+  `copilot_usage_model` holds with a GitHub account (it was null in BYOK); whether Copilot Chat's CLI-type sessions
+  reach `session-store.db`; and forking a session.
 
 ## Sources
 
