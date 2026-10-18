@@ -1,5 +1,7 @@
 import { dateKey, GEMINI_CLI_SOURCE, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
+import { asObject, nonEmptyString, readInstant, readOptionalCount, readRequiredCount } from '../usage-fields.js';
+import { CopyDiagnostics } from '../record-diagnostics.js';
 import { RequestBuckets, tierForModel, type RequestRecord } from '../request-buckets.js';
 
 export interface GeminiAggregatorOptions {
@@ -18,35 +20,6 @@ export interface GeminiDiagnostics {
   unreadableFiles: number;
 }
 
-function asObject(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
-}
-
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-/** input/output are required and must be finite, non-negative integers; anything else is malformed. */
-function readRequiredCount(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0 ? value : null;
-}
-
-/**
- * cached/thoughts/tool default to 0 when the field is absent — that's not malformed, just an older
- * or leaner record. A *present* value must be a finite, non-negative integer; a present negative or
- * non-integer value is malformed (returns null) rather than being silently coerced to 0.
- */
-function readOptionalCount(value: unknown): number | null {
-  if (value === undefined) return 0;
-  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0 ? value : null;
-}
-
-function readInstant(value: unknown): Date | null {
-  if (typeof value !== 'string') return null;
-  const instant = new Date(value);
-  return Number.isNaN(instant.getTime()) ? null : instant;
-}
-
 /**
  * Reads Gemini CLI chat recordings. One `type: "gemini"` message with a `tokens` object is one
  * API request; its `id` is global across files, since the same id can reappear in a hash→slug
@@ -61,18 +34,8 @@ function readInstant(value: unknown): Date | null {
 export class GeminiUsageAggregator {
   private readonly options: GeminiAggregatorOptions;
   private readonly buckets = new RequestBuckets();
-  /**
-   * Per-id diagnosis state, resolved the same way OpenCode resolves its request keys: a diagnostic
-   * is tentative until every copy of an id has been seen, and is only kept if no copy of that id
-   * ever cleared it. `resolvedIds` — a valid (non-malformed) copy has been seen, so `malformed` can
-   * never be (re-)recorded for this id. `cleanIds` — a fully clean valid copy (no clamp, no
-   * mismatch) has been seen, so `clamped`/`mismatch` can never be (re-)recorded for this id either.
-   */
-  private readonly resolvedIds = new Set<string>();
-  private readonly cleanIds = new Set<string>();
-  private readonly pendingMalformed = new Set<string>();
-  private readonly pendingClamped = new Set<string>();
-  private readonly pendingMismatch = new Set<string>();
+  /** Per-id diagnoses, tentative until every copy of an id has been seen. */
+  private readonly diagnosis = new CopyDiagnostics<'clamped' | 'mismatch'>();
   private unreadableFiles = 0;
 
   constructor(options: GeminiAggregatorOptions = {}) {
@@ -116,25 +79,16 @@ export class GeminiUsageAggregator {
     const thoughts = readOptionalCount(tokens['thoughts']);
     const tool = readOptionalCount(tokens['tool']);
     if (input === null || output === null || cached === null || thoughts === null || tool === null) {
-      if (!this.resolvedIds.has(id)) this.pendingMalformed.add(id);
+      this.diagnosis.noteMalformed(id);
       return;
     }
-    this.resolvedIds.add(id);
-    this.pendingMalformed.delete(id);
 
     const fresh = input - cached;
-    const isClamped = fresh < 0;
-    if (isClamped && !this.cleanIds.has(id)) this.pendingClamped.add(id);
-
     const total = tokens['total'];
-    const isMismatch = typeof total === 'number' && total !== input + output + thoughts + tool;
-    if (isMismatch && !this.cleanIds.has(id)) this.pendingMismatch.add(id);
-
-    if (!isClamped && !isMismatch) {
-      this.cleanIds.add(id);
-      this.pendingClamped.delete(id);
-      this.pendingMismatch.delete(id);
-    }
+    const issues: Array<'clamped' | 'mismatch'> = [];
+    if (fresh < 0) issues.push('clamped');
+    if (typeof total === 'number' && total !== input + output + thoughts + tool) issues.push('mismatch');
+    this.diagnosis.noteValid(id, issues);
 
     const counts: SplitTokenCounts = {
       inputTokens: Math.max(0, fresh) + tool,
@@ -151,9 +105,9 @@ export class GeminiUsageAggregator {
 
   diagnostics(): GeminiDiagnostics {
     return {
-      malformedMessages: this.pendingMalformed.size,
-      clampedMessages: this.pendingClamped.size,
-      totalMismatches: this.pendingMismatch.size,
+      malformedMessages: this.diagnosis.malformedCount,
+      clampedMessages: this.diagnosis.count('clamped'),
+      totalMismatches: this.diagnosis.count('mismatch'),
       unreadableFiles: this.unreadableFiles,
     };
   }

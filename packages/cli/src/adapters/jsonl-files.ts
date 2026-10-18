@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -29,4 +29,23 @@ export async function readLines(path: string, onLine: (line: string) => void): P
   } finally {
     reader.close();
   }
+}
+
+export async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Full paths of the directories directly under a directory; a missing directory yields none. */
+export async function childDirectories(dir: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => join(dir, entry.name));
 }

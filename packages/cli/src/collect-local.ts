@@ -8,6 +8,7 @@ import { createGeminiCliAdapter, geminiTmpDirs } from './adapters/gemini-cli/ind
 import { createKiloAdapter, kiloDataDir } from './adapters/kilo/index.js';
 import { createOpenCodeAdapter, openCodeDataDir } from './adapters/opencode/index.js';
 import { createPiAdapter, piSessionDirs } from './adapters/pi/index.js';
+import { createQwenCodeAdapter, qwenProjectsDirs } from './adapters/qwen-code/index.js';
 import { mergeUsage, type Ledger } from './ledger.js';
 
 export interface CollectProgress {
@@ -35,6 +36,7 @@ export function defaultAdapters(): Adapter[] {
     createKiloAdapter(),
     createCopilotCliAdapter(),
     createPiAdapter(),
+    createQwenCodeAdapter(),
   ];
 }
 
@@ -84,13 +86,14 @@ export function searchedPaths(): string[] {
     `${kiloDataDir()} (Kilo CLI)`,
     `${copilotHome()} (Copilot CLI)`,
     `${piSessionDirs().join(' and ')} (pi)`,
+    `${qwenProjectsDirs().join(' and ')} (Qwen Code)`,
   ];
 }
 
 /** Sync's "No agent usage found…" text, shared with the view's empty state. */
 export function noAgentsMessage(): string {
   return (
-    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI and pi data:\n' +
+    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi and Qwen Code data:\n' +
     searchedPaths()
       .map((line) => `  ${line}`)
       .join('\n')

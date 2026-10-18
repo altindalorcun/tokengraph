@@ -157,7 +157,7 @@ function retentionLine(policy: RetentionPolicy): string {
   const where = `${policy.setting} in ${policy.configPath}`;
   if (policy.state === 'keeps') return policy.source === 'gemini-cli' ? `keeps sessions (${policy.setting} is off in ${policy.configPath})` : `keeps transcripts (${where})`;
   if (policy.state === 'unknown') return `unknown (could not read ${where})`;
-  const what = policy.source === 'gemini-cli' ? 'sessions' : 'transcripts';
+  const what = policy.source === 'gemini-cli' ? 'sessions' : policy.source === 'qwen-code' ? 'background subagent transcripts' : 'transcripts';
   return `deletes ${what} after ${formatDays(policy.days ?? 0)} (${policy.isDefault ? 'default; ' : ''}${where})`;
 }
 

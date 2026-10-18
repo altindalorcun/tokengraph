@@ -16,11 +16,14 @@ afterEach(async () => {
 
 const claudeSettings = () => join(root, 'claude', 'settings.json');
 const geminiSettings = () => join(root, 'gemini', 'settings.json');
+const qwenSettings = () => join(root, 'qwen', 'settings.json');
 
-async function setup(options: { claude?: boolean; gemini?: boolean } = { claude: true, gemini: true }) {
+async function setup(options: { claude?: boolean; gemini?: boolean; qwen?: boolean } = { claude: true, gemini: true }) {
   if (options.claude) await mkdir(join(root, 'claude', 'projects'), { recursive: true });
   if (options.gemini) await mkdir(join(root, 'gemini', 'tmp'), { recursive: true });
+  if (options.qwen) await mkdir(join(root, 'qwen', 'projects'), { recursive: true });
   await mkdir(join(root, 'claude'), { recursive: true });
+  await mkdir(join(root, 'qwen'), { recursive: true });
   await mkdir(join(root, 'gemini'), { recursive: true });
 }
 
@@ -30,6 +33,8 @@ function read() {
     claudeDataDirs: () => [join(root, 'claude', 'projects')],
     geminiSettingsPath: geminiSettings,
     geminiDataDirs: () => [join(root, 'gemini', 'tmp')],
+    qwenSettingsPath: qwenSettings,
+    qwenDataDirs: () => [join(root, 'qwen', 'projects')],
   });
 }
 
@@ -42,6 +47,12 @@ async function claude(settings: string | undefined) {
 async function gemini(settings: string | undefined) {
   await setup({ gemini: true });
   if (settings !== undefined) await writeFile(geminiSettings(), settings);
+  return (await read())[0]!;
+}
+
+async function qwen(settings: string | undefined) {
+  await setup({ qwen: true });
+  if (settings !== undefined) await writeFile(qwenSettings(), settings);
   return (await read())[0]!;
 }
 
@@ -109,6 +120,41 @@ describe('Gemini CLI retention', () => {
   });
 });
 
+describe('Qwen Code retention', () => {
+  const setting = 'general.cleanupPeriodDays';
+
+  it('defaults to 30 days when nothing is set', async () => {
+    expect(await qwen(undefined)).toMatchObject({ source: 'qwen-code', days: 30, isDefault: true, setting, state: 'deletes', configPath: qwenSettings() });
+    expect(await qwen('{"general": {}}')).toMatchObject({ days: 30, isDefault: true });
+    expect(await qwen('{"cleanupPeriodDays": 2}')).toMatchObject({ days: 30, isDefault: true });
+  });
+
+  it('reads an explicit number of days, fractions included', async () => {
+    expect(await qwen('{"general": {"cleanupPeriodDays": 90}}')).toMatchObject({ days: 90, isDefault: false, state: 'deletes' });
+    expect(await qwen('{"general": {"cleanupPeriodDays": 0.5}}')).toMatchObject({ days: 0.5, state: 'deletes' });
+  });
+
+  it('treats 0 and negatives as the one-hour minimum Qwen Code applies', async () => {
+    expect(await qwen('{"general": {"cleanupPeriodDays": 0}}')).toMatchObject({ days: 1 / 24, isDefault: false, state: 'deletes' });
+    expect(await qwen('{"general": {"cleanupPeriodDays": -5}}')).toMatchObject({ days: 1 / 24, state: 'deletes' });
+  });
+
+  it('treats malformed JSON and non-number values as unknown', async () => {
+    for (const text of ['{nope', '[]', '{"general": {"cleanupPeriodDays": "30"}}', '{"general": {"cleanupPeriodDays": null}}']) {
+      expect(await qwen(text)).toMatchObject({ days: null, state: 'unknown' });
+    }
+  });
+
+  it('warns that only the background subagent logs are at risk', () => {
+    const qw = (overrides: Partial<RetentionPolicy> = {}) =>
+      policy({ source: 'qwen-code', setting: 'general.cleanupPeriodDays', configPath: '/h/.qwen/settings.json', ...overrides });
+    const [warning] = retentionWarnings([qw()], health({ claudeHook: entry(true) }));
+    expect(warning).toContain('qwen-code deletes its background subagent logs after 30 days');
+    expect(retentionWarnings([qw()], health({ schedule: entry(true) }))).toEqual([]);
+    expect(retentionWarnings([qw({ days: 3 })], health({ schedule: entry(true) }))[0]).toContain('background subagent logs after only 3 days');
+  });
+});
+
 describe('which agents get a policy', () => {
   it('returns none when no agent data directory exists', async () => {
     await setup({});
@@ -122,6 +168,9 @@ describe('which agents get a policy', () => {
     await rm(join(root, 'claude', 'projects'), { recursive: true });
     await setup({ gemini: true });
     expect((await read()).map((policy) => policy.source)).toEqual(['gemini-cli']);
+    await rm(join(root, 'gemini', 'tmp'), { recursive: true });
+    await setup({ qwen: true });
+    expect((await read()).map((policy) => policy.source)).toEqual(['qwen-code']);
   });
 });
 
@@ -208,6 +257,15 @@ describe('status data retention section', () => {
     expect(lines[at + 1]).toBe('  claude-code:      deletes transcripts after 30 days (default; cleanupPeriodDays in /h/.claude/settings.json)');
     expect(lines[at + 2]).toBe('  gemini-cli:       keeps sessions (general.sessionRetention is off in /h/.gemini/settings.json)');
     expect(lines[at + 3]).toMatch(/^warning: claude-code deletes its logs after 30 days/);
+  });
+
+  it('names what Qwen Code deletes', async () => {
+    await runStatus({
+      ...base,
+      retention: async () => [policy({ source: 'qwen-code', setting: 'general.cleanupPeriodDays', configPath: '/h/.qwen/settings.json' })],
+    });
+    const at = lines.indexOf('data retention:');
+    expect(lines[at + 1]).toBe('  qwen-code:        deletes background subagent transcripts after 30 days (default; general.cleanupPeriodDays in /h/.qwen/settings.json)');
   });
 
   it('prints nothing when no policy applies', async () => {
