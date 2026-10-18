@@ -9,16 +9,20 @@ import { allLedgerUsage, readLedger } from '../ledger.js';
 import { configHome, hookSyncLogPath, ledgerPath, legacyConfigHome } from '../paths.js';
 import { activeDayCount, machineLabel } from '../publish/machines.js';
 import { readLastPublish, readMachinesCache } from '../publish/machines-cache.js';
+import { formatDays, readRetentionPolicies, retentionWarnings, type RetentionPolicy } from '../retention.js';
 import { summariseByDay } from './sync.js';
 
 export interface StatusDeps {
   autoSync: () => Promise<AutoSyncHealth>;
   /** Whether the pre-release `~/.token-graph` folder still holds data that was not moved. */
   legacyData: () => string[];
+  /** The data-retention policy of each agent that auto-deletes its logs and is installed here. */
+  retention: () => Promise<RetentionPolicy[]>;
 }
 
 const DEFAULT_DEPS: StatusDeps = {
   autoSync: () => inspectAutoSync(),
+  retention: () => readRetentionPolicies(),
   legacyData: () => {
     const legacy = legacyConfigHome();
     if (legacy === configHome()) return [];
@@ -51,7 +55,9 @@ export async function runStatus(overrides: Partial<StatusDeps> = {}): Promise<nu
   for (const day of days.slice(-7)) {
     console.log(`  ${day.date}  ${formatTokens(day.weighted).padStart(8)}`);
   }
-  printAutoSync(await deps.autoSync());
+  const autoSync = await deps.autoSync();
+  printAutoSync(autoSync);
+  printRetention(await deps.retention(), autoSync);
   await printHookSync();
   const leftovers = deps.legacyData();
   if (leftovers.length > 0) {
@@ -86,6 +92,21 @@ export function printAutoSync(health: AutoSyncHealth): void {
       console.log(`    fix: ${row.reinstall}`);
     }
   }
+}
+
+function retentionLine(policy: RetentionPolicy): string {
+  const where = `${policy.setting} in ${policy.configPath}`;
+  if (policy.state === 'keeps') return policy.source === 'gemini-cli' ? `keeps sessions (${policy.setting} is off in ${policy.configPath})` : `keeps transcripts (${where})`;
+  if (policy.state === 'unknown') return `unknown (could not read ${where})`;
+  const what = policy.source === 'gemini-cli' ? 'sessions' : 'transcripts';
+  return `deletes ${what} after ${formatDays(policy.days ?? 0)} (${policy.isDefault ? 'default; ' : ''}${where})`;
+}
+
+export function printRetention(policies: RetentionPolicy[], autoSync: AutoSyncHealth): void {
+  if (policies.length === 0) return;
+  console.log('data retention:');
+  for (const policy of policies) console.log(`  ${`${policy.source}:`.padEnd(18)}${retentionLine(policy)}`);
+  for (const warning of retentionWarnings(policies, autoSync)) console.log(`warning: ${warning}`);
 }
 
 async function printHookSync(): Promise<void> {

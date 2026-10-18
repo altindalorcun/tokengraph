@@ -25,6 +25,7 @@ describe('status with a GitHub login', () => {
   const deps = {
     autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, schedule: HEALTH }) as never,
     legacyData: () => [],
+    retention: async () => [],
   };
 
   it('shows the gist links and the other machines', async () => {

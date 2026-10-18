@@ -52,7 +52,7 @@ export interface InstallHookOptions {
   dryRun: boolean;
 }
 
-function settingsPath(): string {
+export function settingsPath(): string {
   return join(process.env['CLAUDE_CONFIG_DIR'] ?? join(homedir(), '.claude'), 'settings.json');
 }
 
