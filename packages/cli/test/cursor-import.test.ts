@@ -53,8 +53,8 @@ describe('tokengraph import cursor', () => {
 
   it('stores rows (mode 0600) and updates the ledger with normalised models', async () => {
     const text = csv(
-      '2026-05-02T10:00:00Z,Included,claude-4.5-opus-high-thinking,Yes,1500,1000,200,50,1750,0.1',
-      '2026-05-02T11:00:00Z,Included,composer-2.5-fast,No,10,10,0,5,15,0',
+      '2026-05-02T10:00:00Z,Included,claude-4.5-opus-high-thinking,Yes,1500,1000,200,50,2750,0.1',
+      '2026-05-02T11:00:00Z,Included,composer-2.5-fast,No,10,10,0,5,25,0',
       '2026-05-03T11:00:00Z,Included,gpt-5,No,0,0,0,0,0,0',
       'broken,Included,gpt-5,No,1,1,0,1,2,0',
     );
@@ -63,7 +63,7 @@ describe('tokengraph import cursor', () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatchObject({
       at: '2026-05-02T10:00:00.000Z', model: 'claude-4.5-opus-high-thinking', maxMode: true,
-      inputTokens: 1000, outputTokens: 50, cacheReadTokens: 200, cacheWriteTokens: 500,
+      inputTokens: 1000, outputTokens: 50, cacheReadTokens: 200, cacheWriteTokens: 1500,
     });
     expect(typeof lines[0].id).toBe('string');
     if (process.platform !== 'win32') expect((await stat(importFile())).mode & 0o777).toBe(0o600);
@@ -72,7 +72,7 @@ describe('tokengraph import cursor', () => {
     const models = usage.map((entry) => `${entry.model}/${entry.pricingTier}`).sort();
     expect(models).toEqual(['claude-opus-4-5/standard', 'composer-2.5-fast/standard']);
     expect(usage.find((entry) => entry.model === 'claude-opus-4-5')?.counts).toMatchObject({
-      inputTokens: 1000, cacheCreationTokens: 500, cacheReadTokens: 200, outputTokens: 50, cacheCreation5mTokens: null,
+      inputTokens: 1000, cacheCreationTokens: 1500, cacheReadTokens: 200, outputTokens: 50, cacheCreation5mTokens: null,
     });
 
     expect(out.join('\n')).toContain('rows read: 4');

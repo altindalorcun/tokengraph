@@ -104,20 +104,23 @@ Cursor's dashboard (Usage, then export CSV) produces a usage CSV that covers the
 hook existed. The user downloads it and passes the path; tokengraph reads no Cursor login and calls no
 Cursor API. Code: `adapters/cursor/{csv,imports}.ts`, `commands/import.ts`.
 
-**Not verified against a real export.** The format below comes from the open-source TokenTracker
-parser (`src/lib/cursor-config.js`) and descriptions of the dashboard export; no real file was
-available. Columns are found by header name, in any order, so extra or reordered columns are fine.
+**Checked against three real exports** published in public repositories (a team export with `User` and
+`Requests`, a personal export with `Cost`, and the 2026 layout with `Cloud Agent ID` and `Automation ID`;
+23,742 rows from June 2025 to June 2026). On every row, `Total Tokens` = `Input (w/ Cache Write)` +
+`Input (w/o Cache Write)` + `Cache Read` + `Output Tokens`, so the two input columns do not overlap. Importing
+each file with `tokengraph import cursor` gave ledger totals equal to the file's `Total Tokens` sum. Columns
+are found by header name, in any order, so extra or reordered columns are fine.
 
 | Column | Use |
 | --- | --- |
 | `Date` | Required. An ISO date or date-time. **A Date without a time zone is read as UTC**; one with `Z` or an offset is converted. Any other shape counts as malformed. |
 | `Model` | Required. Normalised like hook events (`normalizeCursorModel`, `cursorModelIdentity`), including a `fast` word in the slug. Stored as written; normalised when read. |
 | `Input (w/o Cache Write)` | Required. `inputTokens`. |
-| `Input (w/ Cache Write)` | Required. `cacheCreationTokens = max(0, w/ - w/o)`. |
+| `Input (w/ Cache Write)` | Required. `cacheCreationTokens`: only the input written to the cache, not including `w/o`. It can be smaller than `w/o`. |
 | `Cache Read` | Required. `cacheReadTokens`. |
 | `Output Tokens` | Required. `outputTokens`. |
 | `Max Mode` | Optional. Stored as `maxMode`, **not** a pricing tier: Max Mode widens the context window, and this adapter has no long-context tier (only `standard` and `fast`). Mapping it to a tier would invent a rate. |
-| `Kind`, `Total Tokens`, `Cost` | Ignored. |
+| `Kind`, `Total Tokens`, `Cost`, `User`, `Requests`, agent ids | Ignored. A row is counted whatever its `Kind` (`Errored, No Charge` rows can carry tokens), like the hook, which counts every status. |
 
 The 5m/1h cache-write split is `null`. Parsing is RFC 4180 (quoted fields, `""` escapes, CRLF, newlines
 inside quotes); a leading BOM is skipped; numbers may be quoted and contain thousands separators

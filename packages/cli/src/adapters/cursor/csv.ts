@@ -15,7 +15,10 @@ export interface CursorCsvRow {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
-  /** `Input (w/ Cache Write)` minus `Input (w/o Cache Write)`, never negative. */
+  /**
+   * `Input (w/ Cache Write)`: the input written to the cache. The two input columns do not overlap: in real
+   * exports Total Tokens = w/ + w/o + Cache Read + Output on every row.
+   */
   cacheWriteTokens: number;
 }
 
@@ -143,7 +146,7 @@ export function parseCursorCsv(text: string): CursorCsvParse | { ok: false; erro
       inputTokens: inputWithout,
       outputTokens: output,
       cacheReadTokens: cacheRead,
-      cacheWriteTokens: Math.max(0, inputWith - inputWithout),
+      cacheWriteTokens: inputWith,
     });
   }
   return { ok: true, rows, rowsRead: body.length, malformed, zero };
