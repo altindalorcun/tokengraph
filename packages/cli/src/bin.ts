@@ -191,12 +191,14 @@ and your gists stay on GitHub.
   },
 
   status: {
-    help: `Usage: tokengraph status
+    help: `Usage: tokengraph status [options]
 
 Shows the account, the local ledger and which background syncs are installed on this machine.
+
+  --json               Print one JSON object instead of text, for scripts and AI agents
 `,
-    options: {},
-    run: () => runStatus(),
+    options: { json: { type: 'boolean', default: false } },
+    run: (values) => runStatus({}, { json: values['json'] === true }),
   },
 
   'install-hook': {

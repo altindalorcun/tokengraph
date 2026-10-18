@@ -130,7 +130,7 @@ Every command takes `--help`. An unknown option is an error.
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
 | `tokengraph readme` | Prints the README snippet and copies it. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | Draws story cards, saves the PNGs (to your Downloads folder unless `--out <dir>`) and offers to send them to your phone. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>`. |
-| `tokengraph status` | Shows the GitHub account, the ledger, your machines, and which background syncs are installed and healthy. |
+| `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, and which background syncs are installed and healthy. `--json` prints it as one JSON object for scripts and AI agents. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off. |
 
