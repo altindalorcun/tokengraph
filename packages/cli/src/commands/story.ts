@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir, networkInterfaces } from 'node:os';
 import { dirname, posix, win32 } from 'node:path';
 import {
+  STORY_RANGE_LABELS,
   STORY_RANGES,
   STORY_SIZES,
   STORY_TEMPLATE_LABELS,
@@ -12,8 +13,9 @@ import {
   type StoryRange,
   type StoryTemplate,
 } from '@tokengraph/core';
+import { downloadsDir } from '../downloads.js';
 import { revealInFileManager } from '../open-url.js';
-import { askYesNo } from '../prompt.js';
+import { askChoice, askYesNo } from '../prompt.js';
 import { pickLanAddress } from '../share/lan.js';
 import { qrLines, qrMatrix } from '../share/qr.js';
 import { startShareServer, type ShareCard } from '../share/server.js';
@@ -24,7 +26,8 @@ import { createStoryRenderer, type StoryRenderer } from '../story/render.js';
 
 export interface StoryCommandOptions {
   templates: StoryTemplate[];
-  range: StoryRange;
+  /** `ask`: no --range was given, so a terminal asks and anything else takes today. */
+  range: StoryRange | 'ask';
   showCost: boolean;
   outDir?: string;
   qr: 'ask' | 'yes' | 'no';
@@ -36,13 +39,19 @@ export interface StoryDeps {
   isTTY: boolean;
   env: NodeJS.ProcessEnv;
   columns: number;
+  /** Terminal height in lines, when known: the QR asks for a taller window if it would not fit. */
+  rows?: number;
   platform: NodeJS.Platform;
   home: string;
   loadData: (range: StoryRange, handle?: string) => Promise<StoryData>;
   renderer: () => Promise<StoryRenderer>;
   writeFile: (path: string, bytes: Uint8Array) => Promise<void>;
   exists: (path: string) => boolean;
+  /** The OS's downloads folder, which is localised on Linux and movable on Windows; null when unknown. */
+  downloadsDir: (platform: NodeJS.Platform, home: string, env: NodeJS.ProcessEnv) => string | null;
   ask: (question: string) => Promise<boolean>;
+  /** The picked index, or null when the prompt was closed without an answer. */
+  choose: (question: string, choices: readonly string[]) => Promise<number | null>;
   lanAddress: () => string | null;
   startShare: typeof startShareServer;
   reveal: (path: string) => void;
@@ -56,12 +65,12 @@ export function parseStoryArgs(values: Record<string, string | boolean | undefin
   const template = values['template'] ?? 'all';
   const templates = template === 'all' ? [...STORY_TEMPLATES] : STORY_TEMPLATES.filter((t) => t === template);
   if (templates.length === 0) return '--template must be skyline, receipt, sticker or all.';
-  const range = values['range'] ?? 'today';
-  if (!STORY_RANGES.includes(range as StoryRange)) return '--range must be today, 7d, 30d or 1y.';
+  const range = values['range'] ?? 'ask';
+  if (range !== 'ask' && !STORY_RANGES.includes(range as StoryRange)) return '--range must be today, 7d, 30d or 1y.';
   if (values['qr'] && values['no-qr']) return 'Choose one of --qr and --no-qr.';
   const options: StoryCommandOptions = {
     templates,
-    range: range as StoryRange,
+    range: range as StoryRange | 'ask',
     showCost: !values['no-cost'],
     qr: values['qr'] ? 'yes' : values['no-qr'] ? 'no' : 'ask',
     preview: !values['no-preview'],
@@ -81,6 +90,7 @@ function defaultDeps(): StoryDeps {
     isTTY: Boolean(process.stdout.isTTY && process.stdin.isTTY),
     env: process.env,
     columns: process.stdout.columns ?? 80,
+    rows: process.stdout.rows,
     platform: process.platform,
     home: homedir(),
     loadData: (range, handle) => loadStoryData({ range, handle }),
@@ -90,7 +100,9 @@ function defaultDeps(): StoryDeps {
       await writeFile(path, bytes);
     },
     exists: existsSync,
+    downloadsDir: (platform, home, env) => downloadsDir(platform, home, env),
     ask: (question) => askYesNo(question),
+    choose: (question, choices) => askChoice(question, choices),
     lanAddress: () => pickLanAddress(networkInterfaces()),
     startShare: startShareServer,
     reveal: revealInFileManager,
@@ -116,9 +128,17 @@ const STOP_MESSAGES = {
 export async function runStory(options: StoryCommandOptions, overrides: Partial<StoryDeps> = {}): Promise<number> {
   const deps = { ...defaultDeps(), ...overrides };
   const tty = deps.isTTY;
-  const data = await deps.loadData(options.range, options.handle);
+  let range: StoryRange = 'today';
+  if (options.range !== 'ask') range = options.range;
+  else if (tty) {
+    deps.out('');
+    const picked = await deps.choose('  Which period should the cards cover?', STORY_RANGES.map((r) => STORY_RANGE_LABELS[r]));
+    if (picked === null) return 1;
+    range = STORY_RANGES[picked]!;
+  }
+  const data = await deps.loadData(range, options.handle);
   deps.out('');
-  deps.out(`  ${bold('tokengraph story', tty)}  ${dim(`${options.range} · @${data.handle}`, tty)}`);
+  deps.out(`  ${bold('tokengraph story', tty)}  ${dim(`${range} · @${data.handle}`, tty)}`);
   if (data.total === 0) {
     deps.out('  No usage in this range yet. Run `tokengraph sync` first, or try --range 30d.');
   }
@@ -127,15 +147,16 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   const renderer = await deps.renderer();
   const cards: ShareCard[] = [];
   const { join } = deps.platform === 'win32' ? win32 : posix;
-  const downloads = join(deps.home, 'Downloads');
-  const outDir = options.outDir?.trim() || (deps.exists(downloads) ? downloads : deps.home);
+  const findDownloads = () =>
+    [deps.downloadsDir(deps.platform, deps.home, deps.env), join(deps.home, 'Downloads')].find((dir) => dir && deps.exists(dir));
+  const outDir = options.outDir?.trim() || findDownloads() || deps.home;
   const fileHandle = safeFileHandle(data.handle);
   try {
     for (const template of options.templates) {
       const label = STORY_TEMPLATE_LABELS[template].name;
       if (tty) deps.write(`${CLEAR_LINE}  ${dim(`Rendering ${label}…`, tty)}`);
       const png = await renderer.render(template, { data, showCost: options.showCost, cta: STORY_CTA });
-      const fileName = storyFileName(fileHandle, data.endDate, { template, range: options.range, showCost: options.showCost });
+      const fileName = storyFileName(fileHandle, data.endDate, { template, range, showCost: options.showCost });
       await deps.writeFile(join(outDir, fileName), png);
       cards.push({ id: template, title: STORY_TEMPLATE_LABELS[template].name, fileName, png, ...STORY_SIZES[template] });
       deps.out(`${tty ? CLEAR_LINE : ''}  ${tty ? '✓' : '-'} ${label}`);
@@ -148,9 +169,13 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   }
 
   if (tty && options.preview) {
-    deps.out('');
+    // Only terminals that draw real images get a preview; character art of a card is too coarse to show anything.
     // The strip is already indented two spaces and ends without a newline.
-    deps.out(await previewStrip(renderer, cards.map((card) => ({ template: card.id as StoryTemplate, png: card.png })), { env: deps.env, columns: deps.columns }));
+    const strip = await previewStrip(renderer, cards.map((card) => ({ template: card.id as StoryTemplate, png: card.png })), { env: deps.env, columns: deps.columns });
+    if (strip) {
+      deps.out('');
+      deps.out(strip);
+    }
   }
 
   deps.out('');
@@ -192,13 +217,17 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
     return 1;
   }
 
-  deps.out('');
-  for (const line of qrLines(qrMatrix(server.url), { color: tty })) deps.out(`  ${line}`);
+  // The code comes last so it sits at the bottom of the window, whole, with only one line under it.
+  const qr = qrLines(qrMatrix(server.url), { color: tty });
   deps.out('');
   deps.out(`  Scan with your phone's camera  ${dim(server.url, tty)}`);
   deps.out('');
   deps.out(dim('  Your phone and this computer must be on the same Wi-Fi. Office and guest networks may block it.', tty));
   if (deps.platform === 'darwin') deps.out(dim('  If macOS asks whether node may accept incoming connections, choose Allow.', tty));
+  if (tty && deps.rows !== undefined && deps.rows < qr.length + 3) deps.out(bold('  Make this window taller to see the whole code.', tty));
+  deps.out('');
+  for (const line of qr) deps.out(`  ${line}`);
+  deps.out('');
   deps.out(dim('  Press Ctrl+C when you are done.', tty));
   deps.out('');
 

@@ -22,7 +22,9 @@ function deps(overrides: Partial<StoryDeps> = {}) {
       written.push(path);
     },
     exists: (path) => path === '/home/me/Downloads',
+    downloadsDir: () => null,
     ask: async () => false,
+    choose: async () => 0,
     lanAddress: () => '127.0.0.1',
     reveal: () => undefined,
     out: (text) => output.push(text),
@@ -35,7 +37,7 @@ function deps(overrides: Partial<StoryDeps> = {}) {
 
 describe('parseStoryArgs', () => {
   it('reads the defaults and validates values', () => {
-    expect(parseStoryArgs({})).toEqual({ templates: ['skyline', 'receipt', 'sticker'], range: 'today', showCost: true, qr: 'ask', preview: true });
+    expect(parseStoryArgs({})).toEqual({ templates: ['skyline', 'receipt', 'sticker'], range: 'ask', showCost: true, qr: 'ask', preview: true });
     expect(parseStoryArgs({ template: 'receipt', range: '7d', 'no-cost': true, qr: true, 'no-preview': true, out: '/x', handle: 'me' })).toEqual({
       templates: ['receipt'], range: '7d', showCost: false, qr: 'yes', preview: false, outDir: '/x', handle: 'me',
     });
@@ -65,6 +67,16 @@ describe('runStory', () => {
       '/home/me/Downloads/tokengraph-octocat-2026-10-11-receipt.png',
       '/home/me/Downloads/tokengraph-octocat-2026-10-11-sticker.png',
     ]);
+  });
+
+  it("uses the OS's own downloads folder, and ~/Downloads when that one is missing", async () => {
+    const localized = deps({ downloadsDir: () => '/home/me/İndirilenler', exists: (path) => path === '/home/me/İndirilenler' });
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, localized.deps);
+    expect(localized.written).toEqual(['/home/me/İndirilenler/tokengraph-octocat-2026-10-11-skyline.png']);
+
+    const gone = deps({ downloadsDir: () => 'D:\\Gone' });
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, gone.deps);
+    expect(gone.written).toEqual(['/home/me/Downloads/tokengraph-octocat-2026-10-11-skyline.png']);
   });
 
   it('falls back to the home folder without a Downloads folder', async () => {
@@ -139,6 +151,33 @@ describe('runStory', () => {
     expect(output.join('\n')).toContain('Stopped sharing.');
   });
 
+  it('asks for the period in a terminal when no --range is given', async () => {
+    const loadData = vi.fn(async (range: never, handle?: string) => ({ ...demoStory(range, new Date('2026-10-11T12:00:00Z')), handle: handle ?? 'octocat', demo: false }));
+    const choose = vi.fn(async () => 2);
+    const tty = deps({ choose, loadData });
+    expect(await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, tty.deps)).toBe(0);
+    expect(choose).toHaveBeenCalledWith(expect.stringContaining('period'), ['Today', '7 days', '30 days', '12 months']);
+    expect(loadData).toHaveBeenLastCalledWith('30d', undefined);
+    expect(tty.written[0]).toContain('-30d');
+
+    choose.mockClear();
+    const given = deps({ choose, loadData });
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline', range: '7d' }) as never, given.deps);
+    expect(choose).not.toHaveBeenCalled();
+    expect(loadData).toHaveBeenLastCalledWith('7d', undefined);
+
+    const plain = deps({ isTTY: false, choose, loadData });
+    await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, plain.deps);
+    expect(choose).not.toHaveBeenCalled();
+    expect(loadData).toHaveBeenLastCalledWith('today', undefined);
+  });
+
+  it('stops without drawing anything when the period question is closed', async () => {
+    const closed = deps({ choose: async () => null });
+    expect(await runStory(parseStoryArgs({ 'no-qr': true }) as never, closed.deps)).toBe(1);
+    expect(closed.written).toHaveLength(0);
+  });
+
   it('explains when there is no local network and still succeeds', async () => {
     const { deps: d, output } = deps({ lanAddress: () => null });
     expect(await runStory(parseStoryArgs({ qr: true }) as never, d)).toBe(0);
@@ -175,7 +214,36 @@ describe('runStory', () => {
 
     const colored = deps({ startShare });
     await runStory(parseStoryArgs({ qr: true }) as never, colored.deps);
-    expect(colored.output.join('\n')).toContain('\x1b[38;5;16m\x1b[48;5;231m');
+    expect(colored.output.join('\n')).toContain('\x1b[48;5;231m');
+    expect(colored.output.join('\n')).toContain('\x1b[48;5;16m');
+    expect(colored.output.join('\n')).not.toMatch(/[█▀]/);
+  });
+
+  it('puts the QR last and asks for a taller window only when it would not fit', async () => {
+    const startShare = vi.fn(async () => ({ url: 'http://127.0.0.1:1/tok/', done: Promise.resolve('all-saved' as const), stop: () => undefined }));
+    const short = deps({ startShare, rows: 12 });
+    await runStory(parseStoryArgs({ qr: true }) as never, short.deps);
+    const text = short.output.join('\n');
+    expect(text).toContain('Make this window taller');
+    expect(text.lastIndexOf('\x1b[48;5;')).toBeGreaterThan(text.indexOf('Scan with your phone'));
+    expect(text.lastIndexOf('\x1b[48;5;')).toBeLessThan(text.indexOf('Press Ctrl+C'));
+
+    const tall = deps({ startShare, rows: 30 });
+    await runStory(parseStoryArgs({ qr: true }) as never, tall.deps);
+    expect(tall.output.join('\n')).not.toContain('Make this window taller');
+  });
+
+  it('shows no character-art preview in a terminal without images, and one inline image where it can', async () => {
+    const rasterize = vi.fn(async () => ({ width: 2, height: 2, rgba: new Uint8Array(16), png: new Uint8Array(4) }));
+    const apple = deps({ renderer: async () => ({ ...(await fakeRenderer()), rasterize }) });
+    await runStory(parseStoryArgs({ 'no-qr': true }) as never, apple.deps);
+    expect(rasterize).not.toHaveBeenCalled();
+    expect(apple.output.join('\n')).not.toContain('▀');
+
+    const iterm = deps({ env: { TERM_PROGRAM: 'iTerm.app' }, renderer: async () => ({ ...(await fakeRenderer()), rasterize }) });
+    await runStory(parseStoryArgs({ 'no-qr': true }) as never, iterm.deps);
+    expect(rasterize).toHaveBeenCalledOnce();
+    expect(iterm.output.join('\n')).toContain('\x1b]1337;File=inline=1;');
   });
 
   it('asks before opening Finder, and only on macOS in a terminal', async () => {

@@ -91,8 +91,11 @@ Assets (`resvg.wasm`, seven IBM Plex TrueType subsets and their licence) ship in
 same way from `bundle/` and from `dist/`. The design rules for the cards are in
 [specs/2026-10-11-story-cards-design.md](specs/2026-10-11-story-cards-design.md).
 
-The PNGs are saved to a folder (`~/Downloads` by default). In a terminal the cards can also be
-previewed (inline image protocols, or half-block characters as a fallback).
+The PNGs are saved to a folder: by default the OS's downloads folder (`src/downloads.ts`), read from
+`user-dirs.dirs` on Linux, where its name is localised, and from the registry on Windows, where it
+can be moved; then `~/Downloads`, then the home folder. Terminals with an inline image protocol
+(iTerm2, WezTerm, Kitty, Ghostty) also show a preview; others show none, because character art of a
+card is too coarse to be worth showing.
 
 ## The QR hand-off
 
@@ -105,7 +108,10 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
   activity. Only GET and HEAD are served.
 - It serves one self-contained page and the PNGs from memory, never from disk, with
   `no-store` and a strict Content-Security-Policy.
-- The terminal shows the URL as a QR code (`src/share/qr.ts`).
+- The terminal shows the URL as a QR code (`src/share/qr.ts`), two module rows per line. Matching
+  halves are spaces painted with the background colour and mixed halves are `▄` over the top
+  module's background, because terminals that draw block glyphs from the font (Apple Terminal)
+  leave a strip between lines that only the background fills.
 - It always stops: on Ctrl+C, 30 seconds after every card has been saved, or after 10 idle minutes.
 
 ## What never leaves the machine
