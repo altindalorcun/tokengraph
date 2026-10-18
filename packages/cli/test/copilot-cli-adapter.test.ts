@@ -23,6 +23,13 @@ beforeAll(async () => {
 const FULL_COLUMNS = `id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, turn_index INTEGER, model TEXT, copilot_usage_model TEXT,
   input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER, reasoning_tokens INTEGER,
   total_nano_aiu INTEGER, duration_ms INTEGER, created_at TEXT`;
+/** The column set Copilot CLI 1.0.98 writes (schema_version 8), copied from a real store. */
+const V8_COLUMNS = `id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, turn_index INTEGER, agent_id TEXT,
+  parent_tool_call_id TEXT, model TEXT NOT NULL, copilot_usage_model TEXT, input_tokens INTEGER, output_tokens INTEGER,
+  cache_read_tokens INTEGER, cache_write_tokens INTEGER, reasoning_tokens INTEGER, total_nano_aiu INTEGER, request_multiplier REAL,
+  duration_ms INTEGER, time_to_first_token_ms INTEGER, output_ttft_ms REAL, inter_token_latency_ms INTEGER, initiator TEXT,
+  api_endpoint TEXT, reasoning_effort TEXT, finish_reason TEXT, content_filter_triggered INTEGER, token_details_json TEXT,
+  created_at TEXT DEFAULT (datetime('now'))`;
 /** TokenTracker's test DDL: no copilot_usage_model, plus token_details_json. */
 const LEAN_COLUMNS = `id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER,
   cache_read_tokens INTEGER, cache_write_tokens INTEGER, reasoning_tokens INTEGER, token_details_json TEXT, created_at TEXT`;
@@ -270,6 +277,17 @@ describe('createCopilotCliAdapter', () => {
     expect(result.usage[0]?.date).toBe('2026-09-22');
   });
 
+  // Values from a real Copilot CLI 1.0.98 store written against a fake endpoint: input_tokens 1272 is
+  // 1014 fresh + 206 cache read + 52 cache write, and created_at is an ISO instant.
+  it('reads a schema_version 8 store as Copilot CLI 1.0.98 writes it', async () => {
+    const db = createStore(dbPath, { columns: V8_COLUMNS, version: 8 });
+    insertEvent(db, { input: 1272, output: 34, cacheRead: 206, cacheWrite: 52, createdAt: '2026-10-18T19:27:06.642Z' });
+    db.close();
+    const result = await collect();
+    expect(result.requestCount).toBe(1);
+    expect(result.usage[0]?.counts).toMatchObject({ inputTokens: 1014, outputTokens: 34, cacheReadTokens: 206, cacheCreationTokens: 52 });
+  });
+
   it('accepts a store without a schema_version table when the columns match', async () => {
     const db = createStore(dbPath, { version: null });
     insertEvent(db, { input: 10, output: 1, cacheRead: 0, cacheWrite: 0 });
@@ -278,7 +296,7 @@ describe('createCopilotCliAdapter', () => {
   });
 
   it.each([
-    ['a newer schema_version', { version: 7 as const }, /schema_version 7/],
+    ['a newer schema_version', { version: 9 as const }, /schema_version 9/],
     ['an unreadable schema_version', { version: 'text' as const }, /schema_version/],
     ['a missing required column', { columns: 'id INTEGER PRIMARY KEY, session_id TEXT, model TEXT, input_tokens INTEGER, output_tokens INTEGER, created_at TEXT' }, /cache_read_tokens/],
   ])('skips the whole store with a note for %s', async (_name, options, reason) => {

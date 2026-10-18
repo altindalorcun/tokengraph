@@ -1,7 +1,10 @@
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 
-/** Highest `schema_version` this reader was written against (the value TokenTracker's fixtures use). A newer one may have changed what a column means. */
-export const MAX_KNOWN_SCHEMA_VERSION = 6;
+/**
+ * Highest `schema_version` checked against a real store (Copilot CLI 1.0.98 writes 8). A newer one may have
+ * changed what a column means, and an overcount can never leave the ledger, so it is skipped until checked.
+ */
+export const MAX_KNOWN_SCHEMA_VERSION = 8;
 
 /** Columns without which a row cannot be turned into a request. `reasoning_tokens` is deliberately not one: it is never read. */
 const REQUIRED_COLUMNS = ['id', 'session_id', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'created_at'] as const;

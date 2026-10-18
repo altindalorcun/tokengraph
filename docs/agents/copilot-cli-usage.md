@@ -144,10 +144,12 @@ The format is undocumented and has already shown two shapes, so the adapter refu
 - `assistant_usage_events` missing: skipped with a note (a Copilot CLI older than 1.0.70).
 - Any of `id, session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
   created_at` missing: the whole store is skipped with a note naming the columns.
-- `schema_version` present and not a non-negative integer, or greater than **6** (the value TokenTracker's
-  fixtures use, the only one seen anywhere): skipped with a note, because a newer version may have changed what
-  a column means. An absent `schema_version` table is accepted (tokscale does not read it). Versions below 6
-  are accepted when the columns match; no older value was seen.
+- `schema_version` present and not a non-negative integer, or greater than **8**: skipped with a note,
+  because a newer version may have changed what a column means, and an overcount can never leave the ledger
+  (a skipped period is picked up once a newer tokengraph reads it). 8 is what Copilot CLI 1.0.98 writes; it was
+  checked against a real store (see "Checked against a real store"). TokenTracker's fixtures use 6. An absent
+  `schema_version` table is accepted (tokscale does not read it). Older versions are accepted when the columns
+  match.
 - Node older than 22.13 has no `node:sqlite`: skipped with a note, like OpenCode and Kilo.
 
 ## Retention
