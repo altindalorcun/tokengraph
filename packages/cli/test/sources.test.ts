@@ -5,6 +5,7 @@ import {
   CURSOR_SOURCE,
   GEMINI_CLI_SOURCE,
   isKnownSource,
+  KILO_SOURCE,
   KNOWN_SOURCES,
   OPENCODE_SOURCE,
 } from '@tokengraph/core';
@@ -37,7 +38,13 @@ describe('known sources', () => {
     // Every catalogue entry has a shipped adapter, so every one is an accepted source.
     for (const agent of AGENT_CATALOGUE) expect(isKnownSource(agent.source)).toBe(true);
     expect(AGENT_CATALOGUE.map((agent) => agent.source)).toEqual([
-      'claude-code', 'codex-cli', 'gemini-cli', 'cursor', 'cline', 'opencode',
+      'claude-code', 'codex-cli', 'gemini-cli', 'cursor', 'cline', 'opencode', 'kilo',
     ]);
+  });
+
+  it('knows Kilo CLI', () => {
+    expect(KILO_SOURCE).toBe('kilo');
+    expect(KNOWN_SOURCES).toContain(KILO_SOURCE);
+    expect(AGENT_CATALOGUE.find((agent) => agent.source === KILO_SOURCE)?.name).toBe('Kilo CLI');
   });
 });

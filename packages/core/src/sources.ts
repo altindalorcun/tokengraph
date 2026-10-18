@@ -10,6 +10,8 @@ export const GEMINI_CLI_SOURCE = 'gemini-cli';
 export const CLINE_SOURCE = 'cline';
 /** The OpenCode adapter's source name. */
 export const OPENCODE_SOURCE = 'opencode';
+/** The Kilo CLI adapter's source name. */
+export const KILO_SOURCE = 'kilo';
 
 /**
  * Sources a ledger may hold. Each is produced by a CLI adapter, and the data-gist reader accepts
@@ -22,6 +24,7 @@ export const KNOWN_SOURCES = [
   GEMINI_CLI_SOURCE,
   CLINE_SOURCE,
   OPENCODE_SOURCE,
+  KILO_SOURCE,
 ] as const;
 export type KnownSource = (typeof KNOWN_SOURCES)[number];
 
@@ -43,6 +46,7 @@ export const AGENT_CATALOGUE: readonly AgentEntry[] = [
   { source: CURSOR_SOURCE, name: 'Cursor' },
   { source: CLINE_SOURCE, name: 'Cline' },
   { source: OPENCODE_SOURCE, name: 'OpenCode' },
+  { source: KILO_SOURCE, name: 'Kilo CLI' },
 ];
 
 export function isKnownSource(source: string): source is KnownSource {

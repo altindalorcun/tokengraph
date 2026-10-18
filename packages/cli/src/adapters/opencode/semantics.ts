@@ -22,7 +22,7 @@ export interface VersionContext {
   messageCreatedMs: number;
 }
 
-export type SkipReason = 'invalid' | 'no-total' | 'ambiguous' | 'aisdk6-window' | 'claude-code';
+export type SkipReason = 'invalid' | 'no-total' | 'ambiguous' | 'aisdk6-window' | 'claude-code' | 'ignored';
 export type Resolution = { counts: SplitTokenCounts } | { skip: SkipReason };
 
 function isNonNegativeInteger(value: unknown): value is number {
@@ -97,7 +97,24 @@ function isAtLeast(version: string | null, floor: string): boolean {
   return cmp !== null && cmp >= 0;
 }
 
-const AISDK6_WINDOW_START_MS = Date.parse('2026-03-27T20:24:30Z');
+/**
+ * The per-product version facts the v1 rule needs. OpenCode and its forks share one `getUsage()`
+ * history but number their releases differently, so the thresholds are parameters.
+ */
+export interface SemanticsRules {
+  /** First version whose five fields are disjoint (period D): 1.3.16 for OpenCode, 7.2.6 for Kilo. */
+  periodDFloor: string;
+  /** Start (ms) of the 1.3.4-1.3.5 AI SDK 6 window; null when the product never had that window. */
+  aisdk6WindowStartMs: number | null;
+  /** First version after the AI SDK 6 window; only read when `aisdk6WindowStartMs` is set. */
+  aisdk6WindowClearedFrom: string;
+}
+
+export const OPENCODE_RULES: SemanticsRules = {
+  periodDFloor: '1.3.16',
+  aisdk6WindowStartMs: Date.parse('2026-03-27T20:24:30Z'),
+  aisdk6WindowClearedFrom: '1.3.6',
+};
 
 /**
  * OpenCode v1 (SQLite `message`/`part`, and the pre-1.2.0 JSON storage) request semantics.
@@ -117,13 +134,13 @@ const AISDK6_WINDOW_START_MS = Date.parse('2026-03-27T20:24:30Z');
  * build — `session.version` is trusted as a lower bound on every message's writing version
  * once it postdates the session's own creation.
  */
-export function resolveV1Tokens(tokens: StoredTokens, context: VersionContext): Resolution {
+export function resolveV1Tokens(tokens: StoredTokens, context: VersionContext, rules: SemanticsRules = OPENCODE_RULES): Resolution {
   const { input: I, output: O, reasoning: R, cacheRead: CR, cacheWrite: CW, total: T } = tokens;
 
-  // 1. Period-D shortcut: a session created by >= 1.3.16, for a message that isn't an
+  // 1. Period-D shortcut: a session created by >= `rules.periodDFloor`, for a message that isn't an
   // inherited fork clone (a fork clone keeps its original, earlier time.created).
   if (
-    isAtLeast(context.sessionVersion, '1.3.16') &&
+    isAtLeast(context.sessionVersion, rules.periodDFloor) &&
     context.sessionCreatedMs !== null &&
     context.messageCreatedMs >= context.sessionCreatedMs
   ) {
@@ -160,12 +177,12 @@ export function resolveV1Tokens(tokens: StoredTokens, context: VersionContext): 
   // 4. 1.3.4-1.3.5 AI SDK 6 window: an Anthropic-class record there reports `total` inflated
   // by double-counted cache, which arithmetic alone cannot tell apart from a genuine
   // cache-inclusive-input reading. R > 0 or CR+CW === 0 records are unaffected and safe.
-  if (CR + CW > 0 && R === 0) {
+  if (rules.aisdk6WindowStartMs !== null && CR + CW > 0 && R === 0) {
     const versionClearsWindow =
-      isAtLeast(context.sessionVersion, '1.3.6') &&
+      isAtLeast(context.sessionVersion, rules.aisdk6WindowClearedFrom) &&
       context.sessionCreatedMs !== null &&
       context.messageCreatedMs >= context.sessionCreatedMs;
-    const couldBeWindowed = context.messageCreatedMs >= AISDK6_WINDOW_START_MS && !versionClearsWindow;
+    const couldBeWindowed = context.messageCreatedMs >= rules.aisdk6WindowStartMs && !versionClearsWindow;
     if (couldBeWindowed) return { skip: 'aisdk6-window' };
   }
 

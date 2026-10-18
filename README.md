@@ -8,7 +8,7 @@
 <h3 align="center">Your AI coding, as a GitHub-style graph.</h3>
 
 <p align="center">
-  <em>Claude Code, Codex CLI, Cursor, Gemini CLI, Cline and OpenCode: one graph, in your README.<br>
+  <em>Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode and Kilo CLI: one graph, in your README.<br>
   Your usage never leaves your machine unless you publish it, and then only to your own gist.</em>
 </p>
 
@@ -114,8 +114,9 @@ you run `tokengraph login`, nothing is sent anywhere.
 | Gemini CLI | `~/.gemini/tmp/*/chats` (or `$GEMINI_CLI_HOME`) | Gemini CLI deletes sessions after 30 days by default, so sync at least monthly. It never records some side calls, so totals are a lower bound. |
 | Cline | `saoudrizwan.claude-dev/tasks` in VS Code-family editors, and `~/.cline/data` | Requests Cline sends through the Claude Code provider are skipped, because the Claude Code adapter already counts them. |
 | OpenCode | `~/.local/share/opencode/opencode*.db` and the older `storage/` folder | Reading the database needs Node 22.13 or newer. Records from before OpenCode 1.3.16 that cannot be read with certainty are skipped and reported. |
+| Kilo CLI | `~/.local/share/kilo/kilo*.db` (or `$KILO_DB`) | Kilo Code 7.x in VS Code writes the same database, so it is counted here too. Reading the database needs Node 22.13 or newer. Records from before Kilo 7.2.6 that cannot be read with certainty are skipped and reported. |
 
-Gemini CLI, Cline and OpenCode need no hook: `tokengraph schedule` syncs them every hour. Aider is
+Gemini CLI, Cline, OpenCode and Kilo CLI need no hook: `tokengraph schedule` syncs them every hour. Aider is
 not supported, because its local history rounds token counts.
 
 ## Commands

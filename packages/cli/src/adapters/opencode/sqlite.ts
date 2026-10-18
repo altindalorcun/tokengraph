@@ -1,5 +1,5 @@
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
-import type { OpenCodeAggregator } from './aggregator.js';
+import type { OpenCodeAggregator, StepModel } from './aggregator.js';
 
 /** `sinceMs` is coarsened this far back before it reaches SQL, so a boundary row is never dropped by the DB-side pre-filter (see `readOpenCodeDatabase`). */
 const COARSE_FILTER_MARGIN_MS = 86_400_000;
@@ -74,32 +74,56 @@ function readSessions(db: DatabaseSyncType, aggregator: OpenCodeAggregator): voi
   }
 }
 
-/** Every step-finish part's tokens, grouped by `message_id`, ordered by part id (`ORDER BY message_id, id` in SQL). */
-function readSteps(db: DatabaseSyncType, bound: number): Map<string, unknown[]> {
+/** A message's step-finish parts, in part-id order: the raw tokens, and each step's own model when read. */
+interface MessageSteps {
+  tokens: unknown[];
+  models: Array<StepModel | null>;
+}
+
+/** The `model` a step-finish part carries (Kilo writes the real model behind a routed id there), or null. */
+function stepModelOf(row: Row): StepModel | null {
+  const modelId = asStringOrNull(row['step_model_id']);
+  if (modelId === null || modelId.trim() === '') return null;
+  return { providerId: asStringOrNull(row['step_provider_id']), modelId };
+}
+
+/**
+ * Every step-finish part's tokens, grouped by `message_id`, ordered by part id (`ORDER BY message_id, id` in SQL).
+ * With `readStepModels` it also selects the part's `model` ids (still only ids, never text).
+ */
+function readSteps(db: DatabaseSyncType, bound: number, readStepModels: boolean): Map<string, MessageSteps> {
+  const modelColumns = readStepModels
+    ? `, json_extract(data, '$.model.providerID') AS step_provider_id, json_extract(data, '$.model.modelID') AS step_model_id`
+    : '';
   const rows = db
     .prepare(
-      `SELECT id, message_id, json_extract(data, '$.tokens') AS tokens
+      `SELECT id, message_id, json_extract(data, '$.tokens') AS tokens${modelColumns}
        FROM part
        WHERE time_created >= ? AND json_extract(data, '$.type') = 'step-finish'
        ORDER BY message_id, id`,
     )
     .all(bound) as Row[];
 
-  const steps = new Map<string, unknown[]>();
+  const steps = new Map<string, MessageSteps>();
   for (const row of rows) {
     const messageId = row['message_id'] as string;
     const field = jsonField(row['tokens']);
     // A step-finish part is only ever written with its tokens already filled in; a missing field
     // here is unexpected, so it is passed through as `null` (an invalid record), not dropped.
     const tokens = field.present ? field.value : null;
+    const model = readStepModels ? stepModelOf(row) : null;
     const existing = steps.get(messageId);
-    if (existing) existing.push(tokens);
-    else steps.set(messageId, [tokens]);
+    if (existing) {
+      existing.tokens.push(tokens);
+      existing.models.push(model);
+    } else {
+      steps.set(messageId, { tokens: [tokens], models: [model] });
+    }
   }
   return steps;
 }
 
-function readV1Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bound: number, stepsByMessage: Map<string, unknown[]>): void {
+function readV1Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bound: number, stepsByMessage: Map<string, MessageSteps>): void {
   const rows = db
     .prepare(
       `SELECT id, session_id, time_created,
@@ -117,7 +141,8 @@ function readV1Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bo
 
   for (const row of rows) {
     const id = row['id'] as string;
-    const steps = stepsByMessage.get(id) ?? [];
+    const found = stepsByMessage.get(id);
+    const steps = found?.tokens ?? [];
     const tokensField = jsonField(row['tokens']);
     // Missing tokens on a message with no steps at all is an in-flight/aborted assistant
     // message: there is no request unit to build from it, so it is skipped silently rather
@@ -135,6 +160,7 @@ function readV1Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bo
       cost: typeof row['cost'] === 'number' ? row['cost'] : null,
       tokens: tokensField.present ? tokensField.value : null,
       steps,
+      ...(found ? { stepModels: found.models } : {}),
     });
   }
 }
@@ -182,11 +208,17 @@ function readV2Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bo
 }
 
 /**
- * Reads one `opencode*.db` read-only into `aggregator`. Only counters, ids, model/provider ids
+ * Reads one OpenCode-family database (`opencode*.db`, `kilo*.db`) read-only into `aggregator`. Only counters, ids, model/provider ids
  * and timestamps are ever selected — never `content`, `path`, `directory` or `title`. Throws on
  * open or query failure; the caller notes it as an unreadable source and moves on.
  */
-export function readOpenCodeDatabase(DatabaseSync: typeof DatabaseSyncType, path: string, aggregator: OpenCodeAggregator, sinceMs: number): void {
+export function readOpenCodeDatabase(
+  DatabaseSync: typeof DatabaseSyncType,
+  path: string,
+  aggregator: OpenCodeAggregator,
+  sinceMs: number,
+  options: { readStepModels?: boolean } = {},
+): void {
   // A short busy timeout instead of failing immediately if OpenCode itself has the file locked
   // for a write at the same moment sync runs.
   const db = new DatabaseSync(path, { readOnly: true, timeout: 5000 });
@@ -197,7 +229,7 @@ export function readOpenCodeDatabase(DatabaseSync: typeof DatabaseSyncType, path
     if (tables.has('session')) readSessions(db, aggregator);
 
     if (tables.has('message')) {
-      const stepsByMessage = tables.has('part') ? readSteps(db, bound) : new Map<string, unknown[]>();
+      const stepsByMessage = tables.has('part') ? readSteps(db, bound, options.readStepModels ?? false) : new Map<string, MessageSteps>();
       readV1Messages(db, aggregator, bound, stepsByMessage);
     }
 

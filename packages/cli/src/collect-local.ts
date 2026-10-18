@@ -4,6 +4,7 @@ import { clineSessionsDir, createClineAdapter } from './adapters/cline/index.js'
 import { codexSessionsDir, createCodexAdapter } from './adapters/codex/index.js';
 import { createCursorAdapter, cursorEventsPath } from './adapters/cursor/index.js';
 import { createGeminiCliAdapter, geminiTmpDirs } from './adapters/gemini-cli/index.js';
+import { createKiloAdapter, kiloDataDir } from './adapters/kilo/index.js';
 import { createOpenCodeAdapter, openCodeDataDir } from './adapters/opencode/index.js';
 import { mergeUsage, type Ledger } from './ledger.js';
 
@@ -29,6 +30,7 @@ export function defaultAdapters(): Adapter[] {
     createGeminiCliAdapter(),
     createClineAdapter(),
     createOpenCodeAdapter(),
+    createKiloAdapter(),
   ];
 }
 
@@ -75,13 +77,14 @@ export function searchedPaths(): string[] {
     `${geminiTmpDirs()[0]} (Gemini CLI)`,
     `${clineSessionsDir()} and VS Code's Cline storage (Cline)`,
     `${openCodeDataDir()} (OpenCode)`,
+    `${kiloDataDir()} (Kilo CLI)`,
   ];
 }
 
 /** Sync's "No agent usage found…" text, shared with the view's empty state. */
 export function noAgentsMessage(): string {
   return (
-    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline and OpenCode data:\n' +
+    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode and Kilo CLI data:\n' +
     searchedPaths()
       .map((line) => `  ${line}`)
       .join('\n')
