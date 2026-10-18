@@ -186,6 +186,7 @@ release the third-party parsers cite for `assistant_usage_events`; the latest ch
 - Whether `copilot_usage_model` differs from `model` (for example, a routed `auto` model resolved to a real one)
   is not documented.
 - Whether Copilot Chat's CLI-type sessions always reach `session-store.db` is not confirmed.
+- Whether resuming or forking a session copies its rows into a new session id (which would double count them) is unverified.
 - Verify with a real database from Copilot CLI 1.0.70 or newer before relying on the numbers.
 
 ## Sources

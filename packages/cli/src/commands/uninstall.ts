@@ -43,7 +43,6 @@ const DEFAULT_DEPS: UninstallDeps = {
 };
 
 const HOOK_AGENTS: readonly HookAgent[] = ['claude-code', 'cursor', 'codex'];
-/** A folder is only purged when it holds at least one of these: proof that it is tokengraph's own. */
 /**
  * Every file the CLI writes into its data folder (paths.ts, adapters/cursor/events.ts, commands/schedule.ts),
  * deleted by exact name. Nothing else in the folder is ever touched, and nothing is deleted recursively.

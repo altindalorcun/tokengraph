@@ -123,7 +123,7 @@ The 5m/1h cache-write split is `null`. Parsing is RFC 4180 (quoted fields, `""` 
 inside quotes); a leading BOM is skipped; numbers may be quoted and contain thousands separators
 (`"1,234"`). A file with none of the required columns is rejected as "not a Cursor usage export", a file
 missing some names them; in both cases nothing is written. A row whose date or required count does not
-parse is skipped as malformed; a row whose counts are all zero (errored, not charged) is skipped as zero.
+parse is skipped as malformed (a present-but-empty count cell counts as 0, as real exports leave `Cache Read` blank; a missing field in a short row, or non-numeric text, is malformed); a row whose counts are all zero (errored, not charged) is skipped as zero.
 
 **Storage:** `$TOKENGRAPH_HOME/cursor-import.jsonl` (mode 0600, **never pruned**, like the event file).
 One line per row: `{id, at, model, maxMode, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}`

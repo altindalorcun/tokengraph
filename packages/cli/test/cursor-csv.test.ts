@@ -56,15 +56,40 @@ describe('parseCursorCsv', () => {
         HEADER,
         'not a date,k,m,No,1,1,0,1,2,0',
         '2026-05-02T10:00:00Z,k,m,No,abc,1,0,1,2,0',
-        '2026-05-02T10:00:00Z,k,m,No,1,1,,1,2,0',
         '2026-05-02T10:00:00Z,k,m,No,1,1',
         '2026-05-02T10:00:00Z,k,m,No,0,0,0,0,0,0',
         '2026-05-02T10:00:00Z,k,m,No,1,1,0,1,2,0',
         '',
       ].join('\n'),
     );
-    expect(result).toMatchObject({ rowsRead: 6, malformed: 4, zero: 1 });
+    expect(result).toMatchObject({ rowsRead: 5, malformed: 3, zero: 1 });
     expect(result.rows).toHaveLength(1);
+  });
+
+  it('counts a present-but-empty count cell as 0 (a blank Cache Read is common in real exports)', () => {
+    expect(ok(`${HEADER}\n2026-05-02T10:00:00Z,k,m,No,1500,1000,,50,0,0\n`)).toMatchObject({
+      malformed: 0,
+      rows: [{ inputTokens: 1000, cacheWriteTokens: 500, cacheReadTokens: 0, outputTokens: 50 }],
+    });
+    const rows = ok(
+      [
+        HEADER,
+        '2026-05-02T10:00:00Z,k,m,No,,1000,7,50,0,0',
+        '2026-05-02T10:00:00Z,k,m,No,1500,,7,50,0,0',
+        '2026-05-02T10:00:00Z,k,m,No,1500,1000,7,,0,0',
+      ].join('\n'),
+    );
+    expect(rows.malformed).toBe(0);
+    expect(rows.rows.map((r) => [r.inputTokens, r.cacheWriteTokens, r.cacheReadTokens, r.outputTokens])).toEqual([
+      [1000, 0, 7, 50],
+      [0, 1500, 7, 50],
+      [1000, 500, 7, 0],
+    ]);
+  });
+
+  it('skips a row whose count cells are all blank as zero, and keeps a short row malformed', () => {
+    const result = ok(`${HEADER}\n2026-05-02T10:00:00Z,k,m,No,,,,,,\n2026-05-02T10:00:00Z,k,m,No,1500,1000\n`);
+    expect(result).toMatchObject({ rows: [], zero: 1, malformed: 1 });
   });
 
   it('names every missing required column', () => {

@@ -24,5 +24,6 @@ The first public release.
 - **Cursor import.** `tokengraph import cursor <csv>` adds history from a Cursor dashboard export.
 - **Uninstall.** `tokengraph uninstall` removes the hooks and the schedule. `--purge` also deletes
   tokengraph's own files and nothing else.
+- **Older versions.** An older tokengraph version ignores the new agents' sources; going back to an older version on the same machine drops them from that machine's ledger on its next sync.
 - **No server.** Nothing is sent to a tokengraph server, because there is none. Prompts, answers,
   code and file names are never read.

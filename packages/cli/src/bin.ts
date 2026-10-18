@@ -202,6 +202,8 @@ and your gists stay on GitHub.
 Shows the account, the local ledger, which background syncs are installed on this machine, and how long
 Claude Code, Gemini CLI and Qwen Code keep their logs (with a warning when history is at risk).
 
+Note: --json includes the secret data-gist URL and local paths, so don't paste it publicly.
+
   --json               Print one JSON object instead of text, for scripts and AI agents
 `,
     options: { json: { type: 'boolean', default: false } },
@@ -358,8 +360,8 @@ Removes everything tokengraph installed on this machine: the Claude Code, Cursor
 hourly schedule. Your gists and your agents' own data are never touched.
 
 Options:
-  --purge              Also delete tokengraph's own files in ~/.tokengraph (ledger, login, logs, Cursor
-                       event and import files); anything else in that folder is kept
+  --purge              Also delete tokengraph's own files in ~/.tokengraph (or $TOKENGRAPH_HOME): ledger,
+                       login, logs, Cursor event and import files; anything else in that folder is kept
   --yes                Don't ask before deleting (needed for --purge outside a terminal)
   --dry-run            Show what would change and change nothing
 `,

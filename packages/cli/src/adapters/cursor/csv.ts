@@ -86,9 +86,14 @@ function parseInstant(value: string): string | null {
   return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
 
-/** A token count, possibly quoted with thousands separators ("1,234"). Anything else is null. */
+/**
+ * A token count, possibly quoted with thousands separators ("1,234"). A present-but-empty cell is 0 (real
+ * exports leave Cache Read blank); a missing field (short row) or any other text is null.
+ */
 function parseCount(value: string | undefined): number | null {
-  const cleaned = (value ?? '').trim().replace(/,/g, '');
+  if (value === undefined) return null;
+  const cleaned = value.trim().replace(/,/g, '');
+  if (cleaned === '') return 0;
   if (!/^\d+(\.0+)?$/.test(cleaned)) return null;
   const number = Number(cleaned);
   return Number.isSafeInteger(number) ? number : null;
