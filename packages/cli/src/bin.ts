@@ -4,6 +4,7 @@ import { cliVersion } from './bin-path.js';
 import { runCursorHook } from './commands/cursor-hook.js';
 import { parseExportArgs, runExport } from './commands/export.js';
 import { runHookSync } from './commands/hook-sync.js';
+import { parseImportArgs, runImportCursor } from './commands/import.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
 import { runLogin } from './commands/login.js';
 import { runLogout } from './commands/logout.js';
@@ -32,6 +33,7 @@ Commands:
   schedule             Sync every hour in the background
   story                Turn your usage into story cards and send them to your phone
   export               Write your daily usage as CSV or JSON
+  import               Add history from another source, such as a Cursor usage CSV
   uninstall            Remove the hooks and the schedule (and, with --purge, your data)
 
 Run \`tokengraph <command> --help\` for a command's options.
@@ -322,6 +324,29 @@ Options:
         return 1;
       }
       return runStory(options);
+    },
+  },
+
+  import: {
+    help: `Usage: tokengraph import cursor <file.csv>
+
+Adds your Cursor history from before the hook was installed. Download the usage CSV yourself from the
+Cursor dashboard (Usage, then export CSV); tokengraph reads no Cursor login and calls no Cursor API.
+
+Importing the same or an overlapping file again adds nothing twice. Rows from the moment the Cursor hook
+first ran are skipped, because the hook already counts them. The ledger is updated; nothing is published.
+
+Import on one machine only: machines are added together, so importing the same file on two machines
+counts it twice.
+`,
+    options: {},
+    run: (_values, positionals) => {
+      const args = parseImportArgs(positionals);
+      if (typeof args === 'string') {
+        console.error(args);
+        return 1;
+      }
+      return runImportCursor(args.file);
     },
   },
 

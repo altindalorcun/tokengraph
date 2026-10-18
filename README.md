@@ -110,7 +110,7 @@ you run `tokengraph login`, nothing is sent anywhere.
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR`) | Claude Code deletes old transcripts, so sync at least every few weeks. `tokengraph install-hook --agent claude-code` syncs when a session ends. |
 | Codex CLI | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`) | `tokengraph install-hook --agent codex` syncs after a turn, at most every 10 minutes. It never overwrites a `notify` setting that is not its own. |
-| Cursor | `~/.tokengraph/cursor-events.jsonl`, written by Cursor's `stop` hook | Cursor keeps no usable token counts on disk, so run `tokengraph install-hook --agent cursor` once and restart Cursor. Usage counts from that moment on. |
+| Cursor | `~/.tokengraph/cursor-events.jsonl`, written by Cursor's `stop` hook | Cursor keeps no usable token counts on disk, so run `tokengraph install-hook --agent cursor` once and restart Cursor. Usage counts from that moment on, or import your history with `tokengraph import cursor <csv>`. |
 | Gemini CLI | `~/.gemini/tmp/*/chats` (or `$GEMINI_CLI_HOME`) | Gemini CLI deletes sessions after 30 days by default, so sync at least monthly. It never records some side calls, so totals are a lower bound. |
 | Cline | `saoudrizwan.claude-dev/tasks` in VS Code-family editors, and `~/.cline/data` | Requests Cline sends through the Claude Code provider are skipped, because the Claude Code adapter already counts them. |
 | OpenCode | `~/.local/share/opencode/opencode*.db` and the older `storage/` folder | Reading the database needs Node 22.13 or newer. Records from before OpenCode 1.3.16 that cannot be read with certainty are skipped and reported. |
@@ -134,6 +134,7 @@ Every command takes `--help`. An unknown option is an error.
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off. |
 | `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. Reads the ledger only. |
+| `tokengraph import cursor <file.csv>` | Adds Cursor history from before the hook: download the usage CSV from the Cursor dashboard (Usage, export CSV) and pass it here. Importing the same or an overlapping file twice adds nothing twice. Import on one machine only: machines are added together, so the same file on two machines counts twice. Never publishes. |
 | `tokengraph uninstall` | Removes the Claude Code, Cursor and Codex hooks and the hourly schedule. `--purge` also deletes tokengraph's own files in `~/.tokengraph`, `--yes` skips the question, `--dry-run` changes nothing. Your gists are never touched. |
 
 Hooks and the schedule store the path of the installed program, so install tokengraph globally

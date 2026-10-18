@@ -26,7 +26,8 @@ file npm ships (`bundle/bin.js`, plus `assets/`).
 
 State lives in `~/.tokengraph/` (or `$TOKENGRAPH_HOME`): `config.json` (machine id, GitHub login and
 auth, gist ids, graph colours; mode 0600), `state.json` (the ledger), `machines.json` (the other
-machines' files from the last publish) and, for Cursor, `cursor-events.jsonl`.
+machines' files from the last publish) and, for Cursor, `cursor-events.jsonl` and `cursor-import.jsonl`
+(rows imported from a dashboard CSV by `tokengraph import cursor`; neither Cursor file is ever pruned).
 
 ## Data flow
 
