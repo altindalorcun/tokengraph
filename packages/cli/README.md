@@ -19,6 +19,10 @@
 </p>
 
 <p align="center">
+  <b>English</b> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.zh-CN.md">简体中文</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ja.md">日本語</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ko.md">한국어</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.tr.md">Türkçe</a>
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/altindalorcun/tokengraph/main/docs/assets/graph-dark.svg">
     <img alt="A year of daily AI coding token usage as a contribution-style graph, coloured by model family" src="https://raw.githubusercontent.com/altindalorcun/tokengraph/main/docs/assets/graph-light.svg" width="900">
