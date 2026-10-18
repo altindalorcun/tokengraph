@@ -12,6 +12,7 @@ import { runSchedule } from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
 import { parseStoryArgs, runStory } from './commands/story.js';
 import { runSync } from './commands/sync.js';
+import { runUninstall } from './commands/uninstall.js';
 import { runView } from './commands/view.js';
 import { removeHostedLeftovers } from './hosted-leftovers.js';
 import { migrateLegacyHome } from './paths.js';
@@ -31,6 +32,7 @@ Commands:
   schedule             Sync every hour in the background
   story                Turn your usage into story cards and send them to your phone
   export               Write your daily usage as CSV or JSON
+  uninstall            Remove the hooks and the schedule (and, with --purge, your data)
 
 Run \`tokengraph <command> --help\` for a command's options.
 
@@ -321,6 +323,27 @@ Options:
       }
       return runStory(options);
     },
+  },
+
+  uninstall: {
+    help: `Usage: tokengraph uninstall [options]
+
+Removes everything tokengraph installed on this machine: the Claude Code, Cursor and Codex hooks and the
+hourly schedule. Your gists and your agents' own data are never touched.
+
+Options:
+  --purge              Also delete tokengraph's own data folder (~/.tokengraph): the ledger, the login
+                       and the Cursor event file
+  --yes                Don't ask before deleting (needed for --purge outside a terminal)
+  --dry-run            Show what would change and change nothing
+`,
+    options: {
+      purge: { type: 'boolean', default: false },
+      yes: { type: 'boolean', default: false },
+      'dry-run': { type: 'boolean', default: false },
+    },
+    run: (values) =>
+      runUninstall({ purge: values['purge'] === true, yes: values['yes'] === true, dryRun: values['dry-run'] === true }),
   },
 
   // Run by Cursor's stop hook (see `install-hook --agent cursor`); not meant to be run by hand.

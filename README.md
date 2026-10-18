@@ -162,9 +162,9 @@ them at a tenth keeps the graph about work done. The formula is under [How it wo
 **Does it work offline?** Yes. `view`, `story`, `status` and `sync --local` never use the network.
 Only publishing needs GitHub.
 
-**How do I stop?** `tokengraph schedule --remove`, `tokengraph install-hook --agent <name> --remove`
-for each hook you added, and `tokengraph logout`. Then `npm uninstall -g tokengraph`. Delete the two
-gists to remove what was published, and `~/.tokengraph` to remove the rest.
+**How do I stop?** `tokengraph uninstall` removes the Claude Code, Cursor and Codex hooks and the hourly
+schedule; add `--purge` to also delete `~/.tokengraph` (the ledger, the login and the Cursor event file).
+Then `npm uninstall -g tokengraph`. Your gists stay on GitHub until you delete them.
 
 **Windows?** Paths, hooks and the hourly Task Scheduler job are written for Windows, but tokengraph
 is developed on macOS and Linux, so expect rough edges and please open an issue.
