@@ -3,10 +3,10 @@
 This note explains where, and in what format, Qwen Code (`QwenLM/qwen-code`, npm `@qwen-code/qwen-code`, a
 fork of Gemini CLI) stores per-request token usage in its local files, and how to normalise it into
 tokengraph's fields. The adapter lives in `packages/cli/src/adapters/qwen-code/`; this note is the research
-behind it. Qwen Code was not installed on the machine where the research was done. Everything below was worked
-out from the source (main, commit [`e584d4d`](https://github.com/QwenLM/qwen-code/tree/e584d4d1973ad2b40278e67a945eb62c0006baaa),
-18 October 2026, package version 0.25.2) and every field name was re-checked against that code; it was not
-verified against a real local file.
+behind it. The research started from the source (main, commit
+[`e584d4d`](https://github.com/QwenLM/qwen-code/tree/e584d4d1973ad2b40278e67a945eb62c0006baaa), 18 October 2026,
+package version 0.25.2) and every field name was re-checked against that code. It was then checked by running
+Qwen Code 0.25.2 against a fake endpoint (see "Checked against real runs").
 
 In short: Qwen Code writes one JSON line per chat record into `~/.qwen/projects/<cwd>/chats/<sessionId>.jsonl`.
 A `type: "assistant"` record carries one API response in a Gemini-shaped `usageMetadata` object. It is close to
@@ -15,6 +15,11 @@ the Gemini **API** field names (not Gemini CLI's `tokens`), `promptTokenCount` a
 **and, on the Anthropic protocol, cache creation**, the dedup key is a per-record `uuid` that `/branch` copies
 into other files, and background subagents write their own transcripts in a separate folder with no `model`
 field. Chat transcripts are never auto-deleted; background subagent transcripts are, after 30 days by default.
+
+The chat records miss one thing: the managed auto-memory extractor makes an extra model request after each reply
+and does not write it as an assistant record, so reading chats alone under-counts. Qwen Code 0.19.0 and later
+also write their own per-request ledger, `usage/token-usage-YYYY-MM.jsonl`, which includes those requests. The
+adapter reads both and, for each day, uses whichever source has more weighted tokens (see "The usage ledger").
 
 These counters are local session token usage, not a provider bill or quota report.
 
@@ -141,11 +146,51 @@ the same ones and its tests pass unchanged. The semantics that differ are theref
 - A failed stream attempt with a partial tool-use record is dropped on retry success, so failed attempts are not
   on disk and their usage is invisible.
 - Subagent transcripts are separate requests, not copies of the parent's.
-- Side LLM calls (title generation, compression and so on) were not seen being recorded as assistant records,
-  so totals are a lower bound, never an overcount.
+- The managed auto-memory extractor's request (`source: "managed-auto-memory-extractor"`, on by default) is not
+  an assistant record; it is only in the usage ledger (and in `ui_telemetry`, which is not read). Other internal
+  prompts (`prompt_suggestion`, `forked_query`, `speculation`, `side-query:*`) are in neither source. Chats alone
+  are therefore a lower bound; so is every source, so the per-day maximum never overcounts.
 - A record without a `uuid`, with an invalid timestamp, or with a missing or invalid `promptTokenCount` (or a
   present but negative or fractional counter) is skipped and reported; a valid copy of the same `uuid` in
   another file clears the report for it.
+
+## The usage ledger
+
+Qwen Code 0.19.0 and later (QwenLM/qwen-code commit 8d2fe0a, 18 June 2026) append one line per model request to
+`<runtime dir>/usage/token-usage-YYYY-MM.jsonl` (`packages/core/src/services/tokenUsageService.ts`). The runtime
+dir is the same one as for `projects/`, so the adapter lists `usage` in the same directories. It is written only
+while `privacy.usageStatisticsEnabled` is true (the default), and Qwen Code never prunes it. A record is appended
+once; `/branch` does not copy it.
+
+```json
+{"schemaVersion":1,"id":"831c…","timestamp":"2026-10-18T19:21:47.518Z","localDate":"2026-10-18","localMonth":"2026-10",
+ "sessionId":"30cd…","model":"qwen3-coder-plus","authType":"openai","source":"managed-auto-memory-extractor",
+ "inputTokens":1220,"outputTokens":34,"cachedTokens":206,"thoughtsTokens":0,"totalTokens":1254,"apiDurationMs":27}
+```
+
+- Fields read: `schemaVersion`, `id`, `timestamp`, `model`, `inputTokens`, `outputTokens`, `cachedTokens`,
+  `totalTokens`. The session id and everything else are never kept. A file whose month is before the `since`
+  month is skipped.
+- Only `schemaVersion` 1 is read. Any other value is skipped and reported in one note, because a new schema may
+  have changed what the counters mean and an overcount can never leave the ledger.
+- Dedup key: `id`, across files and runtime dirs.
+- Arithmetic is the chat records': `inputTokens` includes cached tokens (and, on the Anthropic protocol, cache
+  creation), so fresh input = `max(0, inputTokens - cachedTokens)`, output = `max(outputTokens, totalTokens -
+  inputTokens)` (just `outputTokens` when `totalTokens` is absent), cache read = `cachedTokens`, cache creation
+  0. `thoughtsTokens` is never added. A record with no id, a bad timestamp, or a missing, negative or fractional
+  `inputTokens` / `outputTokens` is malformed and reported like a malformed chat record.
+
+### Combining the two sources
+
+The chat result and the ledger result are built separately. For each date, all of that date's rows come from the
+source with the larger weighted-token total for the day; on a tie, the ledger. They are never summed and never
+mixed within a day, and the request count is the number of distinct requests on the chosen side.
+
+Why: both sources are subsets of the requests that really happened. Chats miss the extractor; the ledger misses
+days before 0.19.0 and days with usage statistics off. A per-day maximum can therefore never overcount. The only
+undercount is a day where some requests are only in one source and others only in the other (the day of an
+upgrade past 0.19.0, or a day on which statistics were toggled). A per-session choice was rejected: `/branch`
+copies records into a new session id, which would let the same requests count in two sessions.
 
 ## Model attribution
 
@@ -183,10 +228,20 @@ pre-JSONL Gemini-fork era (0.0.x) layout was not checked, and a newer "managed" 
 (`services/session-execution-engine.ts`) that writes into the same `<sessionId>.jsonl` and keeps
 `usageMetadata` was not read beyond that.
 
+## Checked against real runs
+
+Qwen Code 0.25.2 was run against a fake LLM endpoint on the OpenAI and the Anthropic protocols, with two prompts
+per run. Chat records, `ui_telemetry` and the usage ledger were inspected. The endpoint served 4 requests; the
+chat records held 2 of them. The memory extractor's requests are only in the ledger (and as `ui_telemetry`
+`qwen-code.api_response` events, which are not read). With the ledger read, the OpenAI run matched the endpoint
+exactly (input 4070, cache read 830, output 140). On the Anthropic run the ledger's `inputTokens` was fresh input
+plus cache read plus cache write (1261 = 1007 + 203 + 51), so cache writes land in input and the cache-write
+figure is 0, as described above.
+
 ## Not verified against real data
 
-- Qwen Code was not installed and no real transcript was seen. The record shape, the protocol mappings and the
-  paths come from the source at the commit above; the example figures are invented.
+- Only those fake-endpoint runs were seen; no transcript from a real provider session was. The example figures in
+  this note's chat record are invented.
 - Which protocol produced a record is not recorded, so `total - prompt` for output and the cache clamp are rules
   that fit all three protocols in the code, not something checked on real files per protocol.
 - `thoughtsTokenCount` may be an estimate; it is not used.

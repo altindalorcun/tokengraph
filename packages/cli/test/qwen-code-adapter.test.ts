@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parseJsonObjects } from '../src/adapters/qwen-code/aggregator.js';
-import { createQwenCodeAdapter, qwenHome, qwenProjectsDirs, qwenSettingsPath } from '../src/adapters/qwen-code/index.js';
+import { createQwenCodeAdapter, qwenHome, qwenProjectsDirs, qwenSettingsPath, qwenUsageDirs } from '../src/adapters/qwen-code/index.js';
 
 const SINCE = new Date('2026-01-01T00:00:00Z');
 const SECRET = 'SECRET-PROMPT-TEXT /Users/someone/private';
@@ -30,6 +30,39 @@ function assistant(extra: Json = {}): Json {
     ...extra,
   };
 }
+
+function ledgerRecord(extra: Json = {}): Json {
+  return {
+    schemaVersion: 1,
+    id: 'l-1',
+    timestamp: '2026-10-18T19:21:47.464Z',
+    localDate: '2026-10-18',
+    localMonth: '2026-10',
+    sessionId: 'SECRET-SESSION',
+    model: 'qwen3-coder-plus',
+    authType: 'openai',
+    source: 'main',
+    inputTokens: 1210,
+    outputTokens: 32,
+    cachedTokens: 203,
+    thoughtsTokens: 0,
+    totalTokens: 1242,
+    apiDurationMs: 73,
+    ...extra,
+  };
+}
+
+// The two real lines from a Qwen Code 0.25.2 run: the main request and the memory extractor's.
+const REAL_MAIN = ledgerRecord({ id: 'b2560b63-0292-4c84-b6a4-6fc101d47731' });
+const REAL_EXTRACTOR = ledgerRecord({
+  id: '831cd12e-9682-4263-ae8f-23412bdf9e78',
+  timestamp: '2026-10-18T19:21:47.518Z',
+  source: 'managed-auto-memory-extractor',
+  inputTokens: 1220,
+  outputTokens: 34,
+  cachedTokens: 206,
+  totalTokens: 1254,
+});
 
 describe('qwen code adapter', () => {
   let root: string;
@@ -63,6 +96,10 @@ describe('qwen code adapter', () => {
     await write(join(dir, `agent-${agent}.jsonl`), lines);
     if (meta !== undefined) await writeFile(join(dir, `agent-${agent}.meta.json`), JSON.stringify(meta));
   }
+  const ledger = async (name: string, lines: unknown[], dir = join(qwen, 'usage')) => {
+    await mkdir(dir, { recursive: true });
+    await write(join(dir, name), lines);
+  };
   const collect = (since = SINCE) => createQwenCodeAdapter({ timeZone: 'UTC' }).collect(since);
 
   it('resolves the folders from QWEN_HOME and QWEN_RUNTIME_DIR, with ~ expansion', () => {
@@ -232,6 +269,140 @@ describe('qwen code adapter', () => {
   it('keeps a free-form model id as the tool wrote it, and an empty one as unknown', async () => {
     await chat('a.jsonl', [assistant({ model: 'my-company/custom-model' }), assistant({ uuid: 'u-2', model: '' })]);
     expect((await collect()).usage.map((row) => row.model).sort()).toEqual(['my-company/custom-model', 'unknown']);
+  });
+
+  describe('token usage ledger', () => {
+    // The same main request as the chat record `assistant({ uuid: 'main' })` below, on the ledger.
+    const chatMain = (extra: Json = {}) =>
+      assistant({
+        uuid: 'main',
+        timestamp: '2026-10-18T19:21:47.400Z',
+        usageMetadata: usageMetadata({ promptTokenCount: 1210, cachedContentTokenCount: 203, candidatesTokenCount: 32, totalTokenCount: 1242 }),
+        ...extra,
+      });
+
+    it('is read on its own, and also makes the adapter detect', async () => {
+      await rm(join(qwen, 'projects'), { recursive: true });
+      expect(await createQwenCodeAdapter().detect()).toBe(false);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN, REAL_EXTRACTOR]);
+      expect(await createQwenCodeAdapter().detect()).toBe(true);
+      const result = await collect();
+      expect(result.requestCount).toBe(2);
+      expect(result.usage).toEqual([
+        {
+          date: '2026-10-18',
+          model: 'qwen3-coder-plus',
+          pricingTier: 'standard',
+          counts: { inputTokens: 1007 + 1014, outputTokens: 66, cacheCreationTokens: 0, cacheReadTokens: 409, cacheCreation5mTokens: null, cacheCreation1hTokens: null },
+        },
+      ]);
+      expect(result.notes).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain('SECRET');
+    });
+
+    it('lists the usage folders next to the projects folders', () => {
+      process.env['QWEN_RUNTIME_DIR'] = join(root, 'runtime');
+      expect(qwenUsageDirs()).toEqual([join(root, 'runtime', 'usage'), join(qwen, 'usage')]);
+    });
+
+    it('uses the ledger alone for a day when it holds the extra request, without double counting', async () => {
+      await chat('a.jsonl', [chatMain()]);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN, REAL_EXTRACTOR]);
+      const result = await collect();
+      expect(result.requestCount).toBe(2);
+      expect(result.usage).toHaveLength(1);
+      expect(result.usage[0]!.counts).toMatchObject({ inputTokens: 2021, outputTokens: 66, cacheReadTokens: 409 });
+    });
+
+    it('takes a day before the ledger existed from the chats and a later day from the ledger', async () => {
+      await chat('a.jsonl', [
+        assistant({ uuid: 'old' }),
+        chatMain(),
+      ]);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN, REAL_EXTRACTOR]);
+      const result = await collect();
+      expect(result.requestCount).toBe(3);
+      expect(result.usage.map((row) => [row.date, row.counts.inputTokens])).toEqual([
+        ['2026-10-17', 3000],
+        ['2026-10-18', 2021],
+      ]);
+    });
+
+    it('keeps the chats for a day where they are larger (statistics switched off mid-day)', async () => {
+      await chat('a.jsonl', [chatMain(), assistant({ uuid: 'later', timestamp: '2026-10-18T20:00:00.000Z' })]);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN]);
+      const result = await collect();
+      expect(result.requestCount).toBe(2);
+      expect(result.usage[0]!.counts).toMatchObject({ inputTokens: 1007 + 3000, cacheReadTokens: 203 + 9000 });
+    });
+
+    it('prefers the ledger on a tie', async () => {
+      await chat('a.jsonl', [chatMain({ model: 'chat-model' })]);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN]);
+      expect((await collect()).usage.map((row) => row.model)).toEqual(['qwen3-coder-plus']);
+    });
+
+    it('counts a ledger id once across runtime dirs and months', async () => {
+      const runtime = join(root, 'runtime');
+      process.env['QWEN_RUNTIME_DIR'] = runtime;
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN], join(runtime, 'usage'));
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN, REAL_EXTRACTOR]);
+      await ledger('token-usage-2026-11.jsonl', [REAL_MAIN]);
+      const result = await collect();
+      expect(result.requestCount).toBe(2);
+      expect(result.usage[0]!.counts).toMatchObject({ inputTokens: 2021, outputTokens: 66 });
+    });
+
+    it('skips other schema versions with one note', async () => {
+      await ledger('token-usage-2026-10.jsonl', [
+        REAL_MAIN,
+        ledgerRecord({ id: 'v2-a', schemaVersion: 2 }),
+        ledgerRecord({ id: 'v2-b', schemaVersion: 2 }),
+        ledgerRecord({ id: 'v-none', schemaVersion: undefined }),
+      ]);
+      const result = await collect();
+      expect(result.requestCount).toBe(1);
+      expect(result.notes).toEqual(['skipped 3 Qwen Code usage ledger record(s) with an unknown schemaVersion']);
+    });
+
+    it('reports malformed ledger records, and a valid copy of the same id clears it', async () => {
+      await ledger('token-usage-2026-10.jsonl', [
+        REAL_MAIN,
+        ledgerRecord({ id: 'no-input', inputTokens: undefined }),
+        ledgerRecord({ id: 'negative', cachedTokens: -1 }),
+        ledgerRecord({ id: 'fraction', outputTokens: 1.5 }),
+        ledgerRecord({ id: 'bad-time', timestamp: 'yesterday' }),
+        ledgerRecord({ id: 'cleared', inputTokens: -5 }),
+        ledgerRecord({ id: undefined }),
+      ]);
+      await ledger('token-usage-2026-11.jsonl', [ledgerRecord({ id: 'cleared', timestamp: '2026-10-19T10:00:00.000Z' })]);
+      const result = await collect();
+      expect(result.requestCount).toBe(2);
+      expect(result.notes).toEqual(['skipped 5 Qwen Code record(s) with missing or invalid token counts, uuid or timestamp']);
+    });
+
+    it('normalises like chat records: clamps cached above input, falls back without total, unknown model', async () => {
+      await ledger('token-usage-2026-10.jsonl', [
+        ledgerRecord({ id: 'clamp', inputTokens: 100, cachedTokens: 500, outputTokens: 5, totalTokens: 105 }),
+        ledgerRecord({ id: 'no-total', inputTokens: 10, cachedTokens: 0, outputTokens: 7, totalTokens: undefined, model: '' }),
+        ledgerRecord({ id: 'thoughts', inputTokens: 100, cachedTokens: 0, outputTokens: 50, totalTokens: 180, thoughtsTokens: 30, model: undefined }),
+      ]);
+      const result = await collect();
+      expect(result.usage.map((row) => [row.model, row.counts.inputTokens, row.counts.outputTokens, row.counts.cacheReadTokens])).toEqual([['unknown', 110, 87, 0], ['qwen3-coder-plus', 0, 5, 500]].sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+      expect(result.notes).toEqual(['1 Qwen Code record(s) reported more cached than prompt tokens; counted as 0 fresh input']);
+    });
+
+    it('filters ledger records by since and skips months before it', async () => {
+      await ledger('token-usage-2025-11.jsonl', [ledgerRecord({ id: 'ancient', timestamp: '2025-11-05T10:00:00.000Z' })]);
+      await ledger('token-usage-2025-12.jsonl', [
+        ledgerRecord({ id: 'old', timestamp: '2025-12-31T23:59:59.000Z' }),
+        ledgerRecord({ id: 'edge', timestamp: '2026-01-01T00:00:00.000Z' }),
+      ]);
+      await ledger('notes.jsonl', [ledgerRecord({ id: 'other-file' })]);
+      const result = await collect();
+      expect(result.requestCount).toBe(1);
+      expect(result.usage[0]!.date).toBe('2026-01-01');
+    });
   });
 
   // chmod cannot make a file unreadable on Windows.
