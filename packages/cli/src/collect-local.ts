@@ -2,9 +2,14 @@ import type { Adapter, CollectResult } from '@tokengraph/core';
 import { createClaudeCodeAdapter, projectsDir } from './adapters/claude-code/index.js';
 import { clineSessionsDir, createClineAdapter } from './adapters/cline/index.js';
 import { codexSessionsDir, createCodexAdapter } from './adapters/codex/index.js';
+import { copilotHome, createCopilotCliAdapter } from './adapters/copilot-cli/index.js';
 import { createCursorAdapter, cursorEventsPath } from './adapters/cursor/index.js';
 import { createGeminiCliAdapter, geminiTmpDirs } from './adapters/gemini-cli/index.js';
+import { createGooseAdapter, gooseDbCandidates } from './adapters/goose/index.js';
+import { createKiloAdapter, kiloDataDir } from './adapters/kilo/index.js';
 import { createOpenCodeAdapter, openCodeDataDir } from './adapters/opencode/index.js';
+import { createPiAdapter, piSessionDirs } from './adapters/pi/index.js';
+import { createQwenCodeAdapter, qwenProjectsDirs } from './adapters/qwen-code/index.js';
 import { mergeUsage, type Ledger } from './ledger.js';
 
 export interface CollectProgress {
@@ -29,6 +34,11 @@ export function defaultAdapters(): Adapter[] {
     createGeminiCliAdapter(),
     createClineAdapter(),
     createOpenCodeAdapter(),
+    createKiloAdapter(),
+    createCopilotCliAdapter(),
+    createPiAdapter(),
+    createQwenCodeAdapter(),
+    createGooseAdapter(),
   ];
 }
 
@@ -75,13 +85,18 @@ export function searchedPaths(): string[] {
     `${geminiTmpDirs()[0]} (Gemini CLI)`,
     `${clineSessionsDir()} and VS Code's Cline storage (Cline)`,
     `${openCodeDataDir()} (OpenCode)`,
+    `${kiloDataDir()} (Kilo CLI)`,
+    `${copilotHome()} (Copilot CLI)`,
+    `${piSessionDirs().join(' and ')} (pi)`,
+    `${qwenProjectsDirs().join(' and ')} (Qwen Code)`,
+    `${gooseDbCandidates().join(' or ')} (Goose)`,
   ];
 }
 
 /** Sync's "No agent usage found…" text, shared with the view's empty state. */
 export function noAgentsMessage(): string {
   return (
-    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline and OpenCode data:\n' +
+    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code and Goose data:\n' +
     searchedPaths()
       .map((line) => `  ${line}`)
       .join('\n')

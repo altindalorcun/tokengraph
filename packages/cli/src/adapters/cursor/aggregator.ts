@@ -12,6 +12,7 @@ import {
 } from '@tokengraph/core';
 import { capModelName, normalizeClaudeModel } from '../model-ids.js';
 import type { CursorEvent } from './events.js';
+import type { ImportedRow } from './imports.js';
 
 export { MAX_MODEL_NAME_LENGTH } from '../model-ids.js';
 /** Cursor's name for {@link normalizeClaudeModel}, kept for existing callers. */
@@ -54,7 +55,7 @@ function hasFastWord(raw: string): boolean {
  * its tokens still merge with the model's other usage, and is priced by the fast tier (unknown
  * where no fast rate is recorded).
  */
-export function cursorModelIdentity(event: CursorEvent): { model: string; pricingTier: PricingTier } {
+export function cursorModelIdentity(event: Pick<CursorEvent, 'model' | 'modelId' | 'fast'>): { model: string; pricingTier: PricingTier } {
   const raw = event.modelId ?? event.model ?? 'unknown';
   const base = normalizeClaudeModel(raw);
   const fast = event.fast || hasFastWord(raw);
@@ -81,6 +82,7 @@ export class CursorUsageAggregator {
   private readonly options: CursorAggregatorOptions;
   private readonly turns = new Map<string, TurnRecord>();
   private readonly counters: CursorDiagnostics = { missingCounts: 0, clampedEvents: 0 };
+  private hookStart: Date | null = null;
 
   constructor(options: CursorAggregatorOptions = {}) {
     this.options = options;
@@ -89,6 +91,8 @@ export class CursorUsageAggregator {
   add(event: CursorEvent): void {
     const instant = new Date(event.receivedAt);
     if (Number.isNaN(instant.getTime())) return;
+    // Before the since filter: the cutoff for imported rows is the hook's first turn ever, not the first in the window.
+    if (!this.hookStart || instant < this.hookStart) this.hookStart = instant;
     if (this.options.since && instant < this.options.since) return;
     if (event.inputTokens === null || event.outputTokens === null) {
       this.counters.missingCounts += 1;
@@ -116,6 +120,33 @@ export class CursorUsageAggregator {
         ? { date: existing.date, model, pricingTier, counts: maxSplitCounts(existing.counts, counts) }
         : { date, model, pricingTier, counts },
     );
+  }
+
+  /**
+   * Adds a row imported from Cursor's usage CSV. Call it after every hook event: a row counts only when
+   * strictly before the hook's first turn (all rows count when the hook never ran), so imported rows and
+   * hook turns never overlap and are summed, not max-merged. Max Mode is not a pricing tier here: it
+   * changes the context window, and Cursor's per-token rates do not differ for it.
+   */
+  addImported(row: ImportedRow): void {
+    const instant = new Date(row.at);
+    if (Number.isNaN(instant.getTime())) return;
+    if (this.hookStart && instant >= this.hookStart) return;
+    if (this.options.since && instant < this.options.since) return;
+    const { model, pricingTier } = cursorModelIdentity({ model: row.model, modelId: row.model, fast: false });
+    this.turns.set(`import\0${row.id}`, {
+      date: dateKey(instant, this.options.timeZone),
+      model,
+      pricingTier,
+      counts: {
+        inputTokens: row.inputTokens,
+        outputTokens: row.outputTokens,
+        cacheCreationTokens: row.cacheWriteTokens,
+        cacheReadTokens: row.cacheReadTokens,
+        cacheCreation5mTokens: null,
+        cacheCreation1hTokens: null,
+      },
+    });
   }
 
   diagnostics(): CursorDiagnostics {

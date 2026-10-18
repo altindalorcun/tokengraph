@@ -1,11 +1,20 @@
-import { dateKey, OPENCODE_SOURCE, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
+import { dateKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel, type RequestRecord } from '../request-buckets.js';
+import { OPENCODE_FLAVOUR, type OpenCodeFlavour } from './flavour.js';
 import { parseStoredTokens, resolveV1Tokens, resolveV2Tokens, type Resolution, type SkipReason, type StoredTokens, type VersionContext } from './semantics.js';
 
 export interface OpenCodeAggregatorOptions {
   since?: Date;
   timeZone?: string;
+  /** Which product's rules apply; OpenCode's when omitted. */
+  flavour?: OpenCodeFlavour;
+}
+
+/** The real provider and model behind one step-finish part, when the product records it (Kilo's routed ids). */
+export interface StepModel {
+  providerId: string | null;
+  modelId: string | null;
 }
 
 export interface OpenCodeMessage {
@@ -21,6 +30,8 @@ export interface OpenCodeMessage {
   tokens: unknown;
   /** step-finish parts' raw tokens objects, ordered by part id; empty if the message has none. */
   steps: unknown[];
+  /** Per step, parallel to `steps`: the step's own model, or null to use the message's. Absent when never read. */
+  stepModels?: Array<StepModel | null>;
 }
 
 export interface OpenCodeSession {
@@ -41,7 +52,7 @@ export interface OpenCodeV2Message {
 }
 
 export interface OpenCodeDiagnostics {
-  /** pre-1.3.16 records whose meaning could not be pinned down (no-total/ambiguous/aisdk6-window). */
+  /** records from before the product's period-D release whose meaning could not be pinned down (no-total/ambiguous/aisdk6-window). */
   skippedOld: number;
   /** tokens missing, non-numeric, negative, or a `createdMs` too far out of range to date. */
   invalidRecords: number;
@@ -118,6 +129,7 @@ function canonicalKey(id: string, fingerprint: string, idToKey: Map<string, stri
  */
 export class OpenCodeAggregator {
   private readonly options: OpenCodeAggregatorOptions;
+  private readonly flavour: OpenCodeFlavour;
   private readonly buckets = new RequestBuckets();
   private readonly sessions = new Map<string, OpenCodeSession>();
   /** Keyed by message id; when the same id arrives twice the copy with more steps wins (ties: last added). */
@@ -131,6 +143,7 @@ export class OpenCodeAggregator {
 
   constructor(options: OpenCodeAggregatorOptions = {}) {
     this.options = options;
+    this.flavour = options.flavour ?? OPENCODE_FLAVOUR;
   }
 
   addSession(session: OpenCodeSession): void {
@@ -165,6 +178,7 @@ export class OpenCodeAggregator {
     for (const reason of this.pendingSkips.values()) {
       if (reason === 'invalid') invalidRecords += 1;
       else if (reason === 'claude-code') skippedClaudeCode += 1;
+      else if (reason === 'ignored') continue;
       else skippedOld += 1;
     }
     return { skippedOld, invalidRecords, skippedClaudeCode, unreadableSources: this.unreadableSources };
@@ -175,7 +189,7 @@ export class OpenCodeAggregator {
     this.pendingSkips.clear();
     this.resolveV1();
     this.resolveV2();
-    return { source: OPENCODE_SOURCE, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
+    return { source: this.flavour.source, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
   }
 
   private resolveV1(): void {
@@ -194,13 +208,17 @@ export class OpenCodeAggregator {
         messageCreatedMs: message.createdMs,
       };
 
-      const units: Array<{ raw: unknown; requestKey: string }> =
+      const units: Array<{ raw: unknown; requestKey: string; model: StepModel | null }> =
         message.steps.length > 0
-          ? message.steps.map((raw, index) => ({ raw, requestKey: `${key}#${index}` }))
-          : [{ raw: message.tokens, requestKey: `${key}#m` }];
+          ? message.steps.map((raw, index) => ({ raw, requestKey: `${key}#${index}`, model: message.stepModels?.[index] ?? null }))
+          : [{ raw: message.tokens, requestKey: `${key}#m`, model: null }];
 
-      for (const { raw, requestKey } of units) {
-        this.processUnit(raw, requestKey, message.createdMs, message.providerId, message.modelId, (tokens) => resolveV1Tokens(tokens, context));
+      for (const { raw, requestKey, model } of units) {
+        // A step that names its own model (a routed id such as `kilo-auto/*`) is the real one; the
+        // message only holds the id the user selected.
+        const providerId = model?.modelId ? model.providerId ?? message.providerId : message.providerId;
+        const modelId = model?.modelId ?? message.modelId;
+        this.processUnit(raw, requestKey, message.createdMs, providerId, modelId, (tokens) => resolveV1Tokens(tokens, context, this.flavour.rules));
       }
     }
   }
@@ -276,6 +294,8 @@ export class OpenCodeAggregator {
     let resolution: Resolution;
     if (isClaudeCodeProvider(providerId)) {
       resolution = { skip: 'claude-code' };
+    } else if (providerId !== null && this.flavour.ignoredProviders.includes(providerId.toLowerCase())) {
+      resolution = { skip: 'ignored' };
     } else if (!isValidTimestamp(createdMs)) {
       resolution = { skip: 'invalid' };
     } else {

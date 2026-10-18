@@ -2,7 +2,9 @@
 import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { cliVersion } from './bin-path.js';
 import { runCursorHook } from './commands/cursor-hook.js';
+import { parseExportArgs, runExport } from './commands/export.js';
 import { runHookSync } from './commands/hook-sync.js';
+import { parseImportArgs, runImportCursor } from './commands/import.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
 import { runLogin } from './commands/login.js';
 import { runLogout } from './commands/logout.js';
@@ -11,6 +13,7 @@ import { runSchedule } from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
 import { parseStoryArgs, runStory } from './commands/story.js';
 import { runSync } from './commands/sync.js';
+import { runUninstall } from './commands/uninstall.js';
 import { runView } from './commands/view.js';
 import { removeHostedLeftovers } from './hosted-leftovers.js';
 import { migrateLegacyHome } from './paths.js';
@@ -29,6 +32,9 @@ Commands:
   install-hook         Sync automatically when Claude Code, Cursor or Codex finishes
   schedule             Sync every hour in the background
   story                Turn your usage into story cards and send them to your phone
+  export               Write your daily usage as CSV or JSON
+  import               Add history from another source, such as a Cursor usage CSV
+  uninstall            Remove the hooks and the schedule (and, with --purge, your data)
 
 Run \`tokengraph <command> --help\` for a command's options.
 
@@ -191,12 +197,45 @@ and your gists stay on GitHub.
   },
 
   status: {
-    help: `Usage: tokengraph status
+    help: `Usage: tokengraph status [options]
 
-Shows the account, the local ledger and which background syncs are installed on this machine.
+Shows the account, the local ledger, which background syncs are installed on this machine, and how long
+Claude Code, Gemini CLI and Qwen Code keep their logs (with a warning when history is at risk).
+
+Note: --json includes the secret data-gist URL and local paths, so don't paste it publicly.
+
+  --json               Print one JSON object instead of text, for scripts and AI agents
 `,
-    options: {},
-    run: () => runStatus(),
+    options: { json: { type: 'boolean', default: false } },
+    run: (values) => runStatus({}, { json: values['json'] === true }),
+  },
+
+  export: {
+    help: `Usage: tokengraph export [options]
+
+Writes your daily usage, one row per day, agent, model and pricing tier, from the local ledger.
+It reads the ledger only; run \`tokengraph sync --local\` first for the newest numbers. Never publishes.
+
+Options:
+  --format <csv|json>  Output format (default: csv)
+  --out <file>         Write to a file instead of standard output
+  --since <date>       Only days on or after this date (YYYY-MM-DD)
+  --all-machines       Add your other machines, as of the last publish
+`,
+    options: {
+      format: { type: 'string', default: 'csv' },
+      out: { type: 'string' },
+      since: { type: 'string' },
+      'all-machines': { type: 'boolean', default: false },
+    },
+    run: (values) => {
+      const options = parseExportArgs(values);
+      if (typeof options === 'string') {
+        console.error(options);
+        return 1;
+      }
+      return runExport(options);
+    },
   },
 
   'install-hook': {
@@ -241,7 +280,7 @@ Options:
     help: `Usage: tokengraph schedule [options]
 
 Runs a sync every hour in the background (launchd on macOS, cron on Linux, Task Scheduler on Windows).
-Use it for agents without a hook (Gemini CLI, Cline, OpenCode) or to pick up Cursor's recorded turns.
+Use it for agents without a hook (Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose) or to pick up Cursor's recorded turns.
 
 Options:
   --remove             Remove the hourly sync
@@ -289,6 +328,50 @@ Options:
       }
       return runStory(options);
     },
+  },
+
+  import: {
+    help: `Usage: tokengraph import cursor <file.csv>
+
+Adds your Cursor history from before the hook was installed. Download the usage CSV yourself from the
+Cursor dashboard (Usage, then export CSV); tokengraph reads no Cursor login and calls no Cursor API.
+
+Importing the same or an overlapping file again adds nothing twice. Rows from the moment the Cursor hook
+first ran are skipped, because the hook already counts them. The ledger is updated; nothing is published.
+
+Import on one machine only: machines are added together, so importing the same file on two machines
+counts it twice.
+`,
+    options: {},
+    run: (_values, positionals) => {
+      const args = parseImportArgs(positionals);
+      if (typeof args === 'string') {
+        console.error(args);
+        return 1;
+      }
+      return runImportCursor(args.file);
+    },
+  },
+
+  uninstall: {
+    help: `Usage: tokengraph uninstall [options]
+
+Removes everything tokengraph installed on this machine: the Claude Code, Cursor and Codex hooks and the
+hourly schedule. Your gists and your agents' own data are never touched.
+
+Options:
+  --purge              Also delete tokengraph's own files in ~/.tokengraph (or $TOKENGRAPH_HOME): ledger,
+                       login, logs, Cursor event and import files; anything else in that folder is kept
+  --yes                Don't ask before deleting (needed for --purge outside a terminal)
+  --dry-run            Show what would change and change nothing
+`,
+    options: {
+      purge: { type: 'boolean', default: false },
+      yes: { type: 'boolean', default: false },
+      'dry-run': { type: 'boolean', default: false },
+    },
+    run: (values) =>
+      runUninstall({ purge: values['purge'] === true, yes: values['yes'] === true, dryRun: values['dry-run'] === true }),
   },
 
   // Run by Cursor's stop hook (see `install-hook --agent cursor`); not meant to be run by hand.

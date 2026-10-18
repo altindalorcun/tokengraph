@@ -35,6 +35,13 @@ export class RequestBuckets {
     return this.requests.size;
   }
 
+  /** Distinct requests per date. */
+  requestsByDate(): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const { date } of this.requests.values()) counts.set(date, (counts.get(date) ?? 0) + 1);
+    return counts;
+  }
+
   toUsage(): DailyModelUsage[] {
     const buckets = new Map<string, DailyModelUsage>();
     for (const { date, model, pricingTier, counts } of this.requests.values()) {

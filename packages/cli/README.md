@@ -8,7 +8,7 @@
 <h3 align="center">Your AI coding, as a GitHub-style graph.</h3>
 
 <p align="center">
-  <em>Claude Code, Codex CLI, Cursor, Gemini CLI, Cline and OpenCode: one graph, in your README.<br>
+  <em>Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code and Goose: one graph, in your README.<br>
   Your usage never leaves your machine unless you publish it, and then only to your own gist.</em>
 </p>
 
@@ -16,6 +16,10 @@
   <a href="https://www.npmjs.com/package/tokengraph"><img alt="npm version" src="https://img.shields.io/npm/v/tokengraph"></a>
   <a href="https://github.com/altindalorcun/tokengraph/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="https://github.com/altindalorcun/tokengraph/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/altindalorcun/tokengraph/actions/workflows/ci.yml/badge.svg"></a>
+</p>
+
+<p align="center">
+  <b>English</b> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.zh-CN.md">简体中文</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ja.md">日本語</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ko.md">한국어</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
@@ -96,7 +100,7 @@ re-reading a big cached context would drown a day of real work. It measures work
 
 | | |
 | --- | --- |
-| **What leaves your machine** | To a public gist on your account: the SVG graphs (daily token totals and the names of the model families they are coloured by) and a README with the embed snippet and a link. To a secret gist on your account: per-day, per-model token counts, a random machine id, a label such as `darwin-3f2a1c`, a hashed machine fingerprint, the CLI version and the time of the last update. Both only after `tokengraph login`, and only when tokengraph publishes (`sync`, a hook, the schedule, or `login`). `sync --local`, `view` and `story` never do. |
+| **What leaves your machine** | To a public gist on your account: the SVG graphs (daily token totals and the names of the model families they are coloured by) and a README with the embed snippet and a link. To a secret gist on your account: per-day, per-model token counts, a random machine id, a label such as `darwin-3f2a1c`, a hashed machine fingerprint, the CLI version and the time of the last update. Both only after `tokengraph login`, and only when tokengraph publishes (`sync`, a hook, the schedule, or `login`). `sync --local`, `view`, `story`, `status`, `export` and `import` never do. |
 | **What never does** | Prompts, answers, code, file names, paths. Nothing is sent to any tokengraph server: there is none. |
 | **How to remove it** | `tokengraph logout` forgets the login on this machine. Delete the two gists on [gist.github.com](https://gist.github.com) to remove what was published. |
 
@@ -110,12 +114,17 @@ you run `tokengraph login`, nothing is sent anywhere.
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR`) | Claude Code deletes old transcripts, so sync at least every few weeks. `tokengraph install-hook --agent claude-code` syncs when a session ends. |
 | Codex CLI | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`) | `tokengraph install-hook --agent codex` syncs after a turn, at most every 10 minutes. It never overwrites a `notify` setting that is not its own. |
-| Cursor | `~/.tokengraph/cursor-events.jsonl`, written by Cursor's `stop` hook | Cursor keeps no usable token counts on disk, so run `tokengraph install-hook --agent cursor` once and restart Cursor. Usage counts from that moment on. |
+| Cursor | `~/.tokengraph/cursor-events.jsonl`, written by Cursor's `stop` hook | Cursor keeps no usable token counts on disk, so run `tokengraph install-hook --agent cursor` once and restart Cursor. Usage counts from that moment on, or import your history with `tokengraph import cursor <csv>`. |
 | Gemini CLI | `~/.gemini/tmp/*/chats` (or `$GEMINI_CLI_HOME`) | Gemini CLI deletes sessions after 30 days by default, so sync at least monthly. It never records some side calls, so totals are a lower bound. |
 | Cline | `saoudrizwan.claude-dev/tasks` in VS Code-family editors, and `~/.cline/data` | Requests Cline sends through the Claude Code provider are skipped, because the Claude Code adapter already counts them. |
 | OpenCode | `~/.local/share/opencode/opencode*.db` and the older `storage/` folder | Reading the database needs Node 22.13 or newer. Records from before OpenCode 1.3.16 that cannot be read with certainty are skipped and reported. |
+| Kilo CLI | `~/.local/share/kilo/kilo*.db` (or `$KILO_DB`) | Kilo Code 7.x in VS Code writes the same database, so it is counted here too. Reading the database needs Node 22.13 or newer. Records from before Kilo 7.2.6 that cannot be read with certainty are skipped and reported. |
+| Copilot CLI | `~/.copilot/session-store.db` (or `$COPILOT_HOME`) | Needs Copilot CLI 1.0.70 or newer and Node 22.13 or newer. Only the CLI's own database is read, not the Copilot Chat extension in VS Code. Nothing in the database has been checked against real data yet, so a database with an unrecognised layout is skipped and reported. |
+| pi | `~/.pi/agent/sessions` (or `$PI_CODING_AGENT_DIR`, and `$PI_CODING_AGENT_SESSION_DIR` if set) | Forked sessions share earlier requests, which are counted once. Compaction and branch-summary calls name no model and are skipped and reported. Not checked against real pi files yet. |
+| Qwen Code | `~/.qwen/projects` (`$QWEN_HOME`, `$QWEN_RUNTIME_DIR`), chats and background subagents | Chats forked with `/branch` copy earlier requests, which are counted once. Qwen Code does not record cache writes separately, so they count as ordinary input. It deletes background subagent transcripts after 30 days by default, so sync at least monthly. Not checked against real Qwen Code files yet. |
+| Goose | `~/.local/share/goose/sessions/sessions.db` (`$XDG_DATA_HOME`, or `$GOOSE_PATH_ROOT/data`; `%APPDATA%\Block\goose\data` on Windows) | Reads the per-request usage ledger, so it needs a Goose version that has one, and Node 22.13 or newer. Usage from before the ledger existed has no known day or model and is skipped and reported. Sessions that drive Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI or pi through Goose are left out, because those agents' own logs already count them (for Cursor only if its hook fires for Goose's runs, which is unchecked). Not checked against real Goose files yet. |
 
-Gemini CLI, Cline and OpenCode need no hook: `tokengraph schedule` syncs them every hour. Aider is
+Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code and Goose need no hook: `tokengraph schedule` syncs them every hour. Aider is
 not supported, because its local history rounds token counts.
 
 ## Commands
@@ -130,9 +139,12 @@ Every command takes `--help`. An unknown option is an error.
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
 | `tokengraph readme` | Prints the README snippet and copies it. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | Draws story cards, saves the PNGs (to your Downloads folder unless `--out <dir>`) and offers to send them to your phone. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>`. |
-| `tokengraph status` | Shows the GitHub account, the ledger, your machines, and which background syncs are installed and healthy. |
+| `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, which background syncs are installed and healthy, and how long Claude Code, Gemini CLI and Qwen Code keep their logs, with a warning when a short retention puts history at risk. `--json` prints it as one JSON object for scripts and AI agents. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off. |
+| `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. Reads the ledger only. |
+| `tokengraph import cursor <file.csv>` | Adds Cursor history from before the hook: download the usage CSV from the Cursor dashboard (Usage, export CSV) and pass it here. Importing the same or an overlapping file twice adds nothing twice. Import on one machine only: machines are added together, so the same file on two machines counts twice. Never publishes. |
+| `tokengraph uninstall` | Removes the Claude Code, Cursor and Codex hooks and the hourly schedule. `--purge` also deletes tokengraph's own files in `~/.tokengraph` (ledger, login, logs, Cursor event and import files) and keeps anything else there, `--yes` skips the question, `--dry-run` changes nothing. Your gists are never touched. |
 
 Hooks and the schedule store the path of the installed program, so install tokengraph globally
 (`npm install -g tokengraph`) before using them; both refuse to run from an `npx` cache.
@@ -158,12 +170,12 @@ the total and marked unpriced, never counted as $0, so the total can only be a l
 **Why weighted tokens?** Raw totals are mostly cache reads, which are cheap and large. Counting
 them at a tenth keeps the graph about work done. The formula is under [How it works](#how-it-works).
 
-**Does it work offline?** Yes. `view`, `story`, `status` and `sync --local` never use the network.
+**Does it work offline?** Yes. `view`, `story`, `status`, `export`, `import` and `sync --local` never use the network.
 Only publishing needs GitHub.
 
-**How do I stop?** `tokengraph schedule --remove`, `tokengraph install-hook --agent <name> --remove`
-for each hook you added, and `tokengraph logout`. Then `npm uninstall -g tokengraph`. Delete the two
-gists to remove what was published, and `~/.tokengraph` to remove the rest.
+**How do I stop?** `tokengraph uninstall` removes the Claude Code, Cursor and Codex hooks and the hourly
+schedule; add `--purge` to also delete tokengraph's own files in `~/.tokengraph` (the ledger, the login, logs, and the Cursor event and import files). Anything else in that folder stays.
+Then `npm uninstall -g tokengraph`. Your gists stay on GitHub until you delete them.
 
 **Windows?** Paths, hooks and the hourly Task Scheduler job are written for Windows, but tokengraph
 is developed on macOS and Linux, so expect rough edges and please open an issue.

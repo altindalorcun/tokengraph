@@ -25,6 +25,7 @@ describe('status with a GitHub login', () => {
   const deps = {
     autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, schedule: HEALTH }) as never,
     legacyData: () => [],
+    retention: async () => [],
   };
 
   it('shows the gist links and the other machines', async () => {
@@ -67,5 +68,75 @@ describe('status with a GitHub login', () => {
   it('omits them when there is nothing published', async () => {
     await runStatus(deps);
     expect(lines.some((line) => line.startsWith('graph:') || line.startsWith('data:') || line.startsWith('other machines'))).toBe(false);
+  });
+});
+
+describe('status --json', () => {
+  let out: string[];
+  beforeEach(async () => {
+    await rm(configPath(), { force: true });
+    await rm(machinesCachePath(), { force: true });
+    out = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      out.push(String(line));
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const deps = {
+    autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, schedule: HEALTH }) as never,
+    legacyData: () => [],
+    retention: async () => [],
+  };
+
+  it('prints one JSON object and never the token', async () => {
+    await writeConfig({
+      machineId: '3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40',
+      github: { login: 'octocat', auth: { kind: 'token', token: 'ghp_SECRET_TOKEN_VALUE' } },
+      gists: { graph: 'aaaaaaaaaaaaaaaaaaaa', data: 'bbbbbbbbbbbbbbbbbbbb' },
+    });
+    await writeMachinesCache([], undefined, '2026-10-13T10:00:00.000Z');
+    const retention = async () => [
+      { source: 'claude-code' as const, state: 'deletes' as const, days: 30, isDefault: true, setting: 'cleanupPeriodDays', configPath: '/x/settings.json' },
+    ];
+    expect(await runStatus({ ...deps, retention }, { json: true })).toBe(0);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.endsWith('\n')).toBe(false);
+    const text = out[0]!;
+    expect(text).not.toContain('ghp_SECRET_TOKEN_VALUE');
+    const report = JSON.parse(text);
+    expect(report).toMatchObject({
+      schema: 1,
+      github: { login: 'octocat', auth: 'token' },
+      machine: { id: '3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40', label: `${process.platform}-3f2a1c` },
+      lastPublish: '2026-10-13T10:00:00.000Z',
+      gists: { graph: 'https://gist.github.com/octocat/aaaaaaaaaaaaaaaaaaaa', data: 'https://gist.github.com/octocat/bbbbbbbbbbbbbbbbbbbb' },
+      otherMachines: [],
+      backgroundSync: { claudeHook: { installed: false, detail: null, missing: [] }, schedule: { installed: false, detail: null, missing: [] } },
+      retention: [{ source: 'claude-code', state: 'deletes', days: 30, isDefault: true, setting: 'cleanupPeriodDays', configPath: '/x/settings.json' }],
+      legacyData: [],
+    });
+    expect(Object.keys(report.backgroundSync).sort()).toEqual(['claudeHook', 'codexNotify', 'cursorHook', 'schedule']);
+    expect(report.warnings.length).toBeGreaterThan(0);
+  });
+
+  it('reports a logged-out, empty machine with nulls', async () => {
+    await runStatus(deps, { json: true });
+    const report = JSON.parse(out[0]!);
+    expect(report).toMatchObject({
+      schema: 1,
+      github: null,
+      machine: null,
+      lastPublish: null,
+      gists: { graph: null, data: null },
+      otherMachines: [],
+      ledger: { activeDays: 0, sources: {}, recentDays: [] },
+      retention: [],
+      warnings: [],
+    });
+    expect(typeof report.version).toBe('string');
+    expect(typeof report.ledger.path).toBe('string');
   });
 });

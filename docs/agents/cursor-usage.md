@@ -4,7 +4,7 @@ This note explains where, in Cursor IDE's local files, you can find out which LL
 tokens. Unlike Codex CLI, Cursor's local records are not documented as **a single primary JSONL
 stream**; the token counts are spread over several different SQLite tables, hook events and
 (partly) the context meter. tokengraph's Cursor adapter reads none of these SQLite sources. It
-collects only the event file written by its own `stop` hook; see "tokengraph integration" below.
+collects the event file written by its own `stop` hook and, optionally, rows imported from a dashboard CSV; see "tokengraph integration" below.
 The adapter code is in `packages/cli/src/adapters/cursor/`, and it is installed with
 `tokengraph install-hook --agent cursor`. The rest of the document (the SQLite schema, the bubble
 and context meter read paths) remains as a discovery note and a reference for manual analysis, for
@@ -97,6 +97,55 @@ Source: `packages/cli/src/adapters/cursor/events.ts`.
   `fast`. Cursor has no long-context/fast-long-context tier split; only `standard` and `fast`
   are used.
 - Day: the local date of `receivedAt` (the same `--timezone` mechanism as the other adapters).
+
+### CSV import (`tokengraph import cursor <file.csv>`)
+
+Cursor's dashboard (Usage, then export CSV) produces a usage CSV that covers the time before the
+hook existed. The user downloads it and passes the path; tokengraph reads no Cursor login and calls no
+Cursor API. Code: `adapters/cursor/{csv,imports}.ts`, `commands/import.ts`.
+
+**Checked against three real exports** published in public repositories (a team export with `User` and
+`Requests`, a personal export with `Cost`, and the 2026 layout with `Cloud Agent ID` and `Automation ID`;
+23,742 rows from June 2025 to June 2026). On every row, `Total Tokens` = `Input (w/ Cache Write)` +
+`Input (w/o Cache Write)` + `Cache Read` + `Output Tokens`, so the two input columns do not overlap. Importing
+each file with `tokengraph import cursor` gave ledger totals equal to the file's `Total Tokens` sum. Columns
+are found by header name, in any order, so extra or reordered columns are fine.
+
+| Column | Use |
+| --- | --- |
+| `Date` | Required. An ISO date or date-time. **A Date without a time zone is read as UTC**; one with `Z` or an offset is converted. Any other shape counts as malformed. |
+| `Model` | Required. Normalised like hook events (`normalizeCursorModel`, `cursorModelIdentity`), including a `fast` word in the slug. Stored as written; normalised when read. |
+| `Input (w/o Cache Write)` | Required. `inputTokens`. |
+| `Input (w/ Cache Write)` | Required. `cacheCreationTokens`: only the input written to the cache, not including `w/o`. It can be smaller than `w/o`. |
+| `Cache Read` | Required. `cacheReadTokens`. |
+| `Output Tokens` | Required. `outputTokens`. |
+| `Max Mode` | Optional. Stored as `maxMode`, **not** a pricing tier: Max Mode widens the context window, and this adapter has no long-context tier (only `standard` and `fast`). Mapping it to a tier would invent a rate. |
+| `Kind`, `Total Tokens`, `Cost`, `User`, `Requests`, agent ids | Ignored. A row is counted whatever its `Kind` (`Errored, No Charge` rows can carry tokens), like the hook, which counts every status. |
+
+The 5m/1h cache-write split is `null`. Parsing is RFC 4180 (quoted fields, `""` escapes, CRLF, newlines
+inside quotes); a leading BOM is skipped; numbers may be quoted and contain thousands separators
+(`"1,234"`). A file with none of the required columns is rejected as "not a Cursor usage export", a file
+missing some names them; in both cases nothing is written. A row whose date or required count does not
+parse is skipped as malformed (a present-but-empty count cell counts as 0, as real exports leave `Cache Read` blank; a missing field in a short row, or non-numeric text, is malformed); a row whose counts are all zero (errored, not charged) is skipped as zero.
+
+**Storage:** `$TOKENGRAPH_HOME/cursor-import.jsonl` (mode 0600, **never pruned**, like the event file).
+One line per row: `{id, at, model, maxMode, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens}`
+(`inputTokens` is fresh input). `id` is the SHA-256 of the row's parsed fields (ISO `at`, model, max
+mode, the four counts) plus its occurrence index among identical rows of that CSV in file order, so
+re-importing the same or an overlapping export adds nothing twice, while two genuinely identical
+requests stay two rows.
+
+**Overlap with the hook:** the adapter reads both files. An imported row counts only when its `at` is
+strictly before the earliest hook event in `cursor-events.jsonl` (all rows when there is none), at every
+collect, not only at import time. The two sets are disjoint, so they are summed, not max-merged. The
+command reports rows it skipped for being at or after the hook start and does not store them.
+
+**Ledger:** after storing, the command takes the sync lock and merges the Cursor adapter's result into
+the ledger, as `sync --local` does for Cursor only, reading back to two days before the oldest row. It
+never publishes; when logged in it ends with "Run `tokengraph sync` to publish."
+
+Import on one machine only: machines are added together, so importing the same file on two machines
+counts it twice.
 
 ### Model names
 

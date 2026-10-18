@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { GEMINI_CLI_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
-import { readLines } from '../jsonl-files.js';
+import { childDirectories, isDirectory, readLines } from '../jsonl-files.js';
 import { GeminiUsageAggregator, type GeminiAggregatorOptions, type GeminiDiagnostics } from './aggregator.js';
 
 function geminiHome(): string {
@@ -12,25 +12,6 @@ function geminiHome(): string {
 /** Where Gemini CLI keeps chat recordings: its runtime dir, plus the macOS sandbox's copy. */
 export function geminiTmpDirs(): string[] {
   return [join(geminiHome(), '.gemini', 'tmp'), join(homedir(), '.cache', '.gemini', 'tmp')];
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-/** Directories directly under a tmp dir — one per Gemini CLI project (hash or slug). */
-async function projectDirs(tmpDir: string): Promise<string[]> {
-  let entries;
-  try {
-    entries = await readdir(tmpDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => join(tmpDir, entry.name));
 }
 
 /**
@@ -116,7 +97,7 @@ export function createGeminiCliAdapter(options: Pick<GeminiAggregatorOptions, 't
     async collect(since: Date): Promise<CollectResult> {
       const aggregator = new GeminiUsageAggregator({ ...options, since });
       for (const tmpDir of geminiTmpDirs()) {
-        for (const projectDir of await projectDirs(tmpDir)) {
+        for (const projectDir of await childDirectories(tmpDir)) {
           for await (const path of sessionFiles(join(projectDir, 'chats'))) {
             const info = await stat(path).catch(() => null);
             if (!info || info.mtime < since) continue;
