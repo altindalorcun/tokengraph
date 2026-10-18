@@ -22,7 +22,7 @@
   <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.md">English</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.zh-CN.md">简体中文</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ja.md">日本語</a> · <b>한국어</b> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.tr.md">Türkçe</a>
 </p>
 
-> 영어 README가 원문이며, 이 번역은 최신 내용보다 늦을 수 있습니다.
+> 영어 README가 원문이며, 이 번역은 원문보다 늦게 갱신될 수 있습니다.
 
 <p align="center">
   <picture>
@@ -92,11 +92,11 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 
 | | |
 | --- | --- |
-| **내 컴퓨터를 떠나는 것** | 내 계정의 공개 gist로: SVG 그래프(일별 토큰 합계와, 색을 나누는 데 쓰이는 모델 계열 이름), 그리고 임베드 스니펫과 링크가 담긴 README. 내 계정의 비공개(secret) gist로: 일별·모델별 토큰 수, 무작위 머신 id, `darwin-3f2a1c` 같은 레이블, 해시한 머신 핑거프린트, CLI 버전, 마지막 업데이트 시각. 둘 다 `tokengraph login` 이후에만, 그리고 tokengraph가 게시할 때(`sync`, 훅, 스케줄, `login`)에만 전송됩니다. `sync --local`, `view`, `story`, `status`, `export`, `import`는 절대 전송하지 않습니다. |
+| **내 컴퓨터를 떠나는 것** | 내 계정의 공개 gist로: SVG 그래프(일별 토큰 합계와, 색을 나누는 데 쓰이는 모델 계열 이름), 그리고 임베드 스니펫과 링크가 담긴 README. 내 계정의 secret gist로: 일별·모델별 토큰 수, 무작위 컴퓨터 id, `darwin-3f2a1c` 같은 레이블, 해시한 컴퓨터 핑거프린트, CLI 버전, 마지막 업데이트 시각. 둘 다 `tokengraph login` 이후에만, 그리고 tokengraph가 게시할 때(`sync`, 훅, 스케줄, `login`)에만 전송됩니다. `sync --local`, `view`, `story`, `status`, `export`, `import`는 절대 전송하지 않습니다. |
 | **절대 떠나지 않는 것** | 프롬프트, 답변, 코드, 파일 이름, 경로. tokengraph 서버로는 아무것도 전송되지 않습니다. 그런 서버 자체가 없습니다. |
 | **삭제하는 방법** | `tokengraph logout`은 이 컴퓨터에서 로그인 정보를 지웁니다. 게시된 내용을 없애려면 [gist.github.com](https://gist.github.com)에서 두 gist를 삭제하세요. |
 
-secret gist는 비공개가 아니라 목록에 나타나지 않는 것입니다. URL을 아는 사람은 누구나 읽을 수 있습니다. 여기에는 위에 나열한 필드만 들어 있고 호스트 이름은 절대 들어 있지 않습니다. `tokengraph login`을 실행하기 전에는 어디로도 아무것도 전송되지 않습니다.
+secret gist는 '비공개(private)'가 아니라 '목록에 표시되지 않는(unlisted)' gist입니다. URL을 아는 사람은 누구나 읽을 수 있습니다. 여기에는 위에 나열한 필드만 들어 있고 호스트 이름은 절대 들어 있지 않습니다. `tokengraph login`을 실행하기 전에는 어디로도 아무것도 전송되지 않습니다.
 
 ## 지원하는 에이전트
 
@@ -128,7 +128,7 @@ Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose는 훅�
 | `tokengraph sync` | 모든 에이전트의 로그를 원장에 읽어 들이고, 로그인되어 있으면 게시합니다. `--since <days>`는 얼마나 과거까지 읽을지 정하며(기본 90), `--local`은 네트워크를 전혀 사용하지 않습니다. |
 | `tokengraph readme` | README 스니펫을 출력하고 복사합니다. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | 스토리 카드를 그리고, PNG를 저장하고(`--out <dir>`을 주지 않으면 다운로드 폴더에), 휴대폰으로 보낼지 묻습니다. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>`. |
-| `tokengraph status [--json]` | GitHub 계정, 원장, 내 컴퓨터들, 설치되어 정상 동작 중인 백그라운드 동기화, 그리고 Claude Code, Gemini CLI, Qwen Code가 로그를 보관하는 기간을 보여 줍니다. 보관 기간이 짧아 기록이 위험할 때는 경고합니다. `--json`은 스크립트와 AI 에이전트용으로 하나의 JSON 객체로 출력합니다. |
+| `tokengraph status [--json]` | GitHub 계정, 원장, 내 컴퓨터 목록, 설치되어 정상 동작 중인 백그라운드 동기화, 그리고 Claude Code, Gemini CLI, Qwen Code가 로그를 보관하는 기간을 보여 줍니다. 보관 기간이 짧아 기록이 사라질 위험이 있을 때는 경고합니다. `--json`은 스크립트와 AI 에이전트용으로 하나의 JSON 객체로 출력합니다. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | 해당 에이전트가 끝날 때 백그라운드 동기화를 시작하게 합니다. `--remove`는 제거하고, `--dry-run`은 바뀔 내용을 보여 줍니다. |
 | `tokengraph schedule` | 한 시간마다 도는 백그라운드 동기화를 설치합니다: macOS에서는 launchd, Linux에서는 cron, Windows에서는 작업 스케줄러. `schedule --remove`로 끕니다. |
 | `tokengraph export` | 일별 사용량을 CSV 또는 JSON으로 씁니다. 날짜, 에이전트, 모델, 요금 등급마다 한 행이며, 가중 토큰 수와 예상 비용이 들어 있습니다. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. 원장만 읽습니다. |
@@ -139,7 +139,7 @@ Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose는 훅�
 
 ## 여러 컴퓨터
 
-각 컴퓨터는 자기 파일 `machine-<id>.json`을 비공개(secret) 데이터 gist에 씁니다. 동기화하면 그래프는 이 컴퓨터와 다른 모든 컴퓨터의 파일을 날짜별·모델별로 합산해 만들어지므로, 노트북과 데스크톱이 하나의 그래프로 나타납니다. 이 파일들은 백업도 됩니다. 재설치하거나 `~/.tokengraph`를 지운 뒤에도 `tokengraph login`이 내 컴퓨터를 알아보고 기록을 복원하며, 아무것도 두 번 세지 않습니다.
+각 컴퓨터는 자기 파일 `machine-<id>.json`을 secret 데이터 gist에 씁니다. 동기화하면 그래프는 이 컴퓨터와 다른 모든 컴퓨터의 파일을 날짜별·모델별로 합산해 만들어지므로, 노트북과 데스크톱이 하나의 그래프로 나타납니다. 이 파일들은 백업도 됩니다. 재설치하거나 `~/.tokengraph`를 지운 뒤에도 `tokengraph login`이 내 컴퓨터를 알아보고 기록을 복원하며, 아무것도 두 번 세지 않습니다.
 
 ## FAQ
 
@@ -162,7 +162,7 @@ Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose는 훅�
 
 ---
 
-tokengraph 덕분에 프로필이 더 좋아졌다면, ⭐ 하나가 다른 사람들이 찾는 데 도움이 됩니다.
+tokengraph 덕분에 프로필이 더 좋아졌다면, ⭐ 하나가 다른 사람들이 tokengraph를 찾는 데 도움이 됩니다.
 
 ## 라이선스
 

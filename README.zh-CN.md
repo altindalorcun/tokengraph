@@ -112,7 +112,7 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 | Copilot CLI | `~/.copilot/session-store.db`（或 `$COPILOT_HOME`） | 需要 Copilot CLI 1.0.70 或更新版本，以及 Node 22.13 或更新版本。只读取 CLI 自己的数据库，不读取 VS Code 里的 Copilot Chat 扩展。数据库里的内容尚未用真实数据验证过，所以布局无法识别的数据库会被跳过并报告。 |
 | pi | `~/.pi/agent/sessions`（或 `$PI_CODING_AGENT_DIR`，若设置了 `$PI_CODING_AGENT_SESSION_DIR` 则读取它） | 分叉的会话共享之前的请求，这些请求只计一次。压缩和分支摘要调用没有指明模型，会被跳过并报告。尚未用真实的 pi 文件验证过。 |
 | Qwen Code | `~/.qwen/projects`（`$QWEN_HOME`、`$QWEN_RUNTIME_DIR`），包括对话和后台子 agent | 用 `/branch` 分叉的对话会复制之前的请求，这些请求只计一次。Qwen Code 不单独记录缓存写入，所以它们按普通输入计算。它默认在 30 天后删除后台子 agent 的对话记录，所以至少每月同步一次。尚未用真实的 Qwen Code 文件验证过。 |
-| Goose | `~/.local/share/goose/sessions/sessions.db`（`$XDG_DATA_HOME`，或 `$GOOSE_PATH_ROOT/data`；Windows 上是 `%APPDATA%\Block\goose\data`） | 读取按请求记录的用量账本，所以需要带有该账本的 Goose 版本，以及 Node 22.13 或更新版本。账本出现之前的用量没有确切的日期和模型，会被跳过并报告。通过 Goose 驱动 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 或 pi 的会话不会计入，因为这些 agent 自己的日志已经计过它们（对 Cursor 来说，仅当它的 hook 会为 Goose 的运行触发时，这一点尚未验证）。尚未用真实的 Goose 文件验证过。 |
+| Goose | `~/.local/share/goose/sessions/sessions.db`（`$XDG_DATA_HOME`，或 `$GOOSE_PATH_ROOT/data`；Windows 上是 `%APPDATA%\Block\goose\data`） | 读取按请求记录的用量账本，所以需要带有该账本的 Goose 版本，以及 Node 22.13 或更新版本。账本出现之前的用量没有确切的日期和模型，会被跳过并报告。通过 Goose 驱动 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 或 pi 的会话不会计入，因为这些 agent 自己的日志已经计过它们（对 Cursor 而言，仅当其 hook 会在 Goose 的运行中触发时才成立，这一点尚未验证）。尚未用真实的 Goose 文件验证过。 |
 
 Gemini CLI、Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code 和 Goose 不需要 hook：`tokengraph schedule` 每小时同步它们一次。不支持 Aider，因为它的本地历史会对 token 数做取整。
 
@@ -154,7 +154,7 @@ hook 和定时任务会记录已安装程序的路径，所以使用它们之前
 **如何停用？** `tokengraph uninstall` 会移除 Claude Code、Cursor 和 Codex 的 hook 以及每小时的定时任务；加上 `--purge` 还会删除 `~/.tokengraph` 中 tokengraph 自己的文件（账本、登录信息、日志，以及 Cursor 事件文件和导入文件）。该文件夹里的其他东西都会保留。
 然后运行 `npm uninstall -g tokengraph`。你的 gist 会留在 GitHub 上，直到你自己删除。
 
-**支持 Windows 吗？** 路径、hook 和每小时的任务计划程序作业都是按 Windows 写的，但 tokengraph 是在 macOS 和 Linux 上开发的，所以可能有些毛糙，欢迎提 issue。
+**支持 Windows 吗？** 路径、hook 和每小时的任务计划程序作业都是按 Windows 写的，但 tokengraph 是在 macOS 和 Linux 上开发的，所以可能存在一些不完善之处，欢迎提 issue。
 
 ## 参与贡献
 
