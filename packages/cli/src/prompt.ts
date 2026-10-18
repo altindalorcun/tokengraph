@@ -26,3 +26,32 @@ export async function askYesNo(question: string, options: { defaultYes?: boolean
     rl.close();
   }
 }
+
+/**
+ * A numbered list; Enter takes the default and an answer outside the list asks again. Without a terminal it
+ * returns the default. Closing the prompt without an answer (Ctrl+D, Ctrl+C) returns null, so the caller stops.
+ */
+export async function askChoice(
+  question: string,
+  choices: readonly string[],
+  options: { defaultIndex?: number; io?: PromptIO } = {},
+): Promise<number | null> {
+  const defaultIndex = options.defaultIndex ?? 0;
+  const io = options.io ?? { input: process.stdin, output: process.stdout };
+  if (!io.input.isTTY) return defaultIndex;
+  const rl = createInterface({ input: io.input, output: io.output });
+  try {
+    const closed = new Promise<null>((resolve) => rl.once('close', () => resolve(null)));
+    io.output.write(`${question}\n${choices.map((choice, index) => `    ${index + 1}) ${choice}`).join('\n')}\n`);
+    for (;;) {
+      const raw = await Promise.race([rl.question(`  Choose 1-${choices.length} [${defaultIndex + 1}]: `), closed]);
+      if (raw === null) return null;
+      const answer = raw.trim();
+      if (answer === '') return defaultIndex;
+      const picked = Number(answer);
+      if (Number.isInteger(picked) && picked >= 1 && picked <= choices.length) return picked - 1;
+    }
+  } finally {
+    rl.close();
+  }
+}

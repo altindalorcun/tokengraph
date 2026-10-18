@@ -263,9 +263,9 @@ Reads local data only.
 
 Options:
   --template <name>    skyline, receipt, sticker or all (default: all)
-  --range <range>      today, 7d, 30d or 1y (default: today)
+  --range <range>      today, 7d, 30d or 1y (default: asks in a terminal, otherwise today)
   --no-cost            Leave the estimated API cost off the cards
-  --out <dir>          Where to save (default: ~/Downloads)
+  --out <dir>          Where to save (default: your Downloads folder)
   --qr                 Send to the phone without asking
   --no-qr              Only save the files
   --no-preview         Do not draw the cards in the terminal
