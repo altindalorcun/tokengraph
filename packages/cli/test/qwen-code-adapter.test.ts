@@ -234,7 +234,8 @@ describe('qwen code adapter', () => {
     expect((await collect()).usage.map((row) => row.model).sort()).toEqual(['my-company/custom-model', 'unknown']);
   });
 
-  it('reports a file it cannot read', async () => {
+  // chmod cannot make a file unreadable on Windows.
+  it.skipIf(process.platform === 'win32')('reports a file it cannot read', async () => {
     await chat('locked.jsonl', [assistant()]);
     await chmod(join(projectDir, 'chats', 'locked.jsonl'), 0o000);
     const result = await collect();

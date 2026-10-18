@@ -66,7 +66,7 @@ describe('tokengraph import cursor', () => {
       inputTokens: 1000, outputTokens: 50, cacheReadTokens: 200, cacheWriteTokens: 500,
     });
     expect(typeof lines[0].id).toBe('string');
-    expect((await stat(importFile())).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect((await stat(importFile())).mode & 0o777).toBe(0o600);
 
     const usage = ledgerToUsage(await readLedger(join(home, 'state.json')), 'cursor');
     const models = usage.map((entry) => `${entry.model}/${entry.pricingTier}`).sort();
