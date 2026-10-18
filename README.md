@@ -134,6 +134,7 @@ Every command takes `--help`. An unknown option is an error.
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off. |
 | `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. Reads the ledger only. |
+| `tokengraph uninstall` | Removes the Claude Code, Cursor and Codex hooks and the hourly schedule. `--purge` also deletes tokengraph's own files in `~/.tokengraph`, `--yes` skips the question, `--dry-run` changes nothing. Your gists are never touched. |
 
 Hooks and the schedule store the path of the installed program, so install tokengraph globally
 (`npm install -g tokengraph`) before using them; both refuse to run from an `npx` cache.

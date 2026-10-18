@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, rmdir, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +13,8 @@ describe('tokengraph uninstall', () => {
   let data: string;
   let hooks: Array<[string, boolean]>;
   let schedules: boolean[];
-  let removeDir: ReturnType<typeof vi.fn<(path: string) => Promise<void>>>;
+  let removeFile: ReturnType<typeof vi.fn<(path: string) => Promise<void>>>;
+  let removeEmptyDir: ReturnType<typeof vi.fn<(path: string) => Promise<void>>>;
 
   function deps(extra: Partial<UninstallDeps> = {}): Partial<UninstallDeps> {
     return {
@@ -30,7 +31,9 @@ describe('tokengraph uninstall', () => {
       userHome: () => home,
       isTty: () => false,
       confirm: async () => true,
-      removeDir,
+      cwd: () => root,
+      removeFile,
+      removeEmptyDir,
       ...extra,
     };
   }
@@ -46,7 +49,8 @@ describe('tokengraph uninstall', () => {
     await mkdir(data, { recursive: true });
     await writeFile(join(data, 'config.json'), '{}');
     await writeFile(join(data, 'cursor-events.jsonl'), '');
-    removeDir = vi.fn((path: string) => rm(path, { recursive: true, force: true }));
+    removeFile = vi.fn((path: string) => rm(path, { force: true }));
+    removeEmptyDir = vi.fn((path: string) => rmdir(path));
     vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => void (out += `${args.join(' ')}\n`));
     vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void (err += `${args.join(' ')}\n`));
   });
@@ -68,7 +72,7 @@ describe('tokengraph uninstall', () => {
     expect(hooks.every(([, dry]) => dry)).toBe(true);
     expect(hooks).toHaveLength(3);
     expect(schedules).toEqual([true]);
-    expect(removeDir).not.toHaveBeenCalled();
+    expect(removeFile).not.toHaveBeenCalled();
     expect(existsSync(data)).toBe(true);
     expect(out).toContain('cursor-events.jsonl');
   });
@@ -115,27 +119,80 @@ describe('tokengraph uninstall', () => {
     expect(existsSync(data)).toBe(true);
   });
 
-  it('refuses to purge the home directory, a root, a foreign folder and a symlink to home', async () => {
-    await writeFile(join(home, 'config.json'), '{}'); // even with a marker file, home is refused
+  it('refuses to purge the home directory, a root, an ancestor of home or of the cwd, and a symlink to home', async () => {
+    await writeFile(join(home, 'config.json'), '{}'); // even with its own files, home is refused
     const link = join(root, 'link');
     await symlink(home, link);
-    const foreign = join(root, 'foreign');
-    await mkdir(foreign);
-    await writeFile(join(foreign, 'notes.txt'), 'mine');
+    await writeFile(join(root, 'config.json'), '{}');
     const root_ = process.platform === 'win32' ? 'C:\\' : '/';
-    for (const dir of [home, root_, foreign, link]) {
+    const sub = join(root, 'work', 'deep');
+    await mkdir(sub, { recursive: true });
+    for (const [dir, cwd] of [[home, root], [root_, root], [link, root], [root, root], [join(root, 'work'), sub]]) {
       err = '';
-      const code = await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome: () => dir }));
+      const code = await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome: () => dir!, cwd: () => cwd! }));
       expect(code, dir).toBe(1);
       expect(err, dir).toContain('Refusing to delete');
     }
-    expect(removeDir).not.toHaveBeenCalled();
-    expect(await readdir(foreign)).toEqual(['notes.txt']);
+    expect(removeFile).not.toHaveBeenCalled();
     expect(existsSync(join(home, 'config.json'))).toBe(true);
+    expect(existsSync(join(root, 'config.json'))).toBe(true);
   });
 
-  it('a purge of a folder that does not exist is a no-op', async () => {
+  it('deletes only tokengraph files by name and keeps the folder and unknown entries', async () => {
+    const folder = join(root, 'project');
+    await mkdir(join(folder, 'src'), { recursive: true });
+    await writeFile(join(folder, 'config.json'), '{}');
+    await writeFile(join(folder, 'state.json.123.456.0.tmp'), '');
+    await writeFile(join(folder, 'package.json'), '{}');
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome: () => folder }))).toBe(0);
+    expect((await readdir(folder)).sort()).toEqual(['package.json', 'src']);
+    expect(out).toContain('package.json');
+    expect(removeEmptyDir).not.toHaveBeenCalled();
+  });
+
+  it('resolves a relative path before deleting, never recursively', async () => {
+    const folder = join(root, 'rel');
+    await mkdir(folder);
+    await writeFile(join(folder, 'config.json'), '{}');
+    await writeFile(join(folder, 'notes.txt'), 'mine');
+    const before = process.cwd();
+    process.chdir(folder);
+    try {
+      expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome: () => '.', cwd: () => process.cwd() }))).toBe(1);
+    } finally {
+      process.chdir(before);
+    }
+    // the cwd is the folder itself: refused, nothing deleted
+    expect((await readdir(folder)).sort()).toEqual(['config.json', 'notes.txt']);
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome: () => folder }))).toBe(0);
+    expect(await readdir(folder)).toEqual(['notes.txt']);
+  });
+
+  it('removes the folder once it is empty, and an empty folder too', async () => {
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps())).toBe(0);
+    expect(existsSync(data)).toBe(false);
+    const empty = join(root, 'empty');
+    await mkdir(empty);
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome: () => empty }))).toBe(0);
+    expect(existsSync(empty)).toBe(false);
+  });
+
+  it('a folder that cannot be read is an error, not "nothing to purge"', async () => {
+    const dataHome = () => join(root, 'x\0bad'); // realpath rejects with a non-ENOENT error
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome }))).toBe(1);
+    expect(err).toContain('Refusing to delete');
+  });
+
+  it('a failing delete exits 1', async () => {
+    const failing = vi.fn(async () => {
+      throw new Error('EACCES: permission denied');
+    });
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ removeFile: failing }))).toBe(1);
+    expect(err).toContain('EACCES');
+  });
+
+  it('a folder that does not exist is a no-op', async () => {
     expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps({ dataHome: () => join(root, 'nope') }))).toBe(0);
-    expect(removeDir).not.toHaveBeenCalled();
+    expect(removeFile).not.toHaveBeenCalled();
   });
 });

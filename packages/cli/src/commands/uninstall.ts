@@ -1,7 +1,6 @@
-import { existsSync } from 'node:fs';
-import { readdir, realpath, rm } from 'node:fs/promises';
+import { readdir, realpath, rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, parse } from 'node:path';
+import { isAbsolute, join, parse, relative } from 'node:path';
 import { readConfig, type CliConfig } from '../config.js';
 import { configHome } from '../paths.js';
 import { askYesNo } from '../prompt.js';
@@ -24,8 +23,10 @@ export interface UninstallDeps {
   userHome: () => string;
   isTty: () => boolean;
   confirm: (question: string) => Promise<boolean>;
-  /** Recursively deletes a folder. */
-  removeDir: (path: string) => Promise<void>;
+  cwd: () => string;
+  removeFile: (path: string) => Promise<void>;
+  /** Removes a folder only if it is empty. */
+  removeEmptyDir: (path: string) => Promise<void>;
 }
 
 const DEFAULT_DEPS: UninstallDeps = {
@@ -36,35 +37,68 @@ const DEFAULT_DEPS: UninstallDeps = {
   userHome: () => homedir(),
   isTty: () => Boolean(process.stdin.isTTY && process.stdout.isTTY),
   confirm: (question) => askYesNo(question, { defaultYes: false }),
-  removeDir: (path) => rm(path, { recursive: true, force: true }),
+  cwd: () => process.cwd(),
+  removeFile: (path) => rm(path, { force: true }),
+  removeEmptyDir: (path) => rmdir(path),
 };
 
 const HOOK_AGENTS: readonly HookAgent[] = ['claude-code', 'cursor', 'codex'];
 /** A folder is only purged when it holds at least one of these: proof that it is tokengraph's own. */
-const OWN_FILES = ['config.json', 'state.json', 'cursor-events.jsonl', 'cursor-import.jsonl'];
+/**
+ * Every file the CLI writes into its data folder (paths.ts, adapters/cursor/events.ts, commands/schedule.ts),
+ * deleted by exact name. Nothing else in the folder is ever touched, and nothing is deleted recursively.
+ */
+const OWN_FILES = [
+  'config.json',
+  'state.json',
+  'machines.json',
+  'cursor-events.jsonl',
+  'cursor-import.jsonl',
+  'hook-sync.log',
+  'hook-sync.last',
+  'sync.lock',
+  'schedule.log',
+];
+/** Temp files the atomic writers (ledger.ts, config.ts, publish/machines-cache.ts) leave if interrupted. */
+const OWN_TEMP = /^(?:state|config|machines)\.json\.[\d.]+\.tmp$/;
 const CURSOR_FILES = ['cursor-events.jsonl', 'cursor-import.jsonl'];
 
-/** The folder's resolved path when it is safe to delete, else the reason it is not. */
-async function purgeTarget(dir: string, userHome: string): Promise<{ path: string } | { refusal: string }> {
+const isOwn = (name: string): boolean => OWN_FILES.includes(name) || OWN_TEMP.test(name);
+
+interface PurgePlan {
+  path: string;
+  files: string[];
+  kept: string[];
+}
+
+/** What a purge would delete and keep, or why it must not run. `missing` means there is no folder at all. */
+async function planPurge(dir: string, deps: UninstallDeps): Promise<PurgePlan | { missing: true } | { refusal: string }> {
   let real: string;
-  let realHome: string;
   try {
     real = await realpath(dir);
-  } catch {
-    return { refusal: `${dir} does not exist.` };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { missing: true };
+    return { refusal: `${dir} cannot be read: ${error instanceof Error ? error.message : String(error)}` };
   }
-  try {
-    realHome = await realpath(userHome);
-  } catch {
-    realHome = userHome;
-  }
+  const resolve = (path: string) => realpath(path).catch(() => path);
+  const realHome = await resolve(deps.userHome());
+  const realCwd = await resolve(deps.cwd());
   if (real === realHome) return { refusal: `${dir} is your home directory.` };
   if (parse(real).root === real) return { refusal: `${dir} is a filesystem root.` };
-  const entries = await readdir(real).catch(() => [] as string[]);
-  if (!OWN_FILES.some((name) => entries.includes(name))) {
-    return { refusal: `${dir} holds none of ${OWN_FILES.join(', ')}, so it does not look like tokengraph's folder.` };
+  for (const [label, target] of [['your home directory', realHome], ['the current directory', realCwd]] as const) {
+    const rel = relative(real, target);
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+      return { refusal: `${dir} contains ${label}.` };
+    }
   }
-  return { path: real };
+  let entries: string[];
+  try {
+    entries = await readdir(real);
+  } catch (error) {
+    return { refusal: `${dir} cannot be read: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  entries.sort();
+  return { path: real, files: entries.filter(isOwn), kept: entries.filter((name) => !isOwn(name)) };
 }
 
 export async function runUninstall(options: UninstallOptions, overrides: Partial<UninstallDeps> = {}): Promise<number> {
@@ -117,21 +151,23 @@ async function purge(options: UninstallOptions, config: CliConfig, deps: Uninsta
     for (const [label, url] of gists) console.log(`  ${label}: ${url}`);
   }
 
-  const dir = deps.dataHome();
-  const target = await purgeTarget(dir, deps.userHome());
-  if ('refusal' in target) {
-    if (!existsSync(dir)) {
-      console.log(`Nothing to purge: ${target.refusal}`);
-      return true;
-    }
-    console.error(`Refusing to delete: ${target.refusal}`);
+  const plan = await planPurge(deps.dataHome(), deps);
+  if ('missing' in plan) {
+    console.log(`Nothing to purge: ${deps.dataHome()} does not exist.`);
+    return true;
+  }
+  if ('refusal' in plan) {
+    console.error(`Refusing to delete: ${plan.refusal}`);
     return false;
   }
 
-  const entries = (await readdir(target.path, { withFileTypes: true })).map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name));
-  console.log(`${options.dryRun ? 'Would delete' : 'This deletes'} ${target.path}, containing:`);
-  for (const name of entries.sort()) console.log(`  ${name}`);
-  const cursorFiles = CURSOR_FILES.filter((name) => entries.includes(name));
+  console.log(`${options.dryRun ? 'Would delete' : 'This deletes'} these files in ${plan.path}:`);
+  for (const name of plan.files) console.log(`  ${name}`);
+  if (plan.files.length === 0) console.log('  (none)');
+  if (plan.kept.length > 0) {
+    console.log(`Not tokengraph's, so kept (and the folder with them): ${plan.kept.join(', ')}`);
+  }
+  const cursorFiles = CURSOR_FILES.filter((name) => plan.files.includes(name));
   if (cursorFiles.length > 0) {
     console.log(
       `Warning: ${cursorFiles.join(' and ')} ${cursorFiles.length > 1 ? 'are' : 'is'} the only copy of your Cursor usage. ` +
@@ -140,16 +176,17 @@ async function purge(options: UninstallOptions, config: CliConfig, deps: Uninsta
   }
   if (options.dryRun) return true;
 
-  if (!options.yes && !(await deps.confirm(`Delete ${target.path} and everything in it?`))) {
+  if (plan.files.length > 0 && !options.yes && !(await deps.confirm(`Delete these files from ${plan.path}?`))) {
     console.log('Kept your data folder.');
     return true;
   }
   try {
-    await deps.removeDir(target.path);
+    for (const name of plan.files) await deps.removeFile(join(plan.path, name));
+    if (plan.kept.length === 0) await deps.removeEmptyDir(plan.path);
   } catch (error) {
-    console.error(`Could not delete ${target.path}: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Could not delete from ${plan.path}: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
-  console.log(`Deleted ${target.path}.`);
+  console.log(plan.kept.length === 0 ? `Deleted ${plan.path}.` : `Deleted tokengraph's files from ${plan.path}.`);
   return true;
 }
