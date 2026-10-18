@@ -277,7 +277,7 @@ Options:
     help: `Usage: tokengraph schedule [options]
 
 Runs a sync every hour in the background (launchd on macOS, cron on Linux, Task Scheduler on Windows).
-Use it for agents without a hook (Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI) or to pick up Cursor's recorded turns.
+Use it for agents without a hook (Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi) or to pick up Cursor's recorded turns.
 
 Options:
   --remove             Remove the hourly sync

@@ -8,7 +8,7 @@
 <h3 align="center">Your AI coding, as a GitHub-style graph.</h3>
 
 <p align="center">
-  <em>Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI and Copilot CLI: one graph, in your README.<br>
+  <em>Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI and pi: one graph, in your README.<br>
   Your usage never leaves your machine unless you publish it, and then only to your own gist.</em>
 </p>
 
@@ -116,8 +116,9 @@ you run `tokengraph login`, nothing is sent anywhere.
 | OpenCode | `~/.local/share/opencode/opencode*.db` and the older `storage/` folder | Reading the database needs Node 22.13 or newer. Records from before OpenCode 1.3.16 that cannot be read with certainty are skipped and reported. |
 | Kilo CLI | `~/.local/share/kilo/kilo*.db` (or `$KILO_DB`) | Kilo Code 7.x in VS Code writes the same database, so it is counted here too. Reading the database needs Node 22.13 or newer. Records from before Kilo 7.2.6 that cannot be read with certainty are skipped and reported. |
 | Copilot CLI | `~/.copilot/session-store.db` (or `$COPILOT_HOME`) | Needs Copilot CLI 1.0.70 or newer and Node 22.13 or newer. Only the CLI's own database is read, not the Copilot Chat extension in VS Code. Nothing in the database has been checked against real data yet, so a database with an unrecognised layout is skipped and reported. |
+| pi | `~/.pi/agent/sessions` (or `$PI_CODING_AGENT_DIR`, and `$PI_CODING_AGENT_SESSION_DIR` if set) | Forked sessions share earlier requests, which are counted once. Compaction and branch-summary calls name no model and are skipped and reported. Not checked against real pi files yet. |
 
-Gemini CLI, Cline, OpenCode, Kilo CLI and Copilot CLI need no hook: `tokengraph schedule` syncs them every hour. Aider is
+Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI and pi need no hook: `tokengraph schedule` syncs them every hour. Aider is
 not supported, because its local history rounds token counts.
 
 ## Commands
