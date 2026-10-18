@@ -2,6 +2,7 @@ import type { Adapter, CollectResult } from '@tokengraph/core';
 import { createClaudeCodeAdapter, projectsDir } from './adapters/claude-code/index.js';
 import { clineSessionsDir, createClineAdapter } from './adapters/cline/index.js';
 import { codexSessionsDir, createCodexAdapter } from './adapters/codex/index.js';
+import { copilotHome, createCopilotCliAdapter } from './adapters/copilot-cli/index.js';
 import { createCursorAdapter, cursorEventsPath } from './adapters/cursor/index.js';
 import { createGeminiCliAdapter, geminiTmpDirs } from './adapters/gemini-cli/index.js';
 import { createKiloAdapter, kiloDataDir } from './adapters/kilo/index.js';
@@ -31,6 +32,7 @@ export function defaultAdapters(): Adapter[] {
     createClineAdapter(),
     createOpenCodeAdapter(),
     createKiloAdapter(),
+    createCopilotCliAdapter(),
   ];
 }
 
@@ -78,13 +80,14 @@ export function searchedPaths(): string[] {
     `${clineSessionsDir()} and VS Code's Cline storage (Cline)`,
     `${openCodeDataDir()} (OpenCode)`,
     `${kiloDataDir()} (Kilo CLI)`,
+    `${copilotHome()} (Copilot CLI)`,
   ];
 }
 
 /** Sync's "No agent usage found…" text, shared with the view's empty state. */
 export function noAgentsMessage(): string {
   return (
-    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode and Kilo CLI data:\n' +
+    'No agent usage found. Looked for Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI and Copilot CLI data:\n' +
     searchedPaths()
       .map((line) => `  ${line}`)
       .join('\n')

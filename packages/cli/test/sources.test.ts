@@ -2,6 +2,7 @@ import {
   AGENT_CATALOGUE,
   CLINE_SOURCE,
   CODEX_CLI_SOURCE,
+  COPILOT_CLI_SOURCE,
   CURSOR_SOURCE,
   GEMINI_CLI_SOURCE,
   isKnownSource,
@@ -38,7 +39,7 @@ describe('known sources', () => {
     // Every catalogue entry has a shipped adapter, so every one is an accepted source.
     for (const agent of AGENT_CATALOGUE) expect(isKnownSource(agent.source)).toBe(true);
     expect(AGENT_CATALOGUE.map((agent) => agent.source)).toEqual([
-      'claude-code', 'codex-cli', 'gemini-cli', 'cursor', 'cline', 'opencode', 'kilo',
+      'claude-code', 'codex-cli', 'gemini-cli', 'cursor', 'cline', 'opencode', 'kilo', 'copilot-cli',
     ]);
   });
 
@@ -46,5 +47,11 @@ describe('known sources', () => {
     expect(KILO_SOURCE).toBe('kilo');
     expect(KNOWN_SOURCES).toContain(KILO_SOURCE);
     expect(AGENT_CATALOGUE.find((agent) => agent.source === KILO_SOURCE)?.name).toBe('Kilo CLI');
+  });
+
+  it('knows Copilot CLI', () => {
+    expect(COPILOT_CLI_SOURCE).toBe('copilot-cli');
+    expect(KNOWN_SOURCES).toContain(COPILOT_CLI_SOURCE);
+    expect(AGENT_CATALOGUE.find((agent) => agent.source === COPILOT_CLI_SOURCE)?.name).toBe('Copilot CLI');
   });
 });

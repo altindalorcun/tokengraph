@@ -74,6 +74,6 @@ describe('noAgentsMessage', () => {
     const lines = message.split('\n');
     expect(lines[0]).toMatch(/^No agent usage found\./);
     expect(lines.slice(1)).toEqual(searchedPaths().map((line) => `  ${line}`));
-    expect(searchedPaths()).toHaveLength(7);
+    expect(searchedPaths()).toHaveLength(8);
   });
 });

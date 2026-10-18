@@ -1,7 +1,7 @@
 {
   "name": "tokengraph",
   "version": "0.1.0",
-  "description": "A GitHub-style graph of the tokens your AI coding agents burn each day: Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode and Kilo CLI.",
+  "description": "A GitHub-style graph of the tokens your AI coding agents burn each day: Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI and Copilot CLI.",
   "keywords": [
     "ai",
     "tokens",
@@ -13,6 +13,7 @@
     "cline",
     "opencode",
     "kilo",
+    "copilot-cli",
     "heatmap",
     "cli"
   ],
