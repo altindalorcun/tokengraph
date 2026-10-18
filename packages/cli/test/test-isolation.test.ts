@@ -1,5 +1,5 @@
 import { homedir, tmpdir } from 'node:os';
-import { sep } from 'node:path';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { configHome } from '../src/paths.js';
 
@@ -10,6 +10,10 @@ describe('test isolation', () => {
     expect(underTmp(homedir())).toBe(true);
     expect(underTmp(process.env['USERPROFILE'])).toBe(true);
     expect(underTmp(configHome())).toBe(true);
+  });
+
+  it('ignores an inherited TOKENGRAPH_HOME: the setup file owns it', () => {
+    expect(configHome()).toBe(join(homedir(), '.tokengraph'));
   });
 
   it('leaves no inherited agent or XDG folders pointing at the real home', () => {
@@ -35,7 +39,8 @@ describe('test isolation', () => {
     try {
       expect(() => configHome()).toThrow(/setup-home/);
     } finally {
-      process.env['TOKENGRAPH_HOME'] = saved;
+      if (saved === undefined) delete process.env['TOKENGRAPH_HOME'];
+      else process.env['TOKENGRAPH_HOME'] = saved;
     }
   });
 });

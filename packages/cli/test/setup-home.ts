@@ -24,4 +24,5 @@ for (const name of [
 ]) {
   delete process.env[name];
 }
-process.env['TOKENGRAPH_HOME'] ??= join(home, '.tokengraph');
+// Unconditional: an inherited (real) TOKENGRAPH_HOME must never reach a test.
+process.env['TOKENGRAPH_HOME'] = join(home, '.tokengraph');
