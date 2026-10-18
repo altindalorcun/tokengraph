@@ -3,7 +3,15 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export function configHome(): string {
-  return process.env['TOKENGRAPH_HOME'] ?? join(homedir(), '.tokengraph');
+  const override = process.env['TOKENGRAPH_HOME'];
+  if (override !== undefined) return override;
+  // Last line of defence: a test run that skipped the setup file must fail loudly, not touch the real ~/.tokengraph.
+  if (process.env['VITEST'] !== undefined) {
+    throw new Error(
+      'TOKENGRAPH_HOME is not set under vitest: tests must run with test/setup-home.ts (start vitest from the repo root or a package).',
+    );
+  }
+  return join(homedir(), '.tokengraph');
 }
 
 /** Where pre-release builds (named `token-graph`) kept their state. */

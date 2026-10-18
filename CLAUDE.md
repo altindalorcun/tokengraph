@@ -39,7 +39,7 @@ Vitest aliases `@tokengraph/core` to `packages/core/src`; the CLI at runtime res
 - **Codex `notify` is single-valued**; never overwrite one that is not ours.
 - **The Claude Code hook must return instantly** (runs hidden `hook-sync`, which spawns a detached `sync`).
 - **Hook, script and asset paths resolve through `bin-path.ts`** (`binPath()`, `assetsDir()`), never `import.meta.url` in a command: inside the bundle every module shares one URL.
-- **Tests never touch the real `~/.tokengraph` or the real GitHub.** Network tests use `test/fake-github.ts`.
+- **Tests never touch the real `~/.tokengraph` or the real GitHub.** Network tests use `test/fake-github.ts`. Tests run with a throwaway `HOME` (and agent/XDG folders) from `packages/cli/test/setup-home.ts`, wherever vitest is started: the package `vitest.config.ts` files reuse the root config, and `configHome()` throws under vitest without `TOKENGRAPH_HOME`.
 - **`canonicalModelId`** is the only place provider decorations are stripped. **Cursor model slugs are normalised** by `normalizeCursorModel`. The Cursor event file is never pruned.
 - **Per-model colour = model family, never agent.** Hue is never the only channel.
 - **Colour levels are per-user percentiles** (p25/p50/p75 of the user's own non-zero days).

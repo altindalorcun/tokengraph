@@ -86,6 +86,7 @@ Tests must not read or write your real `~/.tokengraph`, and must not talk to the
 `packages/cli/test/setup-home.ts` points `TOKENGRAPH_HOME` at a temporary folder (keep it in
 `vitest.config.ts`), and network tests run against `test/fake-github.ts`. If you add a test that
 needs either, use those.
+Setup also gives every test a throwaway `HOME`, and vitest started inside a package uses the same config as the root.
 
 ## Pull requests and commits
 
