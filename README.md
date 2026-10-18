@@ -109,7 +109,8 @@ you run `tokengraph login`, nothing is sent anywhere.
 | Agent | Where it reads | Notes |
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl` (or `$CLAUDE_CONFIG_DIR`) | Claude Code deletes old transcripts, so sync at least every few weeks. `tokengraph install-hook --agent claude-code` syncs when a session ends. |
-| Codex CLI | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`) | `tokengraph install-hook --agent codex` syncs after a turn, at most every 10 minutes. It never overwrites a `notify` setting that is not its own. |
+| Codex CLI | `~/.codex/sessions` and `archived_sessions` (or `$CODEX_HOME`) | `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. Reads the ledger only. |
+| `tokengraph install-hook --agent codex` syncs after a turn, at most every 10 minutes. It never overwrites a `notify` setting that is not its own. |
 | Cursor | `~/.tokengraph/cursor-events.jsonl`, written by Cursor's `stop` hook | Cursor keeps no usable token counts on disk, so run `tokengraph install-hook --agent cursor` once and restart Cursor. Usage counts from that moment on. |
 | Gemini CLI | `~/.gemini/tmp/*/chats` (or `$GEMINI_CLI_HOME`) | Gemini CLI deletes sessions after 30 days by default, so sync at least monthly. It never records some side calls, so totals are a lower bound. |
 | Cline | `saoudrizwan.claude-dev/tasks` in VS Code-family editors, and `~/.cline/data` | Requests Cline sends through the Claude Code provider are skipped, because the Claude Code adapter already counts them. |

@@ -2,6 +2,7 @@
 import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { cliVersion } from './bin-path.js';
 import { runCursorHook } from './commands/cursor-hook.js';
+import { parseExportArgs, runExport } from './commands/export.js';
 import { runHookSync } from './commands/hook-sync.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
 import { runLogin } from './commands/login.js';
@@ -29,6 +30,7 @@ Commands:
   install-hook         Sync automatically when Claude Code, Cursor or Codex finishes
   schedule             Sync every hour in the background
   story                Turn your usage into story cards and send them to your phone
+  export               Write your daily usage as CSV or JSON
 
 Run \`tokengraph <command> --help\` for a command's options.
 
@@ -199,6 +201,34 @@ Shows the account, the local ledger and which background syncs are installed on 
 `,
     options: { json: { type: 'boolean', default: false } },
     run: (values) => runStatus({}, { json: values['json'] === true }),
+  },
+
+  export: {
+    help: `Usage: tokengraph export [options]
+
+Writes your daily usage, one row per day, agent, model and pricing tier, from the local ledger.
+It reads the ledger only; run \`tokengraph sync --local\` first for the newest numbers. Never publishes.
+
+Options:
+  --format <csv|json>  Output format (default: csv)
+  --out <file>         Write to a file instead of standard output
+  --since <date>       Only days on or after this date (YYYY-MM-DD)
+  --all-machines       Add your other machines, as of the last publish
+`,
+    options: {
+      format: { type: 'string', default: 'csv' },
+      out: { type: 'string' },
+      since: { type: 'string' },
+      'all-machines': { type: 'boolean', default: false },
+    },
+    run: (values) => {
+      const options = parseExportArgs(values);
+      if (typeof options === 'string') {
+        console.error(options);
+        return 1;
+      }
+      return runExport(options);
+    },
   },
 
   'install-hook': {
