@@ -10,6 +10,7 @@ import {
   KNOWN_SOURCES,
   OPENCODE_SOURCE,
   PI_SOURCE,
+  GOOSE_SOURCE,
   QWEN_CODE_SOURCE,
 } from '@tokengraph/core';
 import { describe, expect, it } from 'vitest';
@@ -41,7 +42,7 @@ describe('known sources', () => {
     // Every catalogue entry has a shipped adapter, so every one is an accepted source.
     for (const agent of AGENT_CATALOGUE) expect(isKnownSource(agent.source)).toBe(true);
     expect(AGENT_CATALOGUE.map((agent) => agent.source)).toEqual([
-      'claude-code', 'codex-cli', 'gemini-cli', 'cursor', 'cline', 'opencode', 'kilo', 'copilot-cli', 'pi', 'qwen-code',
+      'claude-code', 'codex-cli', 'gemini-cli', 'cursor', 'cline', 'opencode', 'kilo', 'copilot-cli', 'pi', 'qwen-code', 'goose',
     ]);
   });
 
@@ -67,5 +68,11 @@ describe('known sources', () => {
     expect(QWEN_CODE_SOURCE).toBe('qwen-code');
     expect(KNOWN_SOURCES).toContain(QWEN_CODE_SOURCE);
     expect(AGENT_CATALOGUE.find((agent) => agent.source === QWEN_CODE_SOURCE)?.name).toBe('Qwen Code');
+  });
+
+  it('knows Goose', () => {
+    expect(GOOSE_SOURCE).toBe('goose');
+    expect(KNOWN_SOURCES).toContain(GOOSE_SOURCE);
+    expect(AGENT_CATALOGUE.find((agent) => agent.source === GOOSE_SOURCE)?.name).toBe('Goose');
   });
 });

@@ -18,6 +18,8 @@ export const COPILOT_CLI_SOURCE = 'copilot-cli';
 export const PI_SOURCE = 'pi';
 /** The Qwen Code adapter's source name. */
 export const QWEN_CODE_SOURCE = 'qwen-code';
+/** The Goose adapter's source name. */
+export const GOOSE_SOURCE = 'goose';
 
 /**
  * Sources a ledger may hold. Each is produced by a CLI adapter, and the data-gist reader accepts
@@ -34,6 +36,7 @@ export const KNOWN_SOURCES = [
   COPILOT_CLI_SOURCE,
   PI_SOURCE,
   QWEN_CODE_SOURCE,
+  GOOSE_SOURCE,
 ] as const;
 export type KnownSource = (typeof KNOWN_SOURCES)[number];
 
@@ -59,6 +62,7 @@ export const AGENT_CATALOGUE: readonly AgentEntry[] = [
   { source: COPILOT_CLI_SOURCE, name: 'Copilot CLI' },
   { source: PI_SOURCE, name: 'pi' },
   { source: QWEN_CODE_SOURCE, name: 'Qwen Code' },
+  { source: GOOSE_SOURCE, name: 'Goose' },
 ];
 
 export function isKnownSource(source: string): source is KnownSource {
