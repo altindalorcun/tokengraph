@@ -8,9 +8,12 @@ import type { OpenCodeFlavour } from './flavour.js';
 import { loadSqlite as defaultLoadSqlite, readOpenCodeDatabase } from './sqlite.js';
 import { readOpenCodeStorage } from './storage.js';
 
-/** `${XDG_DATA_HOME ?? ~/.local/share}/<dataDirName>` — the same rule OpenCode and Kilo use (never `~/Library/...` on macOS). */
+/**
+ * `${XDG_DATA_HOME || ~/.local/share}/<dataDirName>` — the same rule OpenCode and Kilo use (never `~/Library/...`
+ * on macOS). An empty XDG_DATA_HOME counts as unset, as in the XDG spec and the xdg-basedir package both use.
+ */
 export function familyDataDir(flavour: OpenCodeFlavour): string {
-  return join(process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share'), flavour.dataDirName);
+  return join(process.env['XDG_DATA_HOME'] || join(homedir(), '.local', 'share'), flavour.dataDirName);
 }
 
 async function isDirectory(path: string): Promise<boolean> {

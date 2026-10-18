@@ -32,7 +32,7 @@ const KILO_FLAVOUR: OpenCodeFlavour = {
   ignoredProviders: ['legacy'],
 };
 
-/** `${XDG_DATA_HOME ?? ~/.local/share}/kilo` on every OS, as Kilo itself resolves it. */
+/** `${XDG_DATA_HOME || ~/.local/share}/kilo` on every OS, as Kilo itself resolves it. */
 export function kiloDataDir(): string {
   return familyDataDir(KILO_FLAVOUR);
 }

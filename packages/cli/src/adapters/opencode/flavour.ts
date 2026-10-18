@@ -10,7 +10,7 @@ export interface OpenCodeFlavour {
   source: KnownSource;
   /** The product name used in notes. */
   displayName: string;
-  /** The folder under `${XDG_DATA_HOME ?? ~/.local/share}`. */
+  /** The folder under `${XDG_DATA_HOME || ~/.local/share}`. */
   dataDirName: string;
   /** The database file name used in notes. */
   dbFileName: string;

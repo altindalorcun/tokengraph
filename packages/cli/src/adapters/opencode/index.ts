@@ -2,7 +2,7 @@ import type { Adapter } from '@tokengraph/core';
 import { createOpenCodeFamilyAdapter, familyDataDir, type OpenCodeFamilyOptions } from './family.js';
 import { OPENCODE_FLAVOUR } from './flavour.js';
 
-/** `${XDG_DATA_HOME ?? ~/.local/share}/opencode` — the same rule OpenCode itself uses (never `~/Library/...` on macOS). */
+/** `${XDG_DATA_HOME || ~/.local/share}/opencode` — the same rule OpenCode itself uses (never `~/Library/...` on macOS). */
 export function openCodeDataDir(): string {
   return familyDataDir(OPENCODE_FLAVOUR);
 }
