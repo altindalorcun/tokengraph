@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync as DatabaseSyncCtor } from 'node:sqlite';
@@ -351,5 +351,47 @@ describe('createCopilotCliAdapter', () => {
     expect(result.notes).toEqual([
       `Copilot CLI needs Node 22.13+ to read session-store.db (this is Node ${process.versions.node}); Copilot CLI usage was skipped`,
     ]);
+  });
+});
+
+describe('createCopilotCliAdapter over several roots', () => {
+  let base: string;
+  beforeEach(async () => {
+    base = await mkdtemp(join(tmpdir(), 'copilot-roots-'));
+  });
+  afterEach(async () => {
+    await rm(base, { recursive: true, force: true });
+  });
+
+  async function copilotDir(name: string, session: string, events: Event[]): Promise<string> {
+    const dir = join(base, name);
+    await mkdir(dir, { recursive: true });
+    const db = createStore(join(dir, 'session-store.db'));
+    for (const event of events) insertEvent(db, { ...event, session });
+    db.close();
+    return dir;
+  }
+
+  const collectFrom = (remembered: string[], env: Record<string, string> = {}) =>
+    createCopilotCliAdapter({ timeZone: 'UTC', roots: { ctx: { platform: process.platform, env, home: join(base, 'no-home') }, remembered } }).collect(SINCE);
+
+  it('adds up the default store, the one COPILOT_HOME names and a remembered one', async () => {
+    const home = await copilotDir('no-home/.copilot', 'sess-a', [{ output: 10 }]);
+    const fromEnv = await copilotDir('env', 'sess-b', [{ output: 20 }]);
+    const remembered = await copilotDir('remembered', 'sess-c', [{ output: 40 }]);
+    const result = await collectFrom([remembered], { COPILOT_HOME: fromEnv });
+    expect(home).toContain('.copilot');
+    expect(result.requestCount).toBe(3);
+    expect(result.usage[0]?.counts.outputTokens).toBe(70);
+  });
+
+  it('counts the same store reached under two roots once (a copy keeps session and row ids)', async () => {
+    const original = await copilotDir('one', 'sess-a', [{ output: 10 }, { output: 20 }]);
+    const copy = join(base, 'two');
+    await mkdir(copy, { recursive: true });
+    await copyFile(join(original, 'session-store.db'), join(copy, 'session-store.db'));
+    const result = await collectFrom([original, copy]);
+    expect(result.requestCount).toBe(2);
+    expect(result.usage[0]?.counts.outputTokens).toBe(30);
   });
 });

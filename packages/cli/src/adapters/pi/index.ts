@@ -1,40 +1,26 @@
 import { stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { PI_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
+import { envPath, FileDeduper, pathFor, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
 import { jsonlFiles, readLines } from '../jsonl-files.js';
 import { PiUsageAggregator, type PiAggregatorOptions } from './aggregator.js';
+import { PI_ROOTS } from './roots.js';
 
-/** pi expands a leading `~` in its path settings; so does this. */
-function expandTilde(path: string): string {
-  if (path === '~') return homedir();
-  return path.startsWith('~/') ? join(homedir(), path.slice(2)) : path;
-}
-
-/** `$PI_CODING_AGENT_DIR` when set, else `~/.pi/agent` (the same on every OS). */
+/** `$PI_CODING_AGENT_DIR` (read the way pi does: `~`, `file://`) when this process's environment sets it, else `~/.pi/agent` (the same on every OS). */
 export function piAgentDir(): string {
-  const override = process.env['PI_CODING_AGENT_DIR'];
-  return override ? expandTilde(override) : join(homedir(), '.pi', 'agent');
+  const ctx = processRootContext();
+  return envPath(ctx, 'PI_CODING_AGENT_DIR', { fileUrl: true, shellPaths: true }) ?? pathFor(ctx.platform).join(ctx.home, '.pi', 'agent');
 }
 
 /**
- * Where session files live: `$PI_CODING_AGENT_SESSION_DIR` when set (sessions saved before it was
- * set stay in the default folder, so both are read), and `<agent dir>/sessions`. The `sessionDir`
- * setting and the `--session-dir` flag cannot be seen from a later sync, so they are not followed.
+ * The session folders this process's environment names: `$PI_CODING_AGENT_SESSION_DIR` when set, and
+ * `<agent dir>/sessions`. The adapter also reads the default agent folder and remembered ones.
  */
 export function piSessionDirs(): string[] {
-  const defaultDir = join(piAgentDir(), 'sessions');
-  const override = process.env['PI_CODING_AGENT_SESSION_DIR'];
-  const dirs = override ? [expandTilde(override), defaultDir] : [defaultDir];
-  return [...new Set(dirs)];
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
+  const ctx = processRootContext();
+  const fromEnv = PI_ROOTS.fromEnv(ctx);
+  const roots = fromEnv.length > 0 ? fromEnv : [piAgentDir()];
+  return [...new Set(roots.flatMap((root) => PI_ROOTS.targets(root, ctx).map((target) => target.path)))];
 }
 
 /**
@@ -42,22 +28,31 @@ async function isDirectory(path: string): Promise<boolean> {
  * counters, the provider, model, response id and timestamps are read from a line; message text and
  * working directories are never kept.
  */
-export function createPiAdapter(options: Pick<PiAggregatorOptions, 'timeZone'> = {}): Adapter {
+export interface PiAdapterOptions extends Pick<PiAggregatorOptions, 'timeZone'>, RootsOption {}
+
+export function createPiAdapter(adapterOptions: PiAdapterOptions = {}): Adapter {
+  const { roots, ...options } = adapterOptions;
+  const sessionDirs = async (): Promise<string[]> => {
+    const { ctx, remembered } = await resolveAdapterRoots(PI_ROOTS, roots);
+    return (await planScan(PI_ROOTS, ctx, remembered)).filter((target) => target.exists).map((target) => target.path);
+  };
+
   return {
     name: PI_SOURCE,
 
     async detect(): Promise<boolean> {
-      for (const dir of piSessionDirs()) if (await isDirectory(dir)) return true;
-      return false;
+      return (await sessionDirs()).length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
       const aggregator = new PiUsageAggregator({ ...options, since });
-      for (const dir of piSessionDirs()) {
+      const files = new FileDeduper();
+      for (const dir of await sessionDirs()) {
         for await (const path of jsonlFiles(dir)) {
           // A file last written before the cutoff cannot hold requests after it.
           const info = await stat(path).catch(() => null);
           if (!info || info.mtime < since) continue;
+          if (!(await files.first(path))) continue;
           await readLines(path, (line) => aggregator.addLine(line));
         }
       }

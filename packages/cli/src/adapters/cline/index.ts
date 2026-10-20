@@ -1,64 +1,20 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CLINE_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
+import { envPath, pathFor, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
 import { RequestBuckets } from '../request-buckets.js';
 import { addClassicTask, type ClassicTask } from './classic.js';
 import { emptyClineDiagnostics, type ClineDiagnostics } from './normalize.js';
+import { CLINE_ROOTS, clineSdkHome } from './roots.js';
 import { addSdkMessages, learnExclusiveModels } from './sdk.js';
 
-const CLINE_EXTENSION_ID = 'saoudrizwan.claude-dev';
-/** VS Code-family hosts Cline's extension ships in, in the order the task brief lists them. */
-const HOSTS = ['Code', 'Code - Insiders', 'Cursor', 'VSCodium', 'Windsurf'];
-
-function clineDir(): string {
-  return process.env['CLINE_DIR'] ?? join(homedir(), '.cline');
-}
-
-function clineDataDir(): string {
-  return process.env['CLINE_DATA_DIR'] ?? join(clineDir(), 'data');
-}
-
-/** `~/.cline/data/sessions` by default, overridable the same way Cline's own SDK resolves it. */
+/** Where this process's environment puts Cline's SDK sessions: `CLINE_SESSION_DATA_DIR`, else `<data dir>/sessions` (`~/.cline/data/sessions` by default). */
 export function clineSessionsDir(): string {
-  return process.env['CLINE_SESSION_DATA_DIR'] ?? join(clineDataDir(), 'sessions');
-}
-
-function tasksDirUnder(userDataDir: string): string {
-  return join(userDataDir, 'User', 'globalStorage', CLINE_EXTENSION_ID, 'tasks');
-}
-
-/**
- * Every candidate classic-format `tasks` directory: each VS Code-family host on macOS and Linux,
- * that host on Windows (only when running on Windows, since `%APPDATA%` means nothing elsewhere),
- * the three known remote-server variants, and the legacy CLI/JetBrains/standalone data dir. A
- * directory that does not exist on this machine costs nothing to list, so every platform's shape is
- * always included rather than branched on `process.platform`.
- */
-export function clineClassicTaskDirs(): string[] {
-  const home = homedir();
-  const dirs: string[] = [];
-  for (const host of HOSTS) {
-    dirs.push(tasksDirUnder(join(home, 'Library', 'Application Support', host))); // macOS
-    dirs.push(tasksDirUnder(join(home, '.config', host))); // Linux
-  }
-  const appData = process.env['APPDATA'];
-  if (process.platform === 'win32' && appData) {
-    for (const host of HOSTS) dirs.push(tasksDirUnder(join(appData, host)));
-  }
-  dirs.push(tasksDirUnder(join(home, '.vscode-server', 'data')));
-  dirs.push(tasksDirUnder(join(home, '.vscode-server-insiders', 'data')));
-  dirs.push(tasksDirUnder(join(home, '.cursor-server', 'data')));
-  dirs.push(join(clineDataDir(), 'tasks'));
-  return dirs;
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
+  const ctx = processRootContext();
+  const path = pathFor(ctx.platform);
+  const dataDir = envPath(ctx, 'CLINE_DATA_DIR') ?? path.join(envPath(ctx, 'CLINE_DIR') ?? path.join(clineSdkHome(ctx) ?? ctx.home, '.cline'), 'data');
+  return envPath(ctx, 'CLINE_SESSION_DATA_DIR') ?? path.join(dataDir, 'sessions');
 }
 
 async function subdirectoryNames(dir: string): Promise<string[]> {
@@ -182,13 +138,28 @@ function describeDiagnostics(d: ClineDiagnostics): string[] {
  * API keys — are never opened, and prompt/response text is never kept even when it is right next to
  * a counter we do read.
  */
-export function createClineAdapter(options: { timeZone?: string } = {}): Adapter {
+export interface ClineAdapterOptions extends RootsOption {
+  timeZone?: string;
+}
+
+export function createClineAdapter(adapterOptions: ClineAdapterOptions = {}): Adapter {
+  const { roots, ...options } = adapterOptions;
+  /** The folders that exist: classic `tasks` folders and SDK `sessions` folders, each real folder once. */
+  const plan = async (): Promise<{ tasks: string[]; sessions: string[] }> => {
+    const { ctx, remembered } = await resolveAdapterRoots(CLINE_ROOTS, roots);
+    const existing = (await planScan(CLINE_ROOTS, ctx, remembered)).filter((target) => target.exists);
+    return {
+      tasks: existing.filter((target) => target.kind === 'tasks').map((target) => target.path),
+      sessions: existing.filter((target) => target.kind === 'sessions').map((target) => target.path),
+    };
+  };
+
   return {
     name: CLINE_SOURCE,
 
     async detect(): Promise<boolean> {
-      for (const dir of clineClassicTaskDirs()) if (await isDirectory(dir)) return true;
-      return isDirectory(clineSessionsDir());
+      const { tasks, sessions } = await plan();
+      return tasks.length + sessions.length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
@@ -196,21 +167,23 @@ export function createClineAdapter(options: { timeZone?: string } = {}): Adapter
       const diagnostics = emptyClineDiagnostics();
       const taskOptions = { since, timeZone: options.timeZone };
 
-      for (const tasksDir of clineClassicTaskDirs()) {
+      const { tasks, sessions } = await plan();
+
+      for (const tasksDir of tasks) {
         for (const taskId of await subdirectoryNames(tasksDir)) {
           const task = await readClassicTask(join(tasksDir, taskId), taskId, since, diagnostics);
           if (task) addClassicTask(task, buckets, diagnostics, taskOptions);
         }
       }
 
-      const sessionsDir = clineSessionsDir();
-      const sessionIds = await subdirectoryNames(sessionsDir);
+      const sessionFolders: { dir: string; id: string }[] = [];
+      for (const sessionsDir of sessions) {
+        for (const id of await subdirectoryNames(sessionsDir)) sessionFolders.push({ dir: join(sessionsDir, id), id });
+      }
       // Pass 1: a model that reports cache-exclusive input on any row is exclusive on all its rows.
       const learned = new Set<string>();
-      for (const sessionId of sessionIds) await learnSdkSession(join(sessionsDir, sessionId), since, learned);
-      for (const sessionId of sessionIds) {
-        await readSdkSession(join(sessionsDir, sessionId), sessionId, since, buckets, diagnostics, taskOptions, learned);
-      }
+      for (const { dir } of sessionFolders) await learnSdkSession(dir, since, learned);
+      for (const { dir, id } of sessionFolders) await readSdkSession(dir, id, since, buckets, diagnostics, taskOptions, learned);
 
       const notes = describeDiagnostics(diagnostics);
       return {

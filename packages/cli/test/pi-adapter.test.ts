@@ -68,7 +68,7 @@ describe('pi adapter', () => {
     expect(piAgentDir()).toBe(join(homedir(), 'custom-agent'));
     expect(piSessionDirs()).toEqual([join(homedir(), 'custom-agent', 'sessions')]);
     process.env['PI_CODING_AGENT_SESSION_DIR'] = '~/elsewhere';
-    expect(piSessionDirs()).toEqual([join(homedir(), 'elsewhere'), join(homedir(), 'custom-agent', 'sessions')]);
+    expect(piSessionDirs()).toEqual([join(homedir(), 'custom-agent', 'sessions'), join(homedir(), 'elsewhere')]);
     process.env['PI_CODING_AGENT_SESSION_DIR'] = join(homedir(), 'custom-agent', 'sessions');
     expect(piSessionDirs()).toHaveLength(1);
   });

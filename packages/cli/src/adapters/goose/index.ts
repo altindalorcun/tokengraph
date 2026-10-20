@@ -1,51 +1,26 @@
-import { stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { GOOSE_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
+import { planScan, plannedPaths, processRootContext, type RootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
 import { loadSqlite as defaultLoadSqlite } from '../opencode/sqlite.js';
 import { GooseUsageAggregator, type GooseAggregatorOptions } from './aggregator.js';
+import { GOOSE_ROOTS } from './roots.js';
 import { readLedger } from './sqlite.js';
 
-const DB_PARTS = ['sessions', 'sessions.db'] as const;
-
 /**
- * Where `sessions.db` may live, best first. An absolute `$GOOSE_PATH_ROOT` is authoritative
- * (`<root>/data`). Otherwise Goose uses its XDG data dir (`$XDG_DATA_HOME/goose`, else
- * `~/.local/share/goose`, on macOS too; `%APPDATA%\Block\goose\data` on Windows), and older builds
- * left databases in the three legacy folders after it.
+ * Where `sessions.db` may live for this process's environment, best first: Goose's own data dir, then
+ * the legacy folders older builds used (see `GOOSE_ROOTS`). The adapter reads every one that exists
+ * (plus remembered ones), not just the first.
  */
 export function gooseDbCandidates(platform: NodeJS.Platform = process.platform): string[] {
-  const root = process.env['GOOSE_PATH_ROOT'];
-  if (root && isAbsolute(root)) return [join(root, 'data', ...DB_PARTS)];
-  const home = homedir();
-  if (platform === 'win32') {
-    const appData = process.env['APPDATA'];
-    return [join(appData ? appData : join(home, 'AppData', 'Roaming'), 'Block', 'goose', 'data', ...DB_PARTS)];
-  }
-  const xdg = process.env['XDG_DATA_HOME'];
-  const dataHome = xdg && isAbsolute(xdg) ? xdg : join(home, '.local', 'share');
-  return [
-    join(dataHome, 'goose', ...DB_PARTS),
-    join(home, 'Library', 'Application Support', 'goose', ...DB_PARTS),
-    join(home, 'Library', 'Application Support', 'Block', 'goose', ...DB_PARTS),
-    join(home, '.local', 'share', 'Block', 'goose', ...DB_PARTS),
-  ];
+  const ctx: RootContext = { ...processRootContext(), platform };
+  const env = new Set(GOOSE_ROOTS.fromEnv(ctx));
+  const planned = plannedPaths(GOOSE_ROOTS, ctx).map(({ root, target }) => ({ root, path: target.path }));
+  // An absolute GOOSE_PATH_ROOT is authoritative for Goose itself: list its database first.
+  return [...new Set([...planned.filter(({ root }) => env.has(root)), ...planned].map(({ path }) => path))];
 }
 
-/** The first candidate that exists, or null. Later candidates are older locations; an earlier database shadows them. */
-async function existingDb(): Promise<string | null> {
-  for (const candidate of gooseDbCandidates()) {
-    try {
-      if ((await stat(candidate)).isFile()) return candidate;
-    } catch {
-      // Not there; try the next location.
-    }
-  }
-  return null;
-}
-
-export interface GooseAdapterOptions extends Pick<GooseAggregatorOptions, 'timeZone'> {
+export interface GooseAdapterOptions extends Pick<GooseAggregatorOptions, 'timeZone'>, RootsOption {
   /** Overrides `loadSqlite`, so tests can simulate a Node build without `node:sqlite`. */
   loadSqlite?: () => Promise<typeof DatabaseSync | null>;
 }
@@ -58,30 +33,39 @@ export interface GooseAdapterOptions extends Pick<GooseAggregatorOptions, 'timeZ
  */
 export function createGooseAdapter(options: GooseAdapterOptions = {}): Adapter {
   const loadSqlite = options.loadSqlite ?? defaultLoadSqlite;
+  /** Every `sessions.db` that exists, each real file once. */
+  const databases = async (): Promise<string[]> => {
+    const { ctx, remembered } = await resolveAdapterRoots(GOOSE_ROOTS, options.roots);
+    return (await planScan(GOOSE_ROOTS, ctx, remembered)).filter((target) => target.exists).map((target) => target.path);
+  };
 
   return {
     name: GOOSE_SOURCE,
 
     async detect(): Promise<boolean> {
-      return (await existingDb()) !== null;
+      return (await databases()).length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
       const notes: string[] = [];
-      const path = await existingDb();
-      const aggregator = new GooseUsageAggregator({ since, timeZone: options.timeZone, dbKey: path ?? '' });
+      // Rows are keyed by session and ledger id, not by the database they were read from, so a copy of one
+      // database (a backup, a GOOSE_PATH_ROOT copy) collapses instead of counting twice.
+      const aggregator = new GooseUsageAggregator({ since, timeZone: options.timeZone });
+      const paths = await databases();
 
-      if (path !== null) {
+      if (paths.length > 0) {
         const DatabaseSync = await loadSqlite();
         if (!DatabaseSync) {
           notes.push(`Goose needs Node 22.13+ to read sessions.db (this is Node ${process.versions.node}); Goose usage was skipped`);
         } else {
-          try {
-            const read = readLedger(DatabaseSync, path);
-            if (read.kind === 'rows') for (const row of read.rows) aggregator.addRow(row);
-            else notes.push(`Goose's sessions.db has an unrecognised schema (${read.reason}); Goose usage was skipped`);
-          } catch {
-            notes.push("Goose's sessions.db could not be read");
+          for (const path of paths) {
+            try {
+              const read = readLedger(DatabaseSync, path);
+              if (read.kind === 'rows') for (const row of read.rows) aggregator.addRow(row);
+              else notes.push(`Goose's sessions.db has an unrecognised schema (${read.reason}); Goose usage was skipped`);
+            } catch {
+              notes.push("Goose's sessions.db could not be read");
+            }
           }
         }
       }

@@ -275,7 +275,7 @@ describe('createKiloAdapter', () => {
     expect(result.requestCount).toBe(2);
   });
 
-  it('reads only KILO_DB when set (relative to the data dir)', async () => {
+  it('reads the database KILO_DB names (relative to the data dir) in addition to the data dir\'s own', async () => {
     for (const name of ['kilo.db', 'custom.db']) {
       const db = createDb(join(kiloDir, name));
       insertSession(db, 's1', '7.8.14');
@@ -285,8 +285,9 @@ describe('createKiloAdapter', () => {
     process.env['KILO_DB'] = 'custom.db';
 
     const result = await createKiloAdapter({ timeZone: 'UTC' }).collect(SINCE);
-    expect(result.requestCount).toBe(1);
-    expect(result.usage[0]).toMatchObject({ counts: { inputTokens: 3 } });
+    // kilo.db and custom.db are different databases with different messages: both count, custom.db once.
+    expect(result.requestCount).toBe(2);
+    expect(result.usage.reduce((sum, row) => sum + row.counts.inputTokens, 0)).toBe(13);
   });
 
   it('ignores a JSON storage folder (Kilo releases before kilo.db are a different format)', async () => {

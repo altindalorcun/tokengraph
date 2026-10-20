@@ -1,32 +1,20 @@
 import { stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CODEX_CLI_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
+import { envPath, FileDeduper, pathFor, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
 import { jsonlFiles, readLines } from '../jsonl-files.js';
 import { CodexUsageAggregator, type CodexAggregatorOptions, type CodexDiagnostics } from './aggregator.js';
+import { CODEX_ROOTS } from './roots.js';
 
+/** The Codex home this process's environment names, else `~/.codex`. An empty `CODEX_HOME` is unset, as in Codex. */
 export function codexHome(): string {
-  return process.env['CODEX_HOME'] ?? join(homedir(), '.codex');
+  const ctx = processRootContext();
+  return envPath(ctx, 'CODEX_HOME') ?? pathFor(ctx.platform).join(ctx.home, '.codex');
 }
 
 export function codexSessionsDir(): string {
   return join(codexHome(), 'sessions');
-}
-
-/**
- * Live rollouts and the ones Codex has archived. Nothing else under CODEX_HOME is read — the
- * prompt history and auth files there are not usage and never leave the machine.
- */
-function sessionDirs(): string[] {
-  return [codexSessionsDir(), join(codexHome(), 'archived_sessions')];
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 function describeDiagnostics({ fallbackEvents, malformedEvents, clampedEvents }: CodexDiagnostics): string[] {
@@ -39,22 +27,36 @@ function describeDiagnostics({ fallbackEvents, malformedEvents, clampedEvents }:
   return notes;
 }
 
-export function createCodexAdapter(options: Pick<CodexAggregatorOptions, 'timeZone'> = {}): Adapter {
+export interface CodexAdapterOptions extends Pick<CodexAggregatorOptions, 'timeZone'>, RootsOption {}
+
+/**
+ * Reads the rollouts under every Codex home (`$CODEX_HOME`, `~/.codex`, remembered ones): live and
+ * archived sessions only. A rollout reached twice is read once (real-path dedup of roots and files),
+ * which matters for older rollouts that carry no `response_id` to dedup by.
+ */
+export function createCodexAdapter(adapterOptions: CodexAdapterOptions = {}): Adapter {
+  const { roots, ...options } = adapterOptions;
+  const sessionDirs = async (): Promise<string[]> => {
+    const { ctx, remembered } = await resolveAdapterRoots(CODEX_ROOTS, roots);
+    return (await planScan(CODEX_ROOTS, ctx, remembered)).filter((target) => target.exists).map((target) => target.path);
+  };
+
   return {
     name: CODEX_CLI_SOURCE,
 
     async detect(): Promise<boolean> {
-      for (const dir of sessionDirs()) if (await isDirectory(dir)) return true;
-      return false;
+      return (await sessionDirs()).length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
       const aggregator = new CodexUsageAggregator({ ...options, since });
-      for (const dir of sessionDirs()) {
+      const files = new FileDeduper();
+      for (const dir of await sessionDirs()) {
         for await (const path of jsonlFiles(dir)) {
           // A file last written before the cutoff cannot hold records after it.
           const info = await stat(path).catch(() => null);
           if (!info || info.mtime < since) continue;
+          if (!(await files.first(path))) continue;
           aggregator.beginFile();
           await readLines(path, (line) => aggregator.addLine(line));
           aggregator.endFile();

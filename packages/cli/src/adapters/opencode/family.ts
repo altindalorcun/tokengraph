@@ -1,39 +1,28 @@
-import { readdir, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { readdir, realpath } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Adapter, CollectResult } from '@tokengraph/core';
+import { isDirectoryPath, pathFor, planScan, processRootContext, type RootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
 import { OpenCodeAggregator, type OpenCodeDiagnostics } from './aggregator.js';
+import { familyRootSpec } from './family-roots.js';
 import type { OpenCodeFlavour } from './flavour.js';
 import { loadSqlite as defaultLoadSqlite, readOpenCodeDatabase } from './sqlite.js';
 import { readOpenCodeStorage } from './storage.js';
 
 /**
- * `${XDG_DATA_HOME || ~/.local/share}/<dataDirName>` — the same rule OpenCode and Kilo use (never `~/Library/...`
- * on macOS). An empty XDG_DATA_HOME counts as unset, as in the XDG spec and the xdg-basedir package both use.
+ * `${XDG_DATA_HOME || ~/.local/share}/<dataDirName>` for this process's environment: the same rule OpenCode
+ * and Kilo use (never `~/Library/...` on macOS). An empty XDG_DATA_HOME counts as unset, as in the XDG spec and
+ * the xdg-basedir package both use. The adapter also reads the default folder, a database named by the
+ * product's `..._DB` variable and remembered folders.
  */
-export function familyDataDir(flavour: OpenCodeFlavour): string {
-  return join(process.env['XDG_DATA_HOME'] || join(homedir(), '.local', 'share'), flavour.dataDirName);
+export function familyDataDir(flavour: OpenCodeFlavour, ctx: RootContext = processRootContext()): string {
+  const roots = familyRootSpec(flavour).fromEnv(ctx).filter((root) => !/\.db$/i.test(root));
+  return roots[0] ?? pathFor(ctx.platform).join(ctx.home, '.local', 'share', flavour.dataDirName);
 }
 
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Every database file to read: just the product's `…_DB` variable when it's set to something other
- * than `:memory:` (relative paths resolve against the data dir), else every file in the data dir
- * matching the flavour's pattern.
- */
-async function databasePaths(flavour: OpenCodeFlavour, dataDir: string): Promise<string[]> {
-  const override = process.env[flavour.dbEnvVar];
-  if (override && override !== ':memory:') {
-    return [isAbsolute(override) ? override : join(dataDir, override)];
-  }
+/** Every database file in a data dir whose name matches the flavour's pattern, sorted. */
+async function databasesIn(flavour: OpenCodeFlavour, dataDir: string): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(dataDir, { withFileTypes: true });
@@ -61,7 +50,7 @@ function describeDiagnostics(flavour: OpenCodeFlavour, d: OpenCodeDiagnostics): 
   return notes;
 }
 
-export interface OpenCodeFamilyOptions {
+export interface OpenCodeFamilyOptions extends RootsOption {
   timeZone?: string;
   /** Overrides `loadSqlite`, so tests can simulate a Node build without `node:sqlite`. */
   loadSqlite?: () => Promise<typeof DatabaseSync | null>;
@@ -77,36 +66,63 @@ export interface OpenCodeFamilyOptions {
  */
 export function createOpenCodeFamilyAdapter(flavour: OpenCodeFlavour, options: OpenCodeFamilyOptions = {}): Adapter {
   const loadSqlite = options.loadSqlite ?? defaultLoadSqlite;
+  const spec = familyRootSpec(flavour);
+
+  /**
+   * What exists: data folders (their databases and, for OpenCode, their pre-1.2 `storage/` tree) and databases
+   * named directly. A database reached twice (a folder's listing and a `..._DB` path, two spellings of one
+   * folder) is listed once: message ids and fork fingerprints dedup across different databases, but one
+   * file read twice would only repeat work.
+   */
+  const plan = async (): Promise<{ dataDirs: string[]; databases: string[] }> => {
+    const { ctx, remembered } = await resolveAdapterRoots(spec, options.roots);
+    const existing = (await planScan(spec, ctx, remembered)).filter((target) => target.exists);
+    const dataDirs = existing.filter((target) => target.kind === 'dir').map((target) => target.path);
+    const files = new Set<string>();
+    for (const dir of dataDirs) for (const path of await databasesIn(flavour, dir)) files.add(path);
+    for (const target of existing) if (target.kind === 'db') files.add(target.path);
+    const databases = [];
+    const seen = new Set<string>();
+    for (const path of files) {
+      const real = await realpath(path).catch(() => path);
+      if (seen.has(real)) continue;
+      seen.add(real);
+      databases.push(path);
+    }
+    return { dataDirs, databases };
+  };
 
   return {
     name: flavour.source,
 
     async detect(): Promise<boolean> {
-      const dataDir = familyDataDir(flavour);
-      if (!(await isDirectory(dataDir))) return false;
-      if ((await databasePaths(flavour, dataDir)).length > 0) return true;
-      return flavour.readsJsonStorage && isDirectory(join(dataDir, 'storage'));
+      const { dataDirs, databases } = await plan();
+      if (databases.length > 0) return true;
+      if (!flavour.readsJsonStorage) return false;
+      for (const dir of dataDirs) if (await isDirectoryPath(join(dir, 'storage'))) return true;
+      return false;
     },
 
     async collect(since: Date): Promise<CollectResult> {
-      const dataDir = familyDataDir(flavour);
       const aggregator = new OpenCodeAggregator({ since, timeZone: options.timeZone, flavour });
       const notes: string[] = [];
+      const { dataDirs, databases } = await plan();
 
-      const storageDir = join(dataDir, 'storage');
-      if (flavour.readsJsonStorage && (await isDirectory(storageDir))) {
-        await readOpenCodeStorage(storageDir, aggregator, since.getTime());
+      if (flavour.readsJsonStorage) {
+        for (const dataDir of dataDirs) {
+          const storageDir = join(dataDir, 'storage');
+          if (await isDirectoryPath(storageDir)) await readOpenCodeStorage(storageDir, aggregator, since.getTime());
+        }
       }
 
-      const dbPaths = await databasePaths(flavour, dataDir);
-      if (dbPaths.length > 0) {
+      if (databases.length > 0) {
         const DatabaseSync = await loadSqlite();
         if (!DatabaseSync) {
           notes.push(
             `${flavour.displayName} needs Node 22.13+ to read ${flavour.dbFileName} (this is Node ${process.versions.node}); ${flavour.displayName} usage was skipped`,
           );
         } else {
-          for (const path of dbPaths) {
+          for (const path of databases) {
             try {
               readOpenCodeDatabase(DatabaseSync, path, aggregator, since.getTime(), { readStepModels: flavour.readsStepModels });
             } catch {

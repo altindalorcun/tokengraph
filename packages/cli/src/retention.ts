@@ -1,9 +1,8 @@
 import { stat, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { KnownSource } from '@tokengraph/core';
 import { projectsDir } from './adapters/claude-code/index.js';
-import { geminiTmpDirs } from './adapters/gemini-cli/index.js';
+import { geminiHome, geminiTmpDirs } from './adapters/gemini-cli/index.js';
 import { qwenProjectsDirs, qwenSettingsPath } from './adapters/qwen-code/index.js';
 import type { AutoSyncEntry, AutoSyncHealth } from './auto-sync-health.js';
 import { settingsPath as claudeSettingsPath } from './commands/install-hook.js';
@@ -36,7 +35,7 @@ export interface RetentionDeps {
 const DEFAULT_DEPS: RetentionDeps = {
   claudeSettingsPath,
   claudeDataDirs: () => [projectsDir()],
-  geminiSettingsPath: () => join(process.env['GEMINI_CLI_HOME'] ?? homedir(), '.gemini', 'settings.json'),
+  geminiSettingsPath: () => join(geminiHome(), '.gemini', 'settings.json'),
   geminiDataDirs: geminiTmpDirs,
   qwenSettingsPath,
   qwenDataDirs: qwenProjectsDirs,

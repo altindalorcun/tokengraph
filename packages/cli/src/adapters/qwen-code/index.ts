@@ -1,21 +1,17 @@
 import { readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, join } from 'node:path';
 import { QWEN_CODE_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
-import { childDirectories, isDirectory, jsonlFiles, readLines } from '../jsonl-files.js';
+import { envPath, FileDeduper, pathFor, planScan, processRootContext, type PlannedTarget, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
+import { childDirectories, jsonlFiles, readLines } from '../jsonl-files.js';
 import { asObject, nonEmptyString } from '../usage-fields.js';
+import { QWEN_ROOTS } from './roots.js';
 import { combineQwenSources, parseJsonObjects, QwenLedgerAggregator, QwenUsageAggregator, type QwenAggregatorOptions, type QwenDiagnostics } from './aggregator.js';
 
-/** Qwen Code resolves `~` and relative paths in its path settings; so does this. */
-function resolvePath(path: string): string {
-  if (path === '~') return homedir();
-  return resolve(path.startsWith('~/') ? join(homedir(), path.slice(2)) : path);
-}
-
-/** `$QWEN_HOME` (the `.qwen` folder itself, not its parent) when set, else `~/.qwen`; the same on every OS. */
+/** `$QWEN_HOME` (the `.qwen` folder itself, not its parent; `~` expanded, absolute) when this process's environment sets it, else `~/.qwen`; the same on every OS. */
 export function qwenHome(): string {
-  const override = process.env['QWEN_HOME'];
-  return override ? resolvePath(override) : join(homedir(), '.qwen');
+  const ctx = processRootContext();
+  return envPath(ctx, 'QWEN_HOME') ?? pathFor(ctx.platform).join(ctx.home, '.qwen');
 }
 
 /** Where Qwen Code reads its user settings. */
@@ -24,9 +20,10 @@ export function qwenSettingsPath(): string {
 }
 
 /**
- * Where per-project transcripts live: `<runtime dir>/projects`, with `$QWEN_RUNTIME_DIR` as the
- * runtime dir when set and the Qwen home otherwise. Both are read, since sessions recorded before
- * the variable was set stay in the home. A runtime dir set in settings.json is not followed.
+ * Where per-project transcripts live for this process's environment: `<runtime dir>/projects`, with
+ * `$QWEN_RUNTIME_DIR` as the runtime dir when set and the Qwen home otherwise. Both are read, since
+ * sessions recorded before the variable was set stay in the home. A runtime dir set in settings.json
+ * is not followed. The adapter also reads the default home and remembered ones.
  */
 export function qwenProjectsDirs(): string[] {
   return runtimeSubdirs('projects');
@@ -38,9 +35,9 @@ export function qwenUsageDirs(): string[] {
 }
 
 function runtimeSubdirs(name: string): string[] {
-  const runtime = process.env['QWEN_RUNTIME_DIR'];
-  const dirs = [...(runtime ? [resolvePath(runtime)] : []), qwenHome()].map((dir) => join(dir, name));
-  return [...new Set(dirs)];
+  const ctx = processRootContext();
+  const roots = [...QWEN_ROOTS.fromEnv(ctx), qwenHome()];
+  return [...new Set(roots.map((root) => pathFor(ctx.platform).join(root, name)))];
 }
 
 /**
@@ -116,24 +113,34 @@ function describeDiagnostics({ malformedRecords, clampedRecords, unreadableFiles
  * request, including the managed memory extractor's, which the chats do not hold. Both sources are
  * read and, for each day, the one with more weighted tokens is used (see `combineQwenSources`).
  */
-export function createQwenCodeAdapter(options: Pick<QwenAggregatorOptions, 'timeZone'> = {}): Adapter {
+export interface QwenCodeAdapterOptions extends Pick<QwenAggregatorOptions, 'timeZone'>, RootsOption {}
+
+export function createQwenCodeAdapter(adapterOptions: QwenCodeAdapterOptions = {}): Adapter {
+  const { roots, ...options } = adapterOptions;
+  const plan = async (kind: 'projects' | 'usage'): Promise<string[]> => {
+    const { ctx, remembered } = await resolveAdapterRoots(QWEN_ROOTS, roots);
+    const targets: PlannedTarget[] = (await planScan(QWEN_ROOTS, ctx, remembered)).filter((target) => target.exists && target.kind === kind);
+    return targets.map((target) => target.path);
+  };
+
   return {
     name: QWEN_CODE_SOURCE,
 
     async detect(): Promise<boolean> {
-      for (const dir of [...qwenProjectsDirs(), ...qwenUsageDirs()]) if (await isDirectory(dir)) return true;
-      return false;
+      return (await plan('projects')).length + (await plan('usage')).length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
       const aggregator = new QwenUsageAggregator({ ...options, since });
-      for (const projectsDir of qwenProjectsDirs()) {
+      const files = new FileDeduper();
+      for (const projectsDir of await plan('projects')) {
         for (const projectDir of await childDirectories(projectsDir)) {
           for (const [folder, hasMeta] of [['chats', false], ['subagents', true]] as const) {
             for await (const path of jsonlFiles(join(projectDir, folder))) {
               // A file last written before the cutoff cannot hold requests after it.
               const info = await stat(path).catch(() => null);
               if (!info || info.mtime < since) continue;
+              if (!(await files.first(path))) continue;
               await readTranscript(path, hasMeta ? await subagentModel(path) : null, aggregator);
             }
           }
@@ -141,9 +148,9 @@ export function createQwenCodeAdapter(options: Pick<QwenAggregatorOptions, 'time
       }
 
       const ledger = new QwenLedgerAggregator({ ...options, since });
-      for (const usageDir of qwenUsageDirs()) {
+      for (const usageDir of await plan('usage')) {
         for await (const path of jsonlFiles(usageDir)) {
-          if (!ledgerFileBeforeSince(path, since)) await readLedger(path, ledger);
+          if (!ledgerFileBeforeSince(path, since) && (await files.first(path))) await readLedger(path, ledger);
         }
       }
 

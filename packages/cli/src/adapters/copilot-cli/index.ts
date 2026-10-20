@@ -1,23 +1,19 @@
-import { stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { COPILOT_CLI_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
+import { envPath, pathFor, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
 import { loadSqlite as defaultLoadSqlite } from '../opencode/sqlite.js';
 import { CopilotUsageAggregator, type CopilotAggregatorOptions } from './aggregator.js';
+import { COPILOT_ROOTS } from './roots.js';
 import { readUsageEvents } from './sqlite.js';
 
-/** `$COPILOT_HOME` when set, else `~/.copilot` (the same on every OS). A `--config-dir` flag given to one run cannot be seen from here. */
+/** `$COPILOT_HOME` (trimmed, `~` expanded, absolute) when this process's environment sets it, else `~/.copilot` (the same on every OS). A `--config-dir` flag given to one run cannot be seen from here. */
 export function copilotHome(): string {
-  const override = process.env['COPILOT_HOME']?.trim();
-  return override ? override : join(homedir(), '.copilot');
+  const ctx = processRootContext();
+  return envPath(ctx, 'COPILOT_HOME') ?? pathFor(ctx.platform).join(ctx.home, '.copilot');
 }
 
-function storePath(): string {
-  return join(copilotHome(), 'session-store.db');
-}
-
-export interface CopilotCliAdapterOptions extends Pick<CopilotAggregatorOptions, 'timeZone'> {
+export interface CopilotCliAdapterOptions extends Pick<CopilotAggregatorOptions, 'timeZone'>, RootsOption {
   /** Overrides `loadSqlite`, so tests can simulate a Node build without `node:sqlite`. */
   loadSqlite?: () => Promise<typeof DatabaseSync | null>;
 }
@@ -31,39 +27,38 @@ export interface CopilotCliAdapterOptions extends Pick<CopilotAggregatorOptions,
  */
 export function createCopilotCliAdapter(options: CopilotCliAdapterOptions = {}): Adapter {
   const loadSqlite = options.loadSqlite ?? defaultLoadSqlite;
+  /** Every `session-store.db` that exists, each real file once. */
+  const stores = async (): Promise<string[]> => {
+    const { ctx, remembered } = await resolveAdapterRoots(COPILOT_ROOTS, options.roots);
+    return (await planScan(COPILOT_ROOTS, ctx, remembered)).filter((target) => target.exists).map((target) => target.path);
+  };
 
   return {
     name: COPILOT_CLI_SOURCE,
 
     async detect(): Promise<boolean> {
-      try {
-        return (await stat(storePath())).isFile();
-      } catch {
-        return false;
-      }
+      return (await stores()).length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
       const aggregator = new CopilotUsageAggregator({ since, timeZone: options.timeZone });
       const notes: string[] = [];
 
-      let present = false;
-      try {
-        present = (await stat(storePath())).isFile();
-      } catch {
-        // No store: nothing to read, and nothing to report.
-      }
-      if (present) {
+      const paths = await stores();
+      if (paths.length > 0) {
         const DatabaseSync = await loadSqlite();
         if (!DatabaseSync) {
           notes.push(`Copilot CLI needs Node 22.13+ to read session-store.db (this is Node ${process.versions.node}); Copilot CLI usage was skipped`);
         } else {
-          try {
-            const read = readUsageEvents(DatabaseSync, storePath());
-            if (read.kind === 'rows') for (const row of read.rows) aggregator.addRow(row);
-            else notes.push(`Copilot CLI's session-store.db has an unrecognised schema (${read.reason}); Copilot CLI usage was skipped`);
-          } catch {
-            notes.push("Copilot CLI's session-store.db could not be read");
+          // Rows are keyed by session id plus row id: another profile's database has other session ids, a copy of one collapses.
+          for (const path of paths) {
+            try {
+              const read = readUsageEvents(DatabaseSync, path);
+              if (read.kind === 'rows') for (const row of read.rows) aggregator.addRow(row);
+              else notes.push(`Copilot CLI's session-store.db has an unrecognised schema (${read.reason}); Copilot CLI usage was skipped`);
+            } catch {
+              notes.push("Copilot CLI's session-store.db could not be read");
+            }
           }
         }
       }
