@@ -524,6 +524,16 @@ directly to Roo/Kilo; separate research is needed (not gone into).
 - Whether the old Cline CLI (Go-based 1.x/2.x) and the JetBrains plugin set `CLINE_DIR` to a
   different place was not checked.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/cline/roots.ts`.
+
+- Cline data folder (`sessions/` for the SDK and CLI, `tasks/` for the standalone and JetBrains build): `~/.cline/data`, `$CLINE_DIR/data`, `$CLINE_DATA_DIR`. The standalone build ignores `CLINE_DATA_DIR` and uses `$CLINE_DIR/data`, so both are read. `$CLINE_SESSION_DATA_DIR` is a sessions folder of its own. All `CLINE_*` values are trimmed, as in the SDK (`storage/paths.ts`); a relative one is ignored.
+- Home for `~/.cline`: the SDK takes `$HOME`, then `$USERPROFILE`, then `$HOMEDRIVE$HOMEPATH` (all trimmed, `HOME` first even on Windows, where Git Bash exports it), then `os.homedir()`. tokengraph reads the SDK's home and the OS home, so a `HOME` that differs from `USERPROFILE` no longer hides Cline's sessions. A Git Bash style `HOME` (`/c/Users/me`) is converted on Windows.
+- Editor user-data folders (classic `tasks/` under `<user data>/User/globalStorage/saoudrizwan.claude-dev`), one per platform: macOS `~/Library/Application Support`, Linux `$XDG_CONFIG_HOME` and `~/.config`, Windows `%APPDATA%` and `<home>\AppData\Roaming`. Product folders: Code, Code - Insiders, Code - OSS, Cursor, VSCodium, VSCodium - Insiders, Windsurf, Windsurf - Next, Positron, Trae, Kiro, Antigravity. The VS Code, Cursor, VSCodium and Windsurf names come from those products' conventions; Windsurf Next, Trae, Kiro, Antigravity and Positron follow the same convention but have not been checked against an install, and cost nothing when absent.
+- Remote server installs, `<home>/<server>/data/User/globalStorage/...`: `.vscode-server`, `.vscode-server-insiders`, `.cursor-server`, `.windsurf-server`, `.vscodium-server`.
+- Not followed: `VSCODE_PORTABLE`, `VSCODE_APPDATA` and `--user-data-dir` installs (nothing in a later run can discover them), `code-server` (`~/.local/share/code-server/User/...`, unverified), and a `CLINE_SESSION_DATA_DIR` that is remembered (it is remembered as a sessions folder, which is read).
+
 ## Sources
 
 - [cline/cline @ 252082b (main)](https://github.com/cline/cline/tree/252082b9e93b4f91253876391e35b4c13326f5e6): SDK, CLI, A/B loader, migration code.

@@ -127,6 +127,13 @@ pi 0.73.1 (`@mariozechner/pi-coding-agent`). Method: the real agent was installe
   read). Compaction, branch-summary and nested tool-call usage is skipped because it names no model; for a heavy
   user this undercounts a small amount, and the note reports how many records were skipped.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/pi/roots.ts`.
+
+- Agent folders: `~/.pi/agent` and `$PI_CODING_AGENT_DIR`, each read through `sessions/`. `$PI_CODING_AGENT_SESSION_DIR` is a sessions folder of its own. Values are read the way pi's `normalizePath` does: `~` (and `~\` on Windows), `file://` URLs, Git Bash drive paths on Windows; a relative value is ignored (pi resolves it against its working directory).
+- Not followed: the `sessionDir` setting, the `--session-dir` flag, and forks that rename the variables (`<APP>_CODING_AGENT_DIR`).
+
 ## Sources
 
 - pi-mono (MIT), commit [`482c138`](https://github.com/badlogic/pi-mono/tree/482c1381a00d8d00bc81697e4a980c593db6803e):

@@ -196,6 +196,13 @@ Method: the real agent was installed into a throwaway folder and run with a thro
   `copilot_usage_model` holds with a GitHub account (it was null in BYOK); whether Copilot Chat's CLI-type sessions
   reach `session-store.db`; and forking a session.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/copilot-cli/roots.ts`.
+
+- Roots: `~/.copilot` and `$COPILOT_HOME` (trimmed, `~` expanded, absolute only); the database is `session-store.db` in each. The same on every OS. Copilot CLI is closed source, so whether it trims or expands `COPILOT_HOME` is unconfirmed; a `--config-dir` flag given to one run cannot be seen later.
+- Every existing store is read. Rows are keyed by session id plus row id: another profile's database has other session ids, and a copy of one database collapses.
+
 ## Sources
 
 - tokscale `crates/tokscale-core/src/sessions/copilot_session_store.rs` and `utils.rs`, commit

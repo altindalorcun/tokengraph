@@ -142,6 +142,13 @@ Only `json_extract` of `tokens`, `modelID`, `providerID`, `time`, `agent`, `cost
 `model.providerID` / `model.modelID`, plus `session.id`, `version` and `time_created`. Prompt and
 response text, tool output, `session.directory` and `title` are never selected.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/kilo/roots.ts`.
+
+- Roots: `~/.local/share/kilo` on every OS, and `$XDG_DATA_HOME/kilo` when set to a non-empty absolute path. Each root contributes every `kilo*.db` (and the `opencode-<channel>.db` Kilo falls back to).
+- `$KILO_DB` names one more database (absolute as is, relative against the data folder); it is added to the folder scan rather than replacing it. Same dedup as OpenCode: message ids and fork fingerprints are unique across databases.
+
 ## Citations
 
 - Kilo-Org/kilocode, commit [`2a1903f`](https://github.com/Kilo-Org/kilocode/tree/2a1903f29186e25adec0bace14f6ee589095f7eb) (version 7.8.14); tags v7.2.4, v7.2.5, v7.2.6, v7.0.26.

@@ -379,6 +379,13 @@ Neither tool applies `$rewindTo` (they count rewound requests), the same as our 
 - The cost is API-equivalent; with a free Code Assist / Google account quota it is not a real
   bill.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/gemini-cli/roots.ts`.
+
+- A root is the folder Gemini CLI treats as home: the user's home, or `$GEMINI_CLI_HOME` (any non-empty absolute value). Each root is read through `<root>/.gemini/tmp` and `<root>/.cache/.gemini/tmp`.
+- The macOS seatbelt (`SANDBOX=sandbox-exec`) cache directory is computed by Gemini from the same `GEMINI_CLI_HOME`-aware home (`storage.ts` `getGlobalRuntimeDir`), so it moves with the variable; the old reading, which pinned it to the OS home, missed it. The default home stays in the list, so both are read.
+
 ## Sources
 
 - [gemini-cli @2fe7c2d, `chatRecordingTypes.ts`](https://github.com/google-gemini/gemini-cli/blob/2fe7c2d3f065dc40ad573d50b2091116f8a4aa18/packages/core/src/services/chatRecordingTypes.ts): `TokensSummary`, message and JSONL record types.

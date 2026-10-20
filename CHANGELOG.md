@@ -18,6 +18,10 @@ The first public release.
 - **Agents.** Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI,
   pi, Qwen Code and Goose. Claude Code, Codex and Cursor can start a background sync when they
   finish; the others are picked up by the hourly schedule.
+- **No usage missed by where an agent keeps its files.** Every agent is read from its default folder,
+  the folder its environment variable names and the folders remembered from earlier runs (so the
+  hourly sync still reads a profile set only in your shell), including Claude desktop's Code and
+  Cowork sessions. `tokengraph status` lists the folders it scans and which exist.
 - **Retention warnings.** `tokengraph status` shows how long Claude Code, Gemini CLI and Qwen Code
   keep their logs and warns when history is at risk. `status --json` prints it for scripts.
 - **Export.** `tokengraph export` writes daily usage as CSV or JSON from the local ledger.

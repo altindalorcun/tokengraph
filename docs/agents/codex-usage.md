@@ -233,6 +233,13 @@ tier.
   taken into account, because the region of processing cannot be known locally.
 - The cost is API-equivalent; with a ChatGPT plan it is not a real bill.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/codex/roots.ts`.
+
+- Roots: `~/.codex`, and `$CODEX_HOME` when it is a non-empty absolute path (an empty `CODEX_HOME` is unset, as in Codex's `utils/home-dir`; a relative value is ignored, because Codex resolves it against its own working directory).
+- Read through `sessions/` and `archived_sessions/` only. Files are deduplicated by real path across roots as well as by `response_id`, because older rollouts carry no `response_id` (`fallbackEvents`) and a second copy of one would count twice. Two profiles with different rollouts add up.
+
 ## Sources
 
 - [Codex environment variables](https://developers.openai.com/codex/environment-variables): the default and scope of `CODEX_HOME`.

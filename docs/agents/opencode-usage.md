@@ -468,6 +468,13 @@ equality is available, it must be used before the version rule.
 - The real API usage of title generation (v1 and v2) and of steps that were cut off is not
   recorded locally at all; this part is always undercounted.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/opencode/roots.ts`.
+
+- Roots: `~/.local/share/opencode` on every OS (macOS and Windows included), and `$XDG_DATA_HOME/opencode` when `XDG_DATA_HOME` is a non-empty absolute path. Each root contributes every `opencode*.db` and the pre-1.2 `storage/` tree.
+- `$OPENCODE_DB` (not `:memory:`) names one more database: absolute as is, relative against the data folder, as OpenCode resolves it. Before multi-root discovery it replaced the folder scan; now it is added to it, because a run with the variable set and a run without it write different databases of one user. Messages deduplicate by id across databases, so a database reached twice only repeats work (and a database path is read once by real path).
+
 ## Sources
 
 The source code links point to fixed commits: v1.18.32 =

@@ -21,8 +21,8 @@ The adapter reads that table and nothing else of substance.
     Windows uses `%APPDATA%\Block\goose\data`.
 - Older builds left databases in `~/Library/Application Support/goose`, `~/Library/Application Support/Block/goose`
   and `~/.local/share/Block/goose` (from the token-monitor note `docs/providers/goose.md`, not from Goose's source).
-  The adapter reads the **first existing** candidate in the order above and does not union them, as that
-  third-party scanner does. If that file cannot be read, the adapter notes it and does not fall through.
+  The adapter reads **every existing** candidate (see "Roots tokengraph scans"); it used to read only the first.
+  A database that cannot be read is noted, and the others are still read.
 - Goose imports pre-SQLite JSONL sessions into the same database on first run (`import_legacy`).
 
 ```bash
@@ -74,7 +74,7 @@ Illustrative row (not seen on disk):
 
 ## Dedup unit and traps
 
-- **Key: the database path plus `usage_ledger.id`** (autoincrement). Repeated collects of the same file agree.
+- **Key: the session id, `usage_ledger.id` (autoincrement) and `created_timestamp`.** The row id alone is only unique within one database; the session id and timestamp make a copy of the database (a backup, a copied data folder) collapse instead of counting twice. Repeated collects of the same file agree.
 - **Trap, `carried_forward` rows.** When `sessions.accumulated_*` exceeds the ledger sum (a session older than the
   ledger, or an imported one), the next call first inserts a synthetic delta row with `cost_source = 'carried_forward'`
   and no model (L2548-L2570). Its timestamp is the day of the next request, not when the tokens were spent. These rows
@@ -168,6 +168,14 @@ Goose 1.55.0 (the `goose-aarch64-apple-darwin` release binary). Method: the real
   the Cursor `stop` hook fires for `cursor-agent --print` runs started by Goose (without it, those requests are
   counted by neither adapter); whether `copilot --acp` writes `assistant_usage_events` (the exclusion assumes
   it does); and old builds (before schema 15, and the input convention before it was unified).
+
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/goose/roots.ts`.
+
+- Data folders, each read through `sessions/sessions.db`: Linux `~/.local/share/goose` (+ legacy `~/.local/share/Block/goose`); macOS the same plus `~/Library/Application Support/goose` and `~/Library/Application Support/Block/goose`; Windows `%APPDATA%\Block\goose\data` (falling back to `<home>\AppData\Roaming`). Environment adds `$GOOSE_PATH_ROOT/data` (absolute only, as in Goose) and `$XDG_DATA_HOME/goose` (absolute only, as in etcetera).
+- Decision, every existing database is read (it used to be the first one found, an absolute `GOOSE_PATH_ROOT` excluding the rest). Reading all of them is what makes profiles add up. The legacy folders hold databases from before the usage ledger existed (schema 15), so they contribute no rows in practice, and Goose does not copy databases between folders (its `import_legacy` moves pre-SQLite JSONL into the same database).
+- Because copies of one database can still exist (a backup, a copied `GOOSE_PATH_ROOT`), a request is keyed by session id, ledger row id and timestamp, not by the database path it came from: the same row read from two copies collapses, and two unrelated databases would need the same session id, row id and second to collide.
 
 ## Sources
 

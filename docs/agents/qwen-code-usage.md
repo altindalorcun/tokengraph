@@ -256,6 +256,13 @@ figure is 0, as described above.
 - Tokscale's Qwen parser (`sessions/qwen.rs`) was used only as a cross-check: it keys dedup by line index and
   adds cached tokens on top of the prompt, which double counts cache and fork copies. Its arithmetic is not used.
 
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/qwen-code/roots.ts`.
+
+- Runtime folders: `~/.qwen`, `$QWEN_HOME` and `$QWEN_RUNTIME_DIR`, each read through `projects/` (chats, subagents) and `usage/` (the ledger). `~` and `~\` are expanded; a relative value is ignored (Qwen resolves it against its working directory or project root, which a later run cannot know). Chat `uuid`s and ledger ids deduplicate across roots; the per-day choice between chats and ledger is made over the combined data.
+- Not followed: `runtimeOutputDir` in `settings.json`.
+
 ## Sources
 
 - [storage.ts](https://github.com/QwenLM/qwen-code/blob/e584d4d1973ad2b40278e67a945eb62c0006baaa/packages/core/src/config/storage.ts) (Qwen home, runtime dir, project dir)

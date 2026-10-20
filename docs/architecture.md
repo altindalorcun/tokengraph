@@ -25,7 +25,8 @@ A calculation belongs in core. Core is private and is inlined into the CLI bundl
 file npm ships (`bundle/bin.js`, plus `assets/`).
 
 State lives in `~/.tokengraph/` (or `$TOKENGRAPH_HOME`): `config.json` (machine id, GitHub login and
-auth, gist ids, graph colours; mode 0600), `state.json` (the ledger), `machines.json` (the other
+auth, gist ids, graph colours, and `agentRoots`, the agent folders remembered from earlier runs;
+mode 0600), `state.json` (the ledger), `machines.json` (the other
 machines' files from the last publish) and, for Cursor, `cursor-events.jsonl` and `cursor-import.jsonl`
 (rows imported from a dashboard CSV by `tokengraph import cursor`; neither Cursor file is ever pruned).
 
@@ -133,6 +134,41 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
 GitHub's device flow with the project's OAuth App (device flow only, no client secret exists) for
 the `gist` scope. With `gh`, only the path of `gh` is stored and the token is asked for at use
 time, so scheduled runs with a minimal `PATH` still work and our file holds no copy of it.
+
+## Where adapters look: roots
+
+An agent's files can sit somewhere only the agent's own environment knows about: a profile named by
+`CLAUDE_CONFIG_DIR` in a VS Code setting, `CODEX_HOME` in a shell profile, `XDG_DATA_HOME` in a dotfiles
+setup. The hourly schedule (launchd, cron, Task Scheduler) gets none of that, and the ledger max-merges a
+day's totals, so a profile only interactive runs see and a default folder only the schedule sees would be
+max-merged instead of added. So every adapter scans the **union** of three kinds of root:
+
+- **default** roots, computed from the home folder and the platform;
+- **env** roots, named by the environment variables of the current run;
+- **remembered** roots, saved in `config.json` under `agentRoots` (`{ [source]: string[] }`, additive: older
+  versions ignore the key).
+
+`src/agent-roots.ts` is the pure half. Each adapter has a `RootSpec` (`adapters/<agent>/roots.ts`) whose
+`defaults`, `fromEnv` and `targets` take an injected `{ platform, env, home }` and never read `process.env`,
+`os.homedir()` or `process.platform`, so the macOS, Linux and Windows branches are unit-tested on any machine.
+Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored
+(no agent resolves one against the home folder, and the schedule's working directory is not the agent's). A
+root is a plain string, usually the folder the agent keeps its data in; a prefix (`desktop:`, `sessions:`,
+`editors:`, `server:`) marks the few roots that are shaped differently.
+
+`planScan` turns roots into the files and folders to read and checks which exist. Targets that reach the
+same real path (a symlinked profile, `CLAUDE_CONFIG_DIR` equal to `~/.claude`, a trailing slash, another
+letter case) are listed once; a missing target is skipped silently by the adapters and shown as missing by
+`status`. Adapters also skip a file they already read through another root (`FileDeduper`), which matters for
+Codex rollouts that carry no `response_id`. Each adapter's dedup key (see CLAUDE.md) is what keeps a
+session copied between roots from counting twice.
+
+`agent-roots-store.ts` writes `agentRoots`: whenever `sync`, `view`, `status`, `schedule`, `install-hook` or
+the Claude Code and Codex hook (`hook-sync`, which runs with the agent's own environment) runs with an
+override in its environment that points at something that exists and is not already a default, the root is
+added (atomically, mode 0600; never removed automatically). `status` and `status --json` list, per adapter,
+every folder scanned, where the root came from (`default`, `env`, `remembered`) and whether it exists. Claude
+Code's roots also include Claude Desktop's Code and Cowork session folders (`adapters/claude-code/desktop.ts`).
 
 ## Background syncs
 
