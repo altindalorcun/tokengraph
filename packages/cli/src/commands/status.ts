@@ -191,7 +191,13 @@ function printAgentRoots(reports: AgentRootsReport[]): void {
     const rootHasData = new Set(targets.filter((target) => target.exists).map((target) => target.root));
     const shown = targets.filter((target) => target.exists || (target.origin !== 'default' && !rootHasData.has(target.root)));
     const hidden = targets.length - shown.length;
-    const note = hidden > 0 ? `${shown.length === 0 ? 'nothing found; ' : ''}${hidden} default location${hidden === 1 ? '' : 's'} not present` : '';
+    const found = targets.filter((target) => target.exists).length;
+    const note =
+      hidden > 0
+        ? `${shown.length === 0 ? 'nothing found; ' : ''}${hidden} default location${hidden === 1 ? '' : 's'} not present`
+        : found > 0
+          ? `${found} found`
+          : 'nothing found';
     console.log(`  ${`${source}:`.padEnd(18)}${note}`);
     for (const target of shown) {
       console.log(`    ${target.exists ? 'found  ' : 'missing'}  ${target.path}${target.origin === 'default' ? '' : `  (${ORIGIN_LABEL[target.origin]})`}`);

@@ -358,6 +358,8 @@ describe('status agent folders', () => {
     const live = join(dir, 'live');
     await mkdir(join(live, 'projects'), { recursive: true });
     await writeConfig({ agentRoots: { 'claude-code': [live, join(dir, 'gone')] } });
+    // pi has a single default target; once it exists nothing is hidden, and the line says how many were found.
+    await mkdir(join(process.env['HOME']!, '.pi', 'agent', 'sessions'), { recursive: true });
     const none = { installed: null, missing: [] };
     const deps = {
       autoSync: async () => ({ claudeHook: none, cursorHook: none, codexNotify: none, schedule: none }),
@@ -373,6 +375,7 @@ describe('status agent folders', () => {
     expect(text).toMatch(new RegExp(`found\\s+${live.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')}[\\\\/]projects\\s+\\(remembered\\)`));
     expect(text).toMatch(/missing\s+.*gone.*projects\s+\(remembered\)/);
     expect(text).toMatch(/default location/);
+    expect(text).toMatch(/^ {2}pi:\s+1 found$/m);
 
     lines.length = 0;
     await runStatus(deps, { json: true });
