@@ -196,6 +196,41 @@ describe('fake-llm flags', () => {
     } finally { await s.stop(); }
   });
 
+  it('POST /__control changes --tool-turns while running', async () => {
+    const s = await start();
+    try {
+      const tools = [{ name: 'read_file', input_schema: READ_TOOL.schema }];
+      const ask = async () => (await post(`${s.base}/v1/messages`, { model: 'x', messages: [{ role: 'user', content: 'a' }], tools })).json();
+      expect((await ask()).stop_reason).toBe('end_turn');
+      const c = await (await post(`${s.base}/__control`, { toolTurns: 2 })).json();
+      expect(c).toEqual({ toolTurns: 2 });
+      expect((await ask()).stop_reason).toBe('tool_use');
+    } finally { await s.stop(); }
+  });
+
+  it('ends a loop with the completion tool when one is offered, filling minLength strings', async () => {
+    const s = await start();
+    try {
+      const done = { name: 'submit_and_exit', input_schema: { type: 'object', properties: { summary: { type: 'string', minLength: 10 }, verified: { type: 'boolean' } }, required: ['summary', 'verified'] } };
+      const j = await (await post(`${s.base}/v1/messages`, { model: 'x', messages: [{ role: 'user', content: 'a' }], tools: [done] })).json();
+      expect(j.stop_reason).toBe('tool_use');
+      expect(j.content[0]).toMatchObject({ name: 'submit_and_exit', input: { summary: 'xxxxxxxxxx', verified: false } });
+      const line = s.lines().at(-1);
+      expect(line.toolNames).toEqual(['submit_and_exit']);
+    } finally { await s.stop(); }
+  });
+
+  it('logs the reasoning tokens of OpenAI-style and Gemini responses', async () => {
+    const s = await start();
+    try {
+      await post(`${s.base}/v1/chat/completions`, { model: 'x', messages: [] });
+      await post(`${s.base}/v1/messages`, { model: 'x', messages: [] });
+      const [chat, anthropic] = s.lines();
+      expect(chat.reasoning).toBe(6);
+      expect(anthropic.reasoning).toBe(0);
+    } finally { await s.stop(); }
+  });
+
   it('--exit-on-stdin-close exits when stdin closes', async () => {
     const s = await start(['--exit-on-stdin-close']);
     const exited = new Promise((r) => s.child.on('exit', r));

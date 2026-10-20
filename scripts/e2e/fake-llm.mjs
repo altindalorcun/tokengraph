@@ -100,6 +100,14 @@ function pickTool(tools) {
   return t ? { name: t.name, args: buildArgs(t.schema, t.name) } : null;
 }
 
+const COMPLETION_TOOL = /^(submit_and_exit|attempt_completion)$/;
+
+/** The tool an agent uses to end its loop, when it offers one. */
+function pickCompletionTool(tools) {
+  const t = tools.find((x) => x.name && COMPLETION_TOOL.test(x.name));
+  return t ? { name: t.name, args: buildArgs(t.schema, t.name) } : null;
+}
+
 function buildValue(schema, key, toolName) {
   if (!schema || typeof schema !== 'object') return '.';
   if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
@@ -110,6 +118,7 @@ function buildValue(schema, key, toolName) {
   if (Array.isArray(type)) type = type.find((t) => t !== 'null') ?? type[0];
   switch (type) {
     case 'string': {
+      if (Number.isInteger(schema.minLength) && schema.minLength > 1) return 'x'.repeat(schema.minLength);
       if (/pattern|glob/i.test(key)) return '*';
       if (/file|path/i.test(key) && /read|view/i.test(toolName)) return 'README.md';
       return '.';
@@ -399,6 +408,13 @@ function listModels(req, pathname) {
 async function handle(req, res) {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const endpoint = `${req.method} ${url.pathname}`;
+  // Control endpoint for the driver: change --tool-turns while running, so one server (one port, one log)
+  // serves a plain scenario and a tool-loop scenario.
+  if (req.method === 'POST' && url.pathname === '/__control') {
+    const { body } = await readBody(req);
+    if (Number.isInteger(body.toolTurns) && body.toolTurns >= 0) opts.toolTurns = body.toolTurns;
+    return sendJson(res, 200, { toolTurns: opts.toolTurns });
+  }
   const r = route(req.method ?? 'GET', url.pathname);
 
   if (!r) {
@@ -429,16 +445,20 @@ async function handle(req, res) {
   const u = usageFor(n);
   const stream = r.protocol === 'gemini' ? r.stream : body.stream === true;
   const { turns, tools } = extract[r.protocol](body);
-  const tool = turns < opts.toolTurns ? pickTool(tools) : null;
+  // Agents whose loop only ends on an explicit completion tool (Cline retries a plain-text answer until its mistake limit)
+  // get that call once the read-only turns are used up.
+  const tool = (turns < opts.toolTurns ? pickTool(tools) : null) ?? pickCompletionTool(tools);
   const responseId = { anthropic: `msg_fake${n}`, chat: `chatcmpl-fake${n}`, responses: `resp_fake${n}`, gemini: `resp_fake${n}` }[r.protocol];
 
   const out = handlers[r.protocol]({ body, model, stream, n, u, tool, res });
   log({
     status: 200, protocol: r.protocol, endpoint, model, responseId, stream, bodyParsed: parsed,
     toolCall: tool ? tool.name : null,
+    toolNames: tools.map((t) => t.name).filter(Boolean),
     usage: out.usage,
     normalized: { input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: r.protocol === 'anthropic' ? u.cacheWrite : 0 },
     usageSent: out.sent,
+    reasoning: r.protocol === 'anthropic' ? 0 : u.reasoning,
   });
   res.end();
 }
