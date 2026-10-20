@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs, type ParseArgsConfig } from 'node:util';
+import { rememberRootsForCommand } from './agent-roots-store.js';
 import { cliVersion } from './bin-path.js';
 import { runCursorHook } from './commands/cursor-hook.js';
 import { parseExportArgs, runExport } from './commands/export.js';
@@ -444,6 +445,10 @@ async function main(argv: string[]): Promise<number> {
     console.log(command.help);
     return 0;
   }
+  // A run whose environment names an agent folder the default scan does not know (CLAUDE_CONFIG_DIR, CODEX_HOME,
+  // XDG_DATA_HOME, ...) records it, so the hourly schedule and the hooks, which lack that environment, still read it.
+  // `hook-sync` does its own remembering, under its own deadline.
+  rememberRootsForCommand(name);
   return command.run(parsed.values, parsed.positionals);
 }
 

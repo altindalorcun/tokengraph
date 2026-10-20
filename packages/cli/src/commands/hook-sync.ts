@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { rememberAgentRoots } from '../agent-roots-store.js';
 import { binPath } from '../bin-path.js';
 import { configHome, hookSyncLogPath, hookSyncStampPath } from '../paths.js';
 
@@ -17,6 +18,8 @@ export interface HookSyncDeps {
   /** Epoch ms of the last start recorded by `writeStamp`, or null when there is none. */
   readStamp: () => number | null;
   writeStamp: (ms: number) => void;
+  /** Records the agent folders this process's environment names (the hook runs with the agent's own environment). */
+  rememberRoots: () => void;
 }
 
 export interface HookSyncOptions {
@@ -53,6 +56,9 @@ const DEFAULT_DEPS: HookSyncDeps = {
       // Best effort: a missing stamp only means the next run is not throttled.
     }
   },
+  rememberRoots: () => {
+    rememberAgentRoots();
+  },
 };
 
 /** True when the previous start is recent enough that this run should be skipped. */
@@ -79,6 +85,13 @@ function isThrottled(deps: HookSyncDeps, minIntervalSeconds: number | undefined)
 export function runHookSync(partial: Partial<HookSyncDeps> = {}, options: HookSyncOptions = {}): number {
   const deps = { ...DEFAULT_DEPS, ...partial };
   if (isThrottled(deps, options.minIntervalSeconds)) return 0;
+  try {
+    // The agent that fired this hook may run with an override the hourly schedule never sees (Claude Code
+    // launched from VS Code with CLAUDE_CONFIG_DIR in its settings): remember it before anything else.
+    deps.rememberRoots();
+  } catch {
+    // Never disturb the agent session.
+  }
   let fd: number | undefined;
   try {
     fd = deps.openLog(hookSyncLogPath());
