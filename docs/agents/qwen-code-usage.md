@@ -159,7 +159,9 @@ the same ones and its tests pass unchanged. The semantics that differ are theref
 Qwen Code 0.19.0 and later (QwenLM/qwen-code commit 8d2fe0a, 18 June 2026) append one line per model request to
 `<runtime dir>/usage/token-usage-YYYY-MM.jsonl` (`packages/core/src/services/tokenUsageService.ts`). The runtime
 dir is the same one as for `projects/`, so the adapter lists `usage` in the same directories. It is written only
-while `privacy.usageStatisticsEnabled` is true (the default), and Qwen Code never prunes it. A record is appended
+while `privacy.usageStatisticsEnabled` is true (the default), and Qwen Code never prunes it. With it
+off, the ledger does not exist and the memory extractor's requests are in no local file (they are not in the chat
+records either), so tokengraph counts only the chat requests; the end-to-end run keeps it on for that reason. A record is appended
 once; `/branch` does not copy it.
 
 ```json
@@ -230,7 +232,7 @@ pre-JSONL Gemini-fork era (0.0.x) layout was not checked, and a newer "managed" 
 
 ## Checked against real runs
 
-Qwen Code 0.25.2 was run against a fake LLM endpoint (method as in the other agents' notes): two prompts on the
+Qwen Code 0.25.2, and again on 20 October 2026 with `scripts/e2e/run.mjs` on 0.25.3 (macOS, chat protocol only, usage statistics left on; counters matched exactly), was run against a fake LLM endpoint (method as in the other agents' notes): two prompts on the
 OpenAI protocol, one on the Anthropic protocol, and one prompt that made the model call the `glob` tool first.
 Chat records, `ui_telemetry` and the usage ledger were inspected. In the two-prompt run the endpoint served 4
 requests; the chat records held 2 of them. The memory extractor's requests are only in the ledger (and as `ui_telemetry`

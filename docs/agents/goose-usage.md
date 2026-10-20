@@ -155,7 +155,7 @@ checkable here; the negative-input guard is the mitigation.
 
 ## Checked against real runs
 
-Goose 1.55.0 (the `goose-aarch64-apple-darwin` release binary). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
+Goose 1.55.0 (the `goose-aarch64-apple-darwin` release binary), and again on 20 October 2026 with `scripts/e2e/run.mjs` (macOS; counters matched exactly on the chat, responses and anthropic protocols; see `scripts/e2e/README.md`). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
 
 - Providers: `openai` (which used the Responses API for `gpt-5.4`) and `anthropic`, both with a custom host,
   `goose run -t`, plus one prompt that made the model call the `shell` tool first. Every `usage_ledger` row matched

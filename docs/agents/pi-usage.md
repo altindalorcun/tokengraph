@@ -112,12 +112,19 @@ has no retention check for pi. Deleted sessions leave the ledger untouched, whic
 
 Session version 3 (v1 linear, v2 tree ids, v3 `hookMessage` renamed to `custom`); pi migrates old files when it
 loads them. `usage` entries, `cacheWrite1h` and `reasoning` are newer additions, so every `Usage` field beyond
-the four counters is treated as optional. The npm package was renamed to `@earendil-works/*` in 2026; the folder
-did not change.
+the four counters is treated as optional. `@mariozechner/pi-coding-agent` is deprecated ("please use
+`@earendil-works/pi-coding-agent` instead"); the successor (1.3.0 on npm, 20 October 2026) was compared with 0.73.1
+by reading both packages' published code. Unchanged: `piConfig` has no `name`, so `APP_NAME` is `pi` and the
+variables stay `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`; the agent folder is still `~/.pi/agent`
+and sessions `<agent folder>/sessions/--<cwd>--/`; the session version is still 3; the assistant `message`
+fields tokengraph reads (`api`, `provider`, `model`, `responseModel`, `responseId`, `usage`, `timestamp`) are the
+same. Added in the successor and harmless to the parser: `usage` entries are written by `appendUsage`, `Usage`
+has `cacheWrite1h` and `reasoning` as documented above, a `context_edit` entry (no usage) and some optional message
+fields. Not run: 1.3.0 was not driven against the fake endpoint, only read.
 
 ## Checked against real runs
 
-pi 0.73.1 (`@mariozechner/pi-coding-agent`). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
+pi 0.73.1 (`@mariozechner/pi-coding-agent`), by hand first and then again on 20 October 2026 with `scripts/e2e/run.mjs` (macOS; counters matched exactly on the chat, responses and anthropic protocols; see `scripts/e2e/README.md`). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
 
 - Runs: two `-p` prompts on an `openai-completions` provider and two on an `anthropic-messages` provider (one of
   them `--continue`), then one prompt per provider that made the model call the `bash` tool first. 8 requests in
@@ -132,10 +139,11 @@ pi 0.73.1 (`@mariozechner/pi-coding-agent`). Method: the real agent was installe
 Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/pi/roots.ts`.
 
 - Agent folders: `~/.pi/agent` and `$PI_CODING_AGENT_DIR`, each read through `sessions/`. `$PI_CODING_AGENT_SESSION_DIR` is a sessions folder of its own. Values are read the way pi's `normalizePath` does: `~` (and `~\` on Windows), `file://` URLs, Git Bash drive paths on Windows; a relative value is ignored (pi resolves it against its working directory).
-- Not followed: the `sessionDir` setting, the `--session-dir` flag, and forks that rename the variables (`<APP>_CODING_AGENT_DIR`).
+- Not followed: the `sessionDir` setting, the `--session-dir` flag, and forks that rename the variables (`<APP>_CODING_AGENT_DIR`). The renamed package `@earendil-works/pi-coding-agent` keeps `pi`, so one set of names covers both.
 
 ## Sources
 
+- `@earendil-works/pi-coding-agent` and `@earendil-works/pi-ai` 1.3.0 against `@mariozechner/pi-coding-agent` and `@mariozechner/pi-ai` 0.73.1, npm tarballs: `dist/config.js`, `dist/core/session-manager.js`, `dist/types.d.ts`.
 - pi-mono (MIT), commit [`482c138`](https://github.com/badlogic/pi-mono/tree/482c1381a00d8d00bc81697e4a980c593db6803e):
   `packages/coding-agent/src/core/session-manager.ts`, `src/config.ts`, `src/main.ts`, `src/core/nested-tool-calls.ts`,
   `docs/session-format.md`, `docs/sessions.md`, `docs/settings.md`; `packages/ai/src/types.ts`,

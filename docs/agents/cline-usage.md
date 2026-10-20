@@ -5,7 +5,8 @@ VS Code extension `saoudrizwan.claude-dev` and the Cline CLI). The adapter lives
 `packages/cli/src/adapters/cline/`; this document collects the format, the traps and the
 recommended normalisation that were checked against the source code before the adapter was
 written. All claims were read from Cline's source code (the commits below); Cline was not
-installed on the research machine, and nothing was verified against a real user file.
+installed on the research machine then. Since then Cline 3.0.73 has been run against a fake LLM server
+(see "Checked against real runs"); other versions and the editor extension's classic files were not run.
 
 Sources examined:
 
@@ -399,17 +400,18 @@ clamp (`max(0, prompt − cacheRead − cacheWrite)`) before writing `tokensIn`,
 upstream's fresh input is already lost in the file and nothing can recover it. Why the Cline
 backend forwards exclusive counts for MiniMax is unknown (the backend is not public).
 
-**Reasoning warning (an unreleased change):** on `main` (after v4.1.21 / SDK 0.0.86, not tagged
-yet), `normalizeUsage` now **subtracts** reasoning tokens from `outputTokens` and puts them in a
+**Reasoning warning (shipped; confirmed on Cline 3.0.73):** on `main` (after v4.1.21 / SDK 0.0.86), `normalizeUsage` now **subtracts** reasoning tokens from `outputTokens` and puts them in a
 separate `reasoningTokenCount`
 ([`ai-sdk.ts#L1340`](https://github.com/cline/cline/blob/252082b9e93b4f91253876391e35b4c13326f5e6/sdk/packages/llms/src/providers/ai-sdk.ts#L1340)),
 but when writing to disk `agentMetricsToMetrics` **drops** `reasoningTokenCount`
 ([`agent-message-codec.ts#L321`](https://github.com/cline/cline/blob/252082b9e93b4f91253876391e35b4c13326f5e6/sdk/packages/core/src/runtime/config/agent-message-codec.ts#L321)).
-The result: if this code ships, the persisted `outputTokens` will not include reasoning for
-providers that report reasoning separately (OpenAI/Gemini/xAI and similar), and it cannot be
-recovered (an undercount). The tags v4.1.0 ... v4.1.21 do not have this subtraction; there
-`outputTokens` includes reasoning. Claude models are not affected (Anthropic does not report
-reasoning separately). This behaviour should be checked again when the adapter is written.
+The result: the persisted `outputTokens` does not include reasoning for providers that report reasoning
+separately (OpenAI/Gemini/xAI and similar), and it cannot be recovered (an undercount). The code has shipped:
+Cline CLI 3.0.73 (checked 20 October 2026 with `scripts/e2e/run.mjs`) wrote `outputTokens` 47 for a chat
+completion with `completion_tokens` 53, of which 6 were reasoning; only the 47 is on disk and `reasoningTokenCount`
+is not written. tokengraph therefore counts the 47. The tags v4.1.0 ... v4.1.21 do not have this subtraction;
+there `outputTokens` includes reasoning. Claude models are not affected (Anthropic does not report reasoning
+separately).
 
 ### B: what must be skipped or handled specially
 
@@ -497,9 +499,9 @@ directly to Roo/Kilo; separate research is needed (not gone into).
 
 ## Not verified
 
-- Cline is not on the research machine; no real `ui_messages.json` / `messages.json` was opened.
-  The example JSON was built from the source code and the official fixture, and the numbers are
-  examples.
+- The example JSON was built from the source code and the official fixture, and the numbers are
+  examples. Only Cline CLI 3.0.73 (SDK `*.messages.json`) has been run; no classic `ui_messages.json`
+  from the editor extension was produced by a real run.
 - The host directory names (`Cursor`, `VSCodium`, `Windsurf`, `~/.cursor-server`, portable mode,
   `--user-data-dir`) are VS Code conventions, do not appear in the Cline source, and were not
   verified one by one.
@@ -519,10 +521,18 @@ directly to Roo/Kilo; separate research is needed (not gone into).
   only `openai`, `anthropic`, `openrouter`, `openai-native`, `gemini`, `bedrock`, `ollama`,
   `deepseek` and `litellm` were sampled; older versions of the other providers were not checked.
 - In tasks before 3.12 there is no per-request model or provider (model `unknown`).
-- The subtraction of reasoning from `outputTokens` exists only on `main`; whether it will be
-  released, and whether `reasoningTokenCount` will be added to the persisted format, is unknown.
+- Whether a later Cline release will persist `reasoningTokenCount` is unknown; 3.0.73 does not.
+- Resuming a Cline session was not run: `--id` together with `--json` fails headlessly in 3.0.73.
 - Whether the old Cline CLI (Go-based 1.x/2.x) and the JetBrains plugin set `CLINE_DIR` to a
   different place was not checked.
+
+## Checked against real runs
+
+Cline CLI 3.0.73 (`cline` on npm), 20 October 2026, macOS, with `scripts/e2e/run.mjs` (see `scripts/e2e/README.md`):
+the real agent in a throwaway `HOME` against a fake LLM server on the chat, responses and anthropic protocols; a
+one-shot prompt and a tool loop per protocol. After `sync --local`, input, output, cache read and cache write matched
+the server's log per model, except the reasoning tokens described above (rule `cline-reasoning-subtracted`).
+Not run: other Cline versions, the editor extension, and any real provider.
 
 ## Roots tokengraph scans
 

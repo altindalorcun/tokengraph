@@ -6,7 +6,8 @@ adapter lives in `packages/cli/src/adapters/gemini-cli/`; this note is the resea
 Gemini CLI was not installed on the machine where the research was done. Everything below was
 worked out from the source code (main, commit [`2fe7c2d`](https://github.com/google-gemini/gemini-cli/tree/2fe7c2d3f065dc40ad573d50b2091116f8a4aa18), 25 September 2026; latest
 stable release v0.61.0), the official documentation and two third-party parsers (ccusage,
-tokscale); it was not verified against a real local file.
+tokscale). Gemini CLI 0.64.0 has since been run against a fake Gemini API server and its counters
+matched (see `## Not verified` for what that run did not cover).
 
 In short: the `usageMetadata` of every Gemini API response is written as `tokens` on the
 `type: "gemini"` message in the session record. Recording is **always on** by default (there is no
@@ -353,9 +354,10 @@ Neither tool applies `$rewindTo` (they count rewound requests), the same as our 
 
 ## Not verified
 
-- Gemini CLI was not on the research machine and no real session file was seen. The schema and
-  behaviour come entirely from the source code; the example token figures come from ccusage's
-  fixture.
+- Checked on 20 October 2026 with `scripts/e2e/run.mjs` (macOS): Gemini CLI 0.64.0 against a fake Gemini API
+  server (`generateContent` / `streamGenerateContent`), a one-shot prompt, a resumed session (`--resume latest`)
+  and a tool loop; input, output, cache read and the other counters matched the server's log. Other versions, the
+  Code Assist (OAuth) path and Vertex AI were not run. The example token figures come from ccusage's fixture.
 - No real record was seen in which `tool` (`toolUsePromptTokenCount`) is non-zero. Because the
   main chat does not use Gemini's built-in tools (Google Search grounding and so on), it is
   expected to be 0 in practice; adding it to input rests on the SDK documentation.

@@ -161,7 +161,7 @@ Every root below is read together with the default one and the ones remembered i
 
 ## Checked against real runs
 
-Kilo CLI 7.8.12 (`@kilocode/cli`). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
+Kilo CLI 7.8.12 (`@kilocode/cli`), and again on 20 October 2026 with `scripts/e2e/run.mjs` on 7.8.15 (macOS; counters matched exactly on the chat, responses and anthropic protocols; see `scripts/e2e/README.md`). Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
 
 - Providers: `@ai-sdk/openai-compatible` and `@ai-sdk/anthropic` with a custom `baseURL` in
   `~/.config/kilo/kilo.json`. Runs: `kilo run` on each, `kilo run -c` (continue), and one prompt per provider

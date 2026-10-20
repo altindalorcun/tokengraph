@@ -219,8 +219,8 @@ tier.
 
 ## Not verified
 
-- Only one Codex version was observed locally (0.155.1); consistency across versions was not
-  tested.
+- Codex versions 0.155.1 (local files) and 0.163.0 (a run against a fake Responses API server, 20 October
+  2026, with `scripts/e2e/run.mjs`; counters matched exactly) were observed; other versions were not.
 - `cache_write_input_tokens` was always 0 in local samples; the rule itself (1.25× for GPT-5.6+)
   was taken correctly from the documentation but was not verified with a real non-zero value.
 - The `service_tier` value Codex writes while fast mode is on was never seen. `fast` and

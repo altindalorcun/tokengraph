@@ -180,7 +180,7 @@ release the third-party parsers cite for `assistant_usage_events`; the latest ch
 
 ## Checked against a real store
 
-Copilot CLI 1.0.98 (`@github/copilot`), in BYOK offline mode (`COPILOT_OFFLINE=true`,
+Copilot CLI 1.0.98 (`@github/copilot`), and again on 20 October 2026 with `scripts/e2e/run.mjs` on 1.0.100 (macOS; counters matched exactly on the chat, responses and anthropic protocols; see `scripts/e2e/README.md`), in BYOK offline mode (`COPILOT_OFFLINE=true`,
 `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_TYPE` `openai` and `anthropic`), so no GitHub account was used.
 Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
 
