@@ -336,7 +336,7 @@ The official contract: [`messages-contract-v1.md`](https://github.com/cline/clin
 - `id`: `createUID("msg")`, persistent; `nanoid()` is generated at write time only if it is
   missing.
 
-### B: `inputTokens` INCLUDES cache, for all providers
+### B: `inputTokens` usually includes cache, but not for every model
 
 The SDK calls providers through the AI SDK, and `normalizeUsage` takes `inputTokens` from the AI
 SDK's `inputTokens.total` (or from `prompt_tokens`/`promptTokenCount`): **the full request size,
@@ -353,14 +353,51 @@ the following formula:
 
 | SDK `metrics` field | tokengraph field |
 | --- | --- |
-| `max(0, inputTokens − cacheReadTokens − cacheWriteTokens)` | `inputTokens` |
+| `inputTokens − cacheReadTokens − cacheWriteTokens` (inclusive row), or `inputTokens` as is (exclusive row, see below) | `inputTokens` |
 | `outputTokens` | `outputTokens` (reasoning note below) |
 | `cacheWriteTokens` | `cacheCreationTokens` |
 | `cacheReadTokens` | `cacheReadTokens` |
 | no TTL split | `cacheCreation5mTokens` / `cacheCreation1hTokens` = `null` |
 
-The `max(0, …)` clamp is the same as Cline's own; it prevents the old ApiHandler-based paths from
-going negative.
+Cline's own code clamps with `max(0, …)`; tokengraph does not clamp (see below).
+
+#### B: exclusive rows behind the Cline gateway
+
+The "includes cache" statement holds for the library code, but the SDK forwards whatever
+`prompt_tokens` the upstream or gateway sends: `@ai-sdk/openai-compatible` and the OpenRouter
+provider pass it through unchecked, and the `cline` / `cline-pass` providers are built on that
+path. Real data shows a gateway model that sends it **exclusive of cache**: provider `cline`,
+model `minimax/minimax-m2.5`
+([real sample: MasterVKT/HIVMeet_FrontEnd, `~/.cline/data/sessions`, March 2026](https://github.com/MasterVKT/HIVMeet_FrontEnd)).
+Rows such as `inputTokens 45865 / cacheReadTokens 88671` (cache larger than the whole input) are
+impossible for an inclusive count, and the recorded `cost` of all four sampled rows is reproduced
+exactly by `input × 0.30e-6 + cacheRead × 0.03e-6 + output × 1.20e-6` with `input` as the fresh
+input (the per-million prices are a curve fit, not a cited price list). The same provider id is
+inclusive for `deepseek/deepseek-v4-flash` (cost fit with `fresh = input − cacheRead`), so the
+provider alone cannot decide.
+
+The rule the adapter applies:
+
+1. Row rule: if `cacheRead + cacheWrite > inputTokens` (strictly; equality is a legitimate
+   inclusive row with 0 fresh), the row is exclusive and the fresh input is the reported
+   `inputTokens`. Also applied to classic rows of providers outside `CACHE_EXCLUSIVE_PROVIDERS`.
+2. Model rule: a (provider, model id) pair, as recorded, with one such row anywhere in the current
+   collection is exclusive for all its SDK rows in that collection (a first pass over the session
+   files collects the pairs; files are read one at a time, so memory stays bounded). Not applied
+   to classic rows.
+3. Seed: provider `cline` or `cline-pass` with a model id starting `minimax/` is exclusive even
+   before a violating row is seen (a row such as `8281 / cacheRead 6711` does not violate but is
+   exclusive by cost). Not seeded: `cline-free/`, `cline-pass/` model prefixes and `:free` models
+   (no evidence).
+
+Diagnostics: `exclusiveDetected` counts rows read as exclusive by any of the three rules, shown as
+a note; `clamped` should no longer fire on the SDK path.
+
+Still unconfirmed: a gateway model that is exclusive but never violates (and is not seeded) is
+still undercounted. The classic handlers for `cline`, `openrouter` and `vercel-ai-gateway` already
+clamp (`max(0, prompt − cacheRead − cacheWrite)`) before writing `tokensIn`, so an exclusive
+upstream's fresh input is already lost in the file and nothing can recover it. Why the Cline
+backend forwards exclusive counts for MiniMax is unknown (the backend is not public).
 
 **Reasoning warning (an unreleased change):** on `main` (after v4.1.21 / SDK 0.0.86, not tagged
 yet), `normalizeUsage` now **subtracts** reasoning tokens from `outputTokens` and puts them in a
@@ -468,9 +505,10 @@ directly to Roo/Kilo; separate research is needed (not gone into).
   verified one by one.
 - That `inputTokens` excludes cache reads/writes on Bedrock Converse rests on the AWS
   documentation; it was not verified in the Cline code or in a real response.
-- That on the SDK side `inputTokens.total` includes cache for **every** AI SDK provider rests on
-  Cline's comments and two tests (OpenRouter, Gemini); that the AI SDK's Anthropic/Bedrock
-  providers compute `total` to include the cache write was not checked in the library code.
+- The AI SDK's Anthropic/Bedrock/Google providers compute `inputTokens.total` inclusive (checked in
+  the library code). The OpenAI-compatible and OpenRouter providers pass the upstream
+  `prompt_tokens` through unchecked, so inclusive-ness there depends on the upstream; see
+  "exclusive rows behind the Cline gateway".
 - That `ai-sdk-provider-claude-code` / the Claude Agent SDK writes the session to
   `~/.claude/projects` (and so there is a double-counting risk) is an assumption; not verified.
   The safe side: skip.

@@ -5,7 +5,7 @@ import { CLINE_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core
 import { RequestBuckets } from '../request-buckets.js';
 import { addClassicTask, type ClassicTask } from './classic.js';
 import { emptyClineDiagnostics, type ClineDiagnostics } from './normalize.js';
-import { addSdkMessages } from './sdk.js';
+import { addSdkMessages, learnExclusiveModels } from './sdk.js';
 
 const CLINE_EXTENSION_ID = 'saoudrizwan.claude-dev';
 /** VS Code-family hosts Cline's extension ships in, in the order the task brief lists them. */
@@ -122,6 +122,26 @@ async function sessionMessageFiles(sessionDir: string): Promise<string[]> {
     .map((entry) => join(sessionDir, entry.name));
 }
 
+/** Parsed `.messages.json` files of one session that are new enough, one at a time (never all held at once). */
+async function* sdkSessionDocuments(sessionDir: string, since: Date, diagnostics: ClineDiagnostics): AsyncGenerator<unknown> {
+  for (const path of await sessionMessageFiles(sessionDir)) {
+    const info = await stat(path).catch(() => null);
+    if (!info || info.mtime < since) continue;
+    try {
+      yield JSON.parse(await readFile(path, 'utf8'));
+    } catch {
+      diagnostics.unreadableFiles += 1;
+    }
+  }
+}
+
+/** First pass over one session: learn which models report cache-exclusive input. Unreadable files are counted in the second pass only. */
+async function learnSdkSession(sessionDir: string, since: Date, learned: Set<string>): Promise<void> {
+  for await (const document of sdkSessionDocuments(sessionDir, since, emptyClineDiagnostics())) {
+    learnExclusiveModels(document, learned);
+  }
+}
+
 async function readSdkSession(
   sessionDir: string,
   sessionId: string,
@@ -129,19 +149,11 @@ async function readSdkSession(
   buckets: RequestBuckets,
   diagnostics: ClineDiagnostics,
   options: { since?: Date; timeZone?: string },
+  learned: ReadonlySet<string>,
 ): Promise<void> {
   const manifest = await readJsonFileOrNull(join(sessionDir, `${sessionId}.json`));
-  for (const path of await sessionMessageFiles(sessionDir)) {
-    const info = await stat(path).catch(() => null);
-    if (!info || info.mtime < since) continue;
-    let document: unknown;
-    try {
-      document = JSON.parse(await readFile(path, 'utf8'));
-    } catch {
-      diagnostics.unreadableFiles += 1;
-      continue;
-    }
-    addSdkMessages({ document, manifest }, buckets, diagnostics, options);
+  for await (const document of sdkSessionDocuments(sessionDir, since, diagnostics)) {
+    addSdkMessages({ document, manifest }, buckets, diagnostics, options, learned);
   }
 }
 
@@ -153,6 +165,9 @@ function describeDiagnostics(d: ClineDiagnostics): string[] {
   if (d.skippedEstimated > 0) notes.push(`skipped ${d.skippedEstimated} Bedrock request(s) whose counts Cline estimates`);
   if (d.skippedImported > 0) notes.push(`skipped ${d.skippedImported} message(s) imported from another tool`);
   if (d.skippedLegacyCopies > 0) notes.push(`skipped ${d.skippedLegacyCopies} message(s) copied from an older Cline task`);
+  if (d.exclusiveDetected > 0) {
+    notes.push(`${d.exclusiveDetected} request(s) report input excluding cache; counted as fresh input`);
+  }
   if (d.clamped > 0) notes.push(`${d.clamped} request(s) reported more cached than total input; counted as 0 fresh input`);
   if (d.unreadableFiles > 0) notes.push(`${d.unreadableFiles} Cline file(s) could not be read`);
   if (d.malformedEntries > 0) notes.push(`skipped ${d.malformedEntries} malformed Cline usage record(s)`);
@@ -189,8 +204,12 @@ export function createClineAdapter(options: { timeZone?: string } = {}): Adapter
       }
 
       const sessionsDir = clineSessionsDir();
-      for (const sessionId of await subdirectoryNames(sessionsDir)) {
-        await readSdkSession(join(sessionsDir, sessionId), sessionId, since, buckets, diagnostics, taskOptions);
+      const sessionIds = await subdirectoryNames(sessionsDir);
+      // Pass 1: a model that reports cache-exclusive input on any row is exclusive on all its rows.
+      const learned = new Set<string>();
+      for (const sessionId of sessionIds) await learnSdkSession(join(sessionsDir, sessionId), since, learned);
+      for (const sessionId of sessionIds) {
+        await readSdkSession(join(sessionsDir, sessionId), sessionId, since, buckets, diagnostics, taskOptions, learned);
       }
 
       const notes = describeDiagnostics(diagnostics);

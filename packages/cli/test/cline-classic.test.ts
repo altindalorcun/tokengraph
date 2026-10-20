@@ -81,7 +81,7 @@ describe('addClassicTask', () => {
     expect(buckets.toUsage()[0].counts.inputTokens).toBe(500);
   });
 
-  it('an unknown provider: cache-inclusive rule clamps negative fresh input to 0 and flags it', () => {
+  it('an unknown provider: cache larger than input means the row is exclusive, so tokensIn is the fresh input', () => {
     const buckets = new RequestBuckets();
     const diagnostics = emptyClineDiagnostics();
     addClassicTask(
@@ -95,8 +95,9 @@ describe('addClassicTask', () => {
       diagnostics,
       UTC,
     );
-    expect(buckets.toUsage()[0].counts.inputTokens).toBe(0);
-    expect(diagnostics.clamped).toBe(1);
+    expect(buckets.toUsage()[0].counts.inputTokens).toBe(100);
+    expect(diagnostics.exclusiveDetected).toBe(1);
+    expect(diagnostics.clamped).toBe(0);
   });
 
   it('no modelInfo: model comes from task_metadata.model_usage, taking the entry at or before the request', () => {
