@@ -11,7 +11,7 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ['packages/*/test/**/*.test.{ts,tsx}'],
+    include: ['packages/*/test/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
     setupFiles: ['packages/cli/test/setup-home.ts'],
   },
 });
