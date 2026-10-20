@@ -102,17 +102,21 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 
 | エージェント | 読み取り元 | 備考 |
 | --- | --- | --- |
-| Claude Code | `~/.claude/projects/**/*.jsonl`（または `$CLAUDE_CONFIG_DIR`） | Claude Code は古いトランスクリプトを削除するので、少なくとも数週間に 1 回は同期してください。`tokengraph install-hook --agent claude-code` を使うと、セッション終了時に同期します。 |
-| Codex CLI | `~/.codex/sessions` と `archived_sessions`（または `$CODEX_HOME`） | `tokengraph install-hook --agent codex` は、ターンの終了後に同期します（最大 10 分に 1 回）。自分のものではない `notify` 設定は上書きしません。 |
+| Claude Code | `~/.claude/projects/**/*.jsonl` と `transcripts`（`$CLAUDE_CONFIG_DIR` も）、および Claude デスクトップアプリの Code と Cowork のセッション（`~/Library/Application Support/Claude`、`%APPDATA%\Claude`、`~/.config/Claude`） | Claude Code は古いトランスクリプトを削除するので、少なくとも数週間に 1 回は同期してください。`tokengraph install-hook --agent claude-code` を使うと、セッション終了時に同期します。 |
+| Codex CLI | `~/.codex/sessions` と `archived_sessions`（`$CODEX_HOME` も） | `tokengraph install-hook --agent codex` は、ターンの終了後に同期します（最大 10 分に 1 回）。自分のものではない `notify` 設定は上書きしません。 |
 | Cursor | `~/.tokengraph/cursor-events.jsonl`（Cursor の `stop` フックが書き込む） | Cursor はディスク上に使えるトークン数を残さないので、`tokengraph install-hook --agent cursor` を一度実行して Cursor を再起動してください。使用量はその時点から数えます。それ以前の履歴は `tokengraph import cursor <csv>` で取り込めます。 |
-| Gemini CLI | `~/.gemini/tmp/*/chats`（または `$GEMINI_CLI_HOME`） | Gemini CLI は既定で 30 日後にセッションを削除するので、少なくとも月に 1 回は同期してください。一部の補助的な呼び出しは記録されないため、合計は下限値です。 |
-| Cline | VS Code 系エディターの `saoudrizwan.claude-dev/tasks` と `~/.cline/data` | Cline が Claude Code プロバイダー経由で送るリクエストは、Claude Code アダプターがすでに数えているのでスキップします。 |
-| OpenCode | `~/.local/share/opencode/opencode*.db` と、古い `storage/` フォルダー | データベースの読み取りには Node 22.13 以降が必要です。OpenCode 1.3.16 より前の、確実に読み取れないレコードはスキップして報告します。 |
-| Kilo CLI | `~/.local/share/kilo/kilo*.db`（または `$KILO_DB`） | VS Code の Kilo Code 7.x も同じデータベースに書き込むので、ここで一緒に数えます。データベースの読み取りには Node 22.13 以降が必要です。Kilo 7.2.6 より前の、確実に読み取れないレコードはスキップして報告します。 |
-| Copilot CLI | `~/.copilot/session-store.db`（または `$COPILOT_HOME`） | Copilot CLI 1.0.70 以降と Node 22.13 以降が必要です。読み取るのは CLI 自身のデータベースだけで、VS Code の Copilot Chat 拡張機能は対象外です。データベースの中身は実データでまだ確認していないため、レイアウトを認識できないデータベースはスキップして報告します。 |
-| pi | `~/.pi/agent/sessions`（または `$PI_CODING_AGENT_DIR`。`$PI_CODING_AGENT_SESSION_DIR` が設定されていればそちらも） | フォークされたセッションは以前のリクエストを共有しますが、1 回だけ数えます。コンパクションとブランチ要約の呼び出しにはモデル名がないため、スキップして報告します。実際の pi のファイルではまだ確認していません。 |
-| Qwen Code | `~/.qwen/projects`（`$QWEN_HOME`、`$QWEN_RUNTIME_DIR`）のチャットとバックグラウンドのサブエージェント | `/branch` でフォークしたチャットは以前のリクエストをコピーしますが、1 回だけ数えます。Qwen Code はキャッシュ書き込みを別に記録しないので、通常の入力として数えます。バックグラウンドのサブエージェントのトランスクリプトは既定で 30 日後に削除されるので、少なくとも月に 1 回は同期してください。実際の Qwen Code のファイルではまだ確認していません。 |
-| Goose | `~/.local/share/goose/sessions/sessions.db`（`$XDG_DATA_HOME`、または `$GOOSE_PATH_ROOT/data`。Windows では `%APPDATA%\Block\goose\data`） | リクエストごとの使用量台帳を読むため、台帳を持つバージョンの Goose と Node 22.13 以降が必要です。台帳ができる前の使用量は日付もモデルも分からないので、スキップして報告します。Goose 経由で Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI、pi を動かしたセッションは対象外です。それらのエージェント自身のログがすでに数えているためです（Cursor については、フックが Goose の実行でも動く場合に限り。これは未確認です）。実際の Goose のファイルではまだ確認していません。 |
+| Gemini CLI | `~/.gemini/tmp/*/chats` と、macOS のサンドボックスが使う `~/.cache/.gemini/tmp`（どちらも `$GEMINI_CLI_HOME` 配下も） | Gemini CLI は既定で 30 日後にセッションを削除するので、少なくとも月に 1 回は同期してください。一部の補助的な呼び出しは記録されないため、合計は下限値です。 |
+| Cline | VS Code 系エディター（VS Code、Cursor、VSCodium、Windsurf、Positron、Trae、Kiro、Antigravity など。Linux は `$XDG_CONFIG_HOME`、Windows は `%APPDATA%`、リモートは `~/.vscode-server` など）の `saoudrizwan.claude-dev/tasks` と、`~/.cline/data`（`$CLINE_DIR`、`$CLINE_DATA_DIR`、`$CLINE_SESSION_DATA_DIR` も） | Cline が Claude Code プロバイダー経由で送るリクエストは、Claude Code アダプターがすでに数えているのでスキップします。 |
+| OpenCode | `~/.local/share/opencode/opencode*.db` と、古い `storage/` フォルダー（`$XDG_DATA_HOME` 配下も。`$OPENCODE_DB` でデータベースを 1 つ追加） | データベースの読み取りには Node 22.13 以降が必要です。OpenCode 1.3.16 より前の、確実に読み取れないレコードはスキップして報告します。 |
+| Kilo CLI | `~/.local/share/kilo/kilo*.db`（`$XDG_DATA_HOME` 配下も。`$KILO_DB` でデータベースを 1 つ追加） | VS Code の Kilo Code 7.x も同じデータベースに書き込むので、ここで一緒に数えます。データベースの読み取りには Node 22.13 以降が必要です。Kilo 7.2.6 より前の、確実に読み取れないレコードはスキップして報告します。 |
+| Copilot CLI | `~/.copilot/session-store.db`（`$COPILOT_HOME` も） | Copilot CLI 1.0.70 以降と Node 22.13 以降が必要です。読み取るのは CLI 自身のデータベースだけで、VS Code の Copilot Chat 拡張機能は対象外です。レイアウトを認識できないデータベースはスキップして報告します。 |
+| pi | `~/.pi/agent/sessions`（`$PI_CODING_AGENT_DIR` も。`$PI_CODING_AGENT_SESSION_DIR` が設定されていればそちらも） | `@mariozechner/pi-coding-agent` と、その後継の `@earendil-works/pi-coding-agent` は同じ形式で書き込みます。フォークされたセッションは以前のリクエストを共有しますが、1 回だけ数えます。コンパクションとブランチ要約の呼び出しにはモデル名がないため、スキップして報告します。 |
+| Qwen Code | `~/.qwen/projects`（`$QWEN_HOME`、`$QWEN_RUNTIME_DIR`）のチャットとバックグラウンドのサブエージェント | `/branch` でフォークしたチャットは以前のリクエストをコピーしますが、1 回だけ数えます。Qwen Code はキャッシュ書き込みを別に記録しないので、通常の入力として数えます。バックグラウンドのサブエージェントのトランスクリプトは既定で 30 日後に削除されるので、少なくとも月に 1 回は同期してください。使用量台帳は、メモリ抽出器のリクエストが残る唯一のローカル記録ですが、`privacy.usageStatisticsEnabled` が true の間（既定）しか書き込まれません。オフにすると、それらのリクエストはどのローカルファイルにも残らず、チャットのリクエストだけを数えます。 |
+| Goose | `~/.local/share/goose/sessions/sessions.db`（`$XDG_DATA_HOME`、または `$GOOSE_PATH_ROOT/data` 配下も。Windows では `%APPDATA%\Block\goose\data`。見つかったデータベースはすべて読み取ります） | リクエストごとの使用量台帳を読むため、台帳を持つバージョンの Goose と Node 22.13 以降が必要です。台帳ができる前の使用量は日付もモデルも分からないので、スキップして報告します。Goose 経由で Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI、pi を動かしたセッションは対象外です。それらのエージェント自身のログがすでに数えているためです（Cursor については、フックが Goose の実行でも動く場合に限り。これは未確認です）。 |
+
+各エージェントの集計は、Claude Code 2.1.304, Codex CLI 0.163.0, Gemini CLI 0.64.0, Cline 3.0.73, OpenCode 1.19.3, Kilo 7.8.15, Copilot CLI 1.0.100, pi 0.73.1, Qwen Code 0.25.3、Goose 1.55.0 の実機での実行に対して、対応するすべてのプロトコルで [`scripts/e2e`](https://github.com/altindalorcun/tokengraph/blob/main/scripts/e2e/README.md) により検証しています。Cursor はオフラインでは動かせません。CSV 取り込みは実際のエクスポートで確認し、フックの形式は Cursor のドキュメントに基づいています。Cline は、一部のプロバイダーが出力に含めて報告する推論（reasoning）トークンを除いて出力トークンを保存するため、その分は数えられません。
+
+各エージェントは、既定のフォルダーに加えて、環境変数で指定されたフォルダーからも読み取ります。tokengraph は、その変数を設定してコマンドを実行した最初のときにそのフォルダーを（`config.json` に）記憶するので、シェルの環境を受け取らない 1 時間ごとの同期やフックでも読み取れます。`tokengraph status` は、スキャンするフォルダーと、それが存在するかどうかを表示します。
 
 Gemini CLI、Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code、Goose にフックは不要です。`tokengraph schedule` が 1 時間ごとに同期します。Aider は、ローカルの履歴がトークン数を丸めているため、対応していません。
 
@@ -128,7 +132,7 @@ Gemini CLI、Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code、Goose 
 | `tokengraph sync` | すべてのエージェントのログを台帳に読み込み、ログイン済みなら公開します。`--since <days>` でさかのぼる日数を指定し（既定は 90）、`--local` はネットワークを一切使いません。 |
 | `tokengraph readme` | README のスニペットを表示してコピーします。`--compact`、`--colors model\|single`。 |
 | `tokengraph story` | ストーリーカードを描き、PNG を保存して（`--out <dir>` を指定しなければダウンロードフォルダーへ）、スマートフォンへの送信を提案します。`--template skyline\|receipt\|sticker\|all`、`--range today\|7d\|30d\|1y`、`--no-cost`、`--qr` / `--no-qr`、`--no-preview`、`--handle <name>`。 |
-| `tokengraph status [--json]` | GitHub アカウント、台帳、あなたのマシン、インストール済みで正常に動いているバックグラウンド同期、Claude Code・Gemini CLI・Qwen Code がログを保持する期間を表示します。保持期間が短く履歴が失われるおそれがあるときは警告します。`--json` は、スクリプトや AI エージェント向けに 1 つの JSON オブジェクトとして出力します。 |
+| `tokengraph status [--json]` | GitHub アカウント、台帳、あなたのマシン、インストール済みで正常に動いているバックグラウンド同期、各エージェントの読み取り元フォルダー（と、その存在の有無）、Claude Code・Gemini CLI・Qwen Code がログを保持する期間を表示します。保持期間が短く履歴が失われるおそれがあるときは警告します。`--json` は、スクリプトや AI エージェント向けに 1 つの JSON オブジェクトとして出力します。 |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | そのエージェントが終了したときに、バックグラウンド同期を開始するようにします。`--remove` でアンインストール、`--dry-run` で変更内容を確認できます。 |
 | `tokengraph schedule` | 1 時間ごとのバックグラウンド同期を設定します：macOS は launchd、Linux は cron、Windows はタスク スケジューラ。`schedule --remove` で無効にします。 |
 | `tokengraph export` | 日ごとの使用量を、日付・エージェント・モデル・料金ティアごとに 1 行の CSV または JSON で書き出します。重み付きトークン数と推定コストを含みます。`--format csv\|json`、`--out <file>`、`--since <date>`、`--all-machines`。台帳だけを読みます。 |

@@ -102,17 +102,21 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 
 | Agent | 读取位置 | 说明 |
 | --- | --- | --- |
-| Claude Code | `~/.claude/projects/**/*.jsonl`（或 `$CLAUDE_CONFIG_DIR`） | Claude Code 会删除旧的对话记录，所以至少每隔几周同步一次。`tokengraph install-hook --agent claude-code` 会在会话结束时同步。 |
-| Codex CLI | `~/.codex/sessions` 和 `archived_sessions`（或 `$CODEX_HOME`） | `tokengraph install-hook --agent codex` 会在一轮对话结束后同步，最多每 10 分钟一次。它不会覆盖不属于自己的 `notify` 设置。 |
+| Claude Code | `~/.claude/projects/**/*.jsonl` 和 `transcripts`（也包括 `$CLAUDE_CONFIG_DIR`），以及 Claude 桌面应用的 Code 和 Cowork 会话（`~/Library/Application Support/Claude`、`%APPDATA%\Claude`、`~/.config/Claude`） | Claude Code 会删除旧的对话记录，所以至少每隔几周同步一次。`tokengraph install-hook --agent claude-code` 会在会话结束时同步。 |
+| Codex CLI | `~/.codex/sessions` 和 `archived_sessions`（也包括 `$CODEX_HOME`） | `tokengraph install-hook --agent codex` 会在一轮对话结束后同步，最多每 10 分钟一次。它不会覆盖不属于自己的 `notify` 设置。 |
 | Cursor | `~/.tokengraph/cursor-events.jsonl`，由 Cursor 的 `stop` hook 写入 | Cursor 没有在磁盘上保存可用的 token 数，所以请运行一次 `tokengraph install-hook --agent cursor` 并重启 Cursor。用量从那一刻起开始计算，也可以用 `tokengraph import cursor <csv>` 导入你的历史记录。 |
-| Gemini CLI | `~/.gemini/tmp/*/chats`（或 `$GEMINI_CLI_HOME`） | Gemini CLI 默认在 30 天后删除会话，所以至少每月同步一次。它不会记录某些附带调用，所以总数是下限。 |
-| Cline | VS Code 系编辑器中的 `saoudrizwan.claude-dev/tasks`，以及 `~/.cline/data` | Cline 通过 Claude Code provider 发出的请求会被跳过，因为 Claude Code 适配器已经计过它们。 |
-| OpenCode | `~/.local/share/opencode/opencode*.db` 和较旧的 `storage/` 文件夹 | 读取数据库需要 Node 22.13 或更新版本。OpenCode 1.3.16 之前、无法确定读取结果的记录会被跳过并报告。 |
-| Kilo CLI | `~/.local/share/kilo/kilo*.db`（或 `$KILO_DB`） | VS Code 中的 Kilo Code 7.x 写入同一个数据库，所以这里也会计入。读取数据库需要 Node 22.13 或更新版本。Kilo 7.2.6 之前、无法确定读取结果的记录会被跳过并报告。 |
-| Copilot CLI | `~/.copilot/session-store.db`（或 `$COPILOT_HOME`） | 需要 Copilot CLI 1.0.70 或更新版本，以及 Node 22.13 或更新版本。只读取 CLI 自己的数据库，不读取 VS Code 里的 Copilot Chat 扩展。数据库里的内容尚未用真实数据验证过，所以布局无法识别的数据库会被跳过并报告。 |
-| pi | `~/.pi/agent/sessions`（或 `$PI_CODING_AGENT_DIR`，若设置了 `$PI_CODING_AGENT_SESSION_DIR` 则读取它） | 分叉的会话共享之前的请求，这些请求只计一次。压缩和分支摘要调用没有指明模型，会被跳过并报告。尚未用真实的 pi 文件验证过。 |
-| Qwen Code | `~/.qwen/projects`（`$QWEN_HOME`、`$QWEN_RUNTIME_DIR`），包括对话和后台子 agent | 用 `/branch` 分叉的对话会复制之前的请求，这些请求只计一次。Qwen Code 不单独记录缓存写入，所以它们按普通输入计算。它默认在 30 天后删除后台子 agent 的对话记录，所以至少每月同步一次。尚未用真实的 Qwen Code 文件验证过。 |
-| Goose | `~/.local/share/goose/sessions/sessions.db`（`$XDG_DATA_HOME`，或 `$GOOSE_PATH_ROOT/data`；Windows 上是 `%APPDATA%\Block\goose\data`） | 读取按请求记录的用量账本，所以需要带有该账本的 Goose 版本，以及 Node 22.13 或更新版本。账本出现之前的用量没有确切的日期和模型，会被跳过并报告。通过 Goose 驱动 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 或 pi 的会话不会计入，因为这些 agent 自己的日志已经计过它们（对 Cursor 而言，仅当其 hook 会在 Goose 的运行中触发时才成立，这一点尚未验证）。尚未用真实的 Goose 文件验证过。 |
+| Gemini CLI | `~/.gemini/tmp/*/chats`，以及 macOS 沙盒使用的 `~/.cache/.gemini/tmp`（两者也都会在 `$GEMINI_CLI_HOME` 下查找） | Gemini CLI 默认在 30 天后删除会话，所以至少每月同步一次。它不会记录某些附带调用，所以总数是下限。 |
+| Cline | VS Code 系编辑器（VS Code、Cursor、VSCodium、Windsurf、Positron、Trae、Kiro、Antigravity 等；Linux 上是 `$XDG_CONFIG_HOME`，Windows 上是 `%APPDATA%`；远程服务器上是 `~/.vscode-server` 等）中的 `saoudrizwan.claude-dev/tasks`，以及 `~/.cline/data`（也包括 `$CLINE_DIR`、`$CLINE_DATA_DIR`、`$CLINE_SESSION_DATA_DIR`） | Cline 通过 Claude Code provider 发出的请求会被跳过，因为 Claude Code 适配器已经计过它们。 |
+| OpenCode | `~/.local/share/opencode/opencode*.db` 和较旧的 `storage/` 文件夹（也会在 `$XDG_DATA_HOME` 下查找；`$OPENCODE_DB` 会再加入一个数据库） | 读取数据库需要 Node 22.13 或更新版本。OpenCode 1.3.16 之前、无法确定读取结果的记录会被跳过并报告。 |
+| Kilo CLI | `~/.local/share/kilo/kilo*.db`（也会在 `$XDG_DATA_HOME` 下查找；`$KILO_DB` 会再加入一个数据库） | VS Code 中的 Kilo Code 7.x 写入同一个数据库，所以这里也会计入。读取数据库需要 Node 22.13 或更新版本。Kilo 7.2.6 之前、无法确定读取结果的记录会被跳过并报告。 |
+| Copilot CLI | `~/.copilot/session-store.db`（也包括 `$COPILOT_HOME`） | 需要 Copilot CLI 1.0.70 或更新版本，以及 Node 22.13 或更新版本。只读取 CLI 自己的数据库，不读取 VS Code 里的 Copilot Chat 扩展。布局无法识别的数据库会被跳过并报告。 |
+| pi | `~/.pi/agent/sessions`（也包括 `$PI_CODING_AGENT_DIR`，若设置了 `$PI_CODING_AGENT_SESSION_DIR` 则同样读取） | `@mariozechner/pi-coding-agent` 和它的后继包 `@earendil-works/pi-coding-agent` 以相同方式写入。分叉的会话共享之前的请求，这些请求只计一次。压缩和分支摘要调用没有指明模型，会被跳过并报告。 |
+| Qwen Code | `~/.qwen/projects`（`$QWEN_HOME`、`$QWEN_RUNTIME_DIR`），包括对话和后台子 agent | 用 `/branch` 分叉的对话会复制之前的请求，这些请求只计一次。Qwen Code 不单独记录缓存写入，所以它们按普通输入计算。它默认在 30 天后删除后台子 agent 的对话记录，所以至少每月同步一次。它的用量账本是记忆提取器（memory extractor）请求在本地的唯一记录，只有在 `privacy.usageStatisticsEnabled` 为 true（默认）时才会写入；关闭后，这些请求不会出现在任何本地文件里，只会统计对话请求。 |
+| Goose | `~/.local/share/goose/sessions/sessions.db`（也会在 `$XDG_DATA_HOME` 或 `$GOOSE_PATH_ROOT/data` 下查找；Windows 上是 `%APPDATA%\Block\goose\data`；找到的每个数据库都会读取） | 读取按请求记录的用量账本，所以需要带有该账本的 Goose 版本，以及 Node 22.13 或更新版本。账本出现之前的用量没有确切的日期和模型，会被跳过并报告。通过 Goose 驱动 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 或 pi 的会话不会计入，因为这些 agent 自己的日志已经计过它们（对 Cursor 而言，仅当其 hook 会在 Goose 的运行中触发时才成立，这一点尚未验证）。 |
+
+每个 agent 的计数都用 [`scripts/e2e`](https://github.com/altindalorcun/tokengraph/blob/main/scripts/e2e/README.md) 做过核对：对 Claude Code 2.1.304, Codex CLI 0.163.0, Gemini CLI 0.64.0, Cline 3.0.73, OpenCode 1.19.3, Kilo 7.8.15, Copilot CLI 1.0.100, pi 0.73.1, Qwen Code 0.25.3 和 Goose 1.55.0 进行真实运行，并覆盖它们支持的每种协议。Cursor 无法离线驱动；它的 CSV 导入用真实导出文件核对过，hook 格式则依据 Cursor 的文档。Cline 保存输出 token 时不含某些 provider 算在输出里的推理（reasoning）token，所以这部分不会被计入。
+
+每个 agent 除了默认文件夹，还会读取其环境变量指向的文件夹。tokengraph 在命令第一次带着该变量运行时，会把这个文件夹记在 `config.json` 里，这样拿不到你 shell 环境的每小时同步和 hook 也会读取它。`tokengraph status` 会列出它扫描的文件夹，以及这些文件夹是否存在。
 
 Gemini CLI、Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code 和 Goose 不需要 hook：`tokengraph schedule` 每小时同步它们一次。不支持 Aider，因为它的本地历史会对 token 数做取整。
 
@@ -128,7 +132,7 @@ Gemini CLI、Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code 和 Goos
 | `tokengraph sync` | 把每个 agent 的日志读入账本，并在已登录时发布。`--since <days>` 设置回溯多久（默认 90 天），`--local` 完全不联网。 |
 | `tokengraph readme` | 打印 README 代码并复制到剪贴板。可用 `--compact`、`--colors model\|single`。 |
 | `tokengraph story` | 绘制快拍卡片，保存 PNG（默认存到“下载”文件夹，可用 `--out <dir>` 指定），并询问是否发送到手机。可用 `--template skyline\|receipt\|sticker\|all`、`--range today\|7d\|30d\|1y`、`--no-cost`、`--qr` / `--no-qr`、`--no-preview`、`--handle <name>`。 |
-| `tokengraph status [--json]` | 显示 GitHub 账号、账本、你的各台机器、已安装且运行正常的后台同步，以及 Claude Code、Gemini CLI 和 Qwen Code 保留日志的时长；若保留期过短、历史有丢失风险，会给出警告。`--json` 把结果输出为一个 JSON 对象，供脚本和 AI agent 使用。 |
+| `tokengraph status [--json]` | 显示 GitHub 账号、账本、你的各台机器、已安装且运行正常的后台同步，各个 agent 的读取文件夹（以及它们是否存在），以及 Claude Code、Gemini CLI 和 Qwen Code 保留日志的时长；若保留期过短、历史有丢失风险，会给出警告。`--json` 把结果输出为一个 JSON 对象，供脚本和 AI agent 使用。 |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | 让该 agent 在结束时启动一次后台同步。`--remove` 卸载，`--dry-run` 显示将要做的改动。 |
 | `tokengraph schedule` | 安装每小时一次的后台同步：macOS 用 launchd，Linux 用 cron，Windows 用任务计划程序。`schedule --remove` 关闭它。 |
 | `tokengraph export` | 把你的每日用量写成 CSV 或 JSON，每个日期、agent、模型和定价档位一行，附带加权 token 数和估算费用。可用 `--format csv\|json`、`--out <file>`、`--since <date>`、`--all-machines`。只读取账本。 |
