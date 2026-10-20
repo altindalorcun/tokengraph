@@ -22,6 +22,12 @@ The first public release.
   the folder its environment variable names and the folders remembered from earlier runs (so the
   hourly sync still reads a profile set only in your shell), including Claude desktop's Code and
   Cowork sessions. `tokengraph status` lists the folders it scans and which exist.
+- **Counts checked against real agents.** Claude Code, Codex CLI, Gemini CLI, Cline, OpenCode, Kilo CLI,
+  Copilot CLI, pi, Qwen Code and Goose were run for real against a fake LLM server (`scripts/e2e`), and the
+  tokens tokengraph counted matched what the server sent, on every protocol each agent supports. Cursor cannot
+  be driven offline.
+- **Cline gateway cache.** Cline rows whose input already excludes cache (seen with MiniMax through the Cline
+  gateway) no longer have cache subtracted from them a second time, which had dropped their fresh input.
 - **Retention warnings.** `tokengraph status` shows how long Claude Code, Gemini CLI and Qwen Code
   keep their logs and warns when history is at risk. `status --json` prints it for scripts.
 - **Export.** `tokengraph export` writes daily usage as CSV or JSON from the local ledger.
