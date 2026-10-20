@@ -47,8 +47,70 @@ the agent (except one the driver marks as impossible, which is printed as skippe
 | Goose | 1.55.0 | chat, responses (model `gpt-5.4`), anthropic | release binary per OS and architecture; `GOOSE_PATH_ROOT` on Windows only |
 | Cursor | none | none | SKIP: the agent speaks a private, account-bound protocol, so no fake server can drive it; its adapter is checked from committed real samples |
 
-Only macOS has been run so far. The Linux and Windows paths in the driver (binary names, `.cmd` shims, archive formats,
-`GOOSE_PATH_ROOT`) are written from the agents' manifests and docs and need a first CI run.
+The pinned versions are in `versions.json` (the CI cache key hashes that file; bump a version there).
+
+## Platforms
+
+macOS (arm64) and Linux (arm64, in Docker, see below) have been run for real. Windows has not been run locally; its code
+paths are written from the agents' manifests and docs and get their first real run from the workflow below.
+
+### Linux in Docker
+
+Run the suite as a non-root user: Claude Code refuses `--dangerously-skip-permissions` as root. The official
+`node:22-bookworm` image already has everything the agents need (git, ca-certificates, tar, a C toolchain for optional
+native modules); no libsecret or keyring service is needed because Goose runs with `GOOSE_DISABLE_KEYRING=1` and the
+other agents get their keys from the environment.
+
+```bash
+mkdir -p /tmp/tg-work /tmp/tg-out
+cat > /tmp/tg-inner.sh <<'EOF'
+#!/bin/bash
+set -e
+cd /work
+tar -C /src --exclude=node_modules --exclude=dist --exclude=.cache --exclude=.git --exclude='*.tsbuildinfo' -cf - . | tar -xf -
+npm ci --no-audit --no-fund
+npx tsc --build
+node scripts/e2e/run.mjs "$@" --out /out/result.json
+EOF
+chmod +x /tmp/tg-inner.sh
+docker run --rm --user 1000:1000 -e HOME=/tmp/hh \
+  -v "$PWD":/src:ro -v /tmp/tg-work:/work -v /tmp/tg-out:/out -v /tmp/tg-inner.sh:/inner.sh:ro \
+  node:22-bookworm /inner.sh            # append agent names to run only those
+```
+
+The checkout is copied in (not mounted read-write) so the macOS `node_modules` and `dist` are never mixed with the Linux
+ones. Keep `/tmp/tg-work` between runs to reuse the agent installs in `scripts/e2e/.cache`. On an arm64 host the image is
+linux/arm64; all ten agents (including the Goose `aarch64-unknown-linux-gnu` release) ran and passed there with the same
+request counts as on macOS. The x64 builds run on `ubuntu-latest`. The harness falls back to the `bin` entry of the
+package manifest when npm 10 (bundled with Node 22) does not create the `node_modules/.bin` link, which happens for
+`cline@3.0.73`.
+
+### Windows
+
+What `run.mjs` does for Windows (unverified until the workflow has run on `windows-latest`):
+
+- npm agents are started through their `.cmd` shim in `node_modules/.bin`. Node refuses to spawn a `.cmd` without a shell,
+  so the command line is built by hand with `cmd.exe` quoting; a timeout runs `taskkill /T /F` on the whole tree (POSIX:
+  the child gets its own process group and the group is killed).
+- The Goose release is a `.zip`; it is unpacked with `%SystemRoot%\System32\tar.exe` (bsdtar, reads zip) by full path,
+  because Git for Windows puts a GNU tar first on PATH, and `Expand-Archive` is the fallback. `goose.exe` is searched
+  for inside the unpacked folder.
+- The throwaway home sets `HOME`, `USERPROFILE`, `HOMEDRIVE`/`HOMEPATH`, `APPDATA`, `LOCALAPPDATA`, the `XDG_*` folders
+  and each agent's own variable (`CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`, `GOOSE_PATH_ROOT`, ...). Only
+  `SystemRoot`, `ComSpec`, `PATHEXT`, `TEMP`, `TMP` and a few similar variables are passed through.
+- Claude Code needs Git Bash for its shell tool: `CLAUDE_CODE_GIT_BASH_PATH` (default
+  `C:\Program Files\Git\bin\bash.exe`, where GitHub's runners have it) is passed on when the file exists.
+- Codex prints a warning that `CODEX_HOME` is under the temp folder ("Refusing to create helper binaries under temporary
+  dir") on every OS and carries on; the run does not depend on it.
+
+## Workflow
+
+`.github/workflows/e2e.yml` runs the suite on `ubuntu-latest`, `macos-latest` and `windows-latest` (Node 22,
+`fail-fast: false`, 45 minute job limit, `contents: read`, no secrets). Triggers: manual (`workflow_dispatch`, optional
+`agents` input such as `codex-cli goose`) and weekly (Monday 05:17 UTC). The agent installs are cached with
+`actions/cache` keyed on OS, architecture and a hash of `versions.json`. Each job uploads `scripts/e2e/.cache/result.json`
+(`e2e-result-<os>`); when it fails it also uploads `scripts/e2e/.cache/logs` (the fake server's request log of every agent
+that did not pass, `e2e-logs-<os>`). It is not part of `ci.yml`: it installs a dozen third-party CLIs.
 
 ---
 
