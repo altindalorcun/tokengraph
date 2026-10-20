@@ -1,0 +1,52 @@
+{
+  "claude-code": {
+    "pkg": "@anthropic-ai/claude-code",
+    "version": "2.1.304",
+    "bin": "claude"
+  },
+  "codex-cli": {
+    "pkg": "@openai/codex",
+    "version": "0.163.0",
+    "bin": "codex"
+  },
+  "gemini-cli": {
+    "pkg": "@google/gemini-cli",
+    "version": "0.64.0",
+    "bin": "gemini"
+  },
+  "cline": {
+    "pkg": "cline",
+    "version": "3.0.73",
+    "bin": "cline"
+  },
+  "opencode": {
+    "pkg": "opencode-ai",
+    "version": "1.19.3",
+    "bin": "opencode"
+  },
+  "kilo": {
+    "pkg": "@kilocode/cli",
+    "version": "7.8.15",
+    "bin": "kilo"
+  },
+  "copilot-cli": {
+    "pkg": "@github/copilot",
+    "version": "1.0.100",
+    "bin": "copilot"
+  },
+  "pi": {
+    "pkg": "@mariozechner/pi-coding-agent",
+    "version": "0.73.1",
+    "bin": "pi"
+  },
+  "qwen-code": {
+    "pkg": "@qwen-code/qwen-code",
+    "version": "0.25.3",
+    "bin": "qwen"
+  },
+  "goose": {
+    "release": "v1.55.0",
+    "version": "1.55.0",
+    "bin": "goose"
+  }
+}

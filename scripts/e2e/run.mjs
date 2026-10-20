@@ -9,10 +9,10 @@
 // with the fake server's log. Plain Node ESM, no dependencies.
 import { spawn, spawnSync } from 'node:child_process';
 import {
-  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync,
+  chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir, platform as osPlatform, arch as osArch } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, parse, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -23,20 +23,9 @@ const FAKE = join(HERE, 'fake-llm.mjs');
 const TG_BIN = join(REPO, 'packages', 'cli', 'dist', 'bin.js');
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Pinned versions (recipes verified on macOS arm64 on 2026-10-20, see README).
+// Pinned versions live in versions.json (the CI cache key hashes that file).
 // ---------------------------------------------------------------------------------------------------------------------
-const VERSIONS = {
-  'claude-code': { pkg: '@anthropic-ai/claude-code', version: '2.1.304', bin: 'claude' },
-  'codex-cli': { pkg: '@openai/codex', version: '0.163.0', bin: 'codex' },
-  'gemini-cli': { pkg: '@google/gemini-cli', version: '0.64.0', bin: 'gemini' },
-  cline: { pkg: 'cline', version: '3.0.73', bin: 'cline' },
-  opencode: { pkg: 'opencode-ai', version: '1.19.3', bin: 'opencode' },
-  kilo: { pkg: '@kilocode/cli', version: '7.8.15', bin: 'kilo' },
-  'copilot-cli': { pkg: '@github/copilot', version: '1.0.100', bin: 'copilot' },
-  pi: { pkg: '@mariozechner/pi-coding-agent', version: '0.73.1', bin: 'pi' },
-  'qwen-code': { pkg: '@qwen-code/qwen-code', version: '0.25.3', bin: 'qwen' },
-  goose: { release: 'v1.55.0', version: '1.55.0', bin: 'goose' },
-};
+const VERSIONS = JSON.parse(readFileSync(join(HERE, 'versions.json'), 'utf8'));
 
 const PROMPTS = {
   oneshot: 'Say hello in one short sentence.',
@@ -47,10 +36,32 @@ const PROMPTS = {
 // ---------------------------------------------------------------------------------------------------------------------
 // Process helpers
 // ---------------------------------------------------------------------------------------------------------------------
+/** Quote one argument for cmd.exe (needed because a `.cmd` shim can only be started through a shell on Windows). */
+function cmdQuote(arg) {
+  const text = String(arg);
+  if (text !== '' && !/[\s"&|<>^()%!]/.test(text)) return text;
+  return `"${text.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
+}
+
+/** Kill a child and everything it started (the npm launchers start a native binary, which may start more). */
+function killTree(child) {
+  if (child.pid == null) return;
+  if (IS_WIN) {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+    return;
+  }
+  try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
+}
+
 function exec(command, args, { env, cwd, timeoutMs = 180_000 } = {}) {
   return new Promise((done) => {
-    const shell = IS_WIN && /\.(cmd|bat)$/i.test(command);
-    const child = spawn(command, args, { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], shell, windowsHide: true });
+    // Windows: node refuses to start a .cmd/.bat without a shell (EINVAL since the 2024 security fix), and a shell needs
+    // the command line quoted by hand. POSIX: own process group, so a timeout can kill the whole tree.
+    const shim = IS_WIN && /\.(cmd|bat)$/i.test(command);
+    if (IS_WIN && /\.(c|m)?js$/i.test(command)) { args = [command, ...args]; command = process.execPath; } // bin entry without a shim
+    const child = shim
+      ? spawn([command, ...args].map(cmdQuote).join(' '), { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: true, windowsHide: true })
+      : spawn(command, args, { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: !IS_WIN });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -58,11 +69,14 @@ function exec(command, args, { env, cwd, timeoutMs = 180_000 } = {}) {
     child.stderr.on('data', (d) => { stderr += d; });
     const timer = setTimeout(() => {
       timedOut = true;
-      if (IS_WIN) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
-      else child.kill('SIGKILL');
+      killTree(child);
     }, timeoutMs);
     child.on('error', (error) => { clearTimeout(timer); done({ code: -1, stdout, stderr: stderr + String(error), timedOut }); });
-    child.on('close', (code) => { clearTimeout(timer); done({ code: timedOut ? -2 : code, stdout, stderr, timedOut }); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (!IS_WIN) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* group already empty */ } }
+      done({ code: timedOut ? -2 : code, stdout, stderr, timedOut });
+    });
   });
 }
 
@@ -86,9 +100,13 @@ function baseEnv(home) {
     LANG: 'en_US.UTF-8',
   };
   if (IS_WIN) {
-    for (const key of ['SystemRoot', 'SYSTEMROOT', 'ComSpec', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'windir', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE']) {
+    // process.env is case-insensitive on Windows, so each name is listed once. HOMEDRIVE/HOMEPATH are what some tools
+    // read when USERPROFILE is missing; they must point into the throwaway home too.
+    for (const key of ['SystemRoot', 'SystemDrive', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'windir', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'ProgramData', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE', 'OS', 'USERNAME', 'COMPUTERNAME']) {
       if (process.env[key] !== undefined) env[key] = process.env[key];
     }
+    env.HOMEDRIVE = parse(home).root.replace(/[\\/]$/, '');
+    env.HOMEPATH = home.slice(env.HOMEDRIVE.length);
   }
   for (const dir of [env.APPDATA, env.LOCALAPPDATA, env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, env.XDG_STATE_HOME, env.XDG_CACHE_HOME]) {
     mkdirSync(dir, { recursive: true });
@@ -115,6 +133,18 @@ async function installNpm(spec) {
   const binDir = join(prefix, 'node_modules', '.bin');
   const bin = join(binDir, IS_WIN ? `${spec.bin}.cmd` : spec.bin);
   if (existsSync(bin)) return bin;
+  // npm 10 (the one bundled with Node 22) leaves out the .bin link of some packages (cline 3.0.73 on Linux); the bin target
+  // named in the package's own manifest is the same file.
+  const manifestBin = () => {
+    try {
+      const manifest = JSON.parse(readFileSync(join(prefix, 'node_modules', ...spec.pkg.split('/'), 'package.json'), 'utf8'));
+      const target = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.[spec.bin];
+      const file = target ? resolve(prefix, 'node_modules', ...spec.pkg.split('/'), target) : null;
+      return file && existsSync(file) ? file : null;
+    } catch { return null; }
+  };
+  const cached = manifestBin();
+  if (cached) return cached;
   mkdirSync(prefix, { recursive: true });
   writeFileSync(join(prefix, 'package.json'), '{"private":true}\n');
   const npm = IS_WIN ? 'npm.cmd' : 'npm';
@@ -122,8 +152,10 @@ async function installNpm(spec) {
     env: { ...process.env, npm_config_update_notifier: 'false' },
     timeoutMs: 600_000,
   });
-  if (result.code !== 0 || !existsSync(bin)) throw new Error(`npm install ${spec.pkg}@${spec.version} failed: ${tail(result.stderr || result.stdout)}`);
-  return bin;
+  if (result.code === 0 && existsSync(bin)) return bin;
+  const fallback = result.code === 0 ? manifestBin() : null;
+  if (!fallback) throw new Error(`npm install ${spec.pkg}@${spec.version} failed (exit ${result.code}, ${existsSync(bin) ? 'bin present' : `no ${bin}`}): ${tail(result.stderr || result.stdout)}`);
+  return fallback;
 }
 
 function gooseAsset() {
@@ -146,6 +178,29 @@ function findFile(dir, name) {
   return null;
 }
 
+/**
+ * Unpack the Goose archive. macOS (bsdtar) and Linux (GNU tar) unpack the .tar.gz with `tar`. The Windows release is a
+ * .zip: Windows 10+ ships bsdtar as System32\tar.exe, which reads zip. It is called by full path because Git for Windows
+ * puts a GNU tar first on PATH on GitHub runners, which cannot read zip. PowerShell's Expand-Archive is the fallback.
+ * Relative names with `cwd` keep a `C:` out of GNU tar's host:path parsing.
+ */
+function unpack(archive, dir) {
+  const name = basename(archive);
+  const attempts = IS_WIN
+    ? [
+      [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', name]],
+      ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${name}' -DestinationPath '.' -Force`]],
+    ]
+    : [['tar', ['-xf', name]]];
+  const errors = [];
+  for (const [cmd, args] of attempts) {
+    const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', windowsHide: true });
+    if (r.status === 0) return;
+    errors.push(`${cmd}: ${r.error ?? r.stderr}`);
+  }
+  throw new Error(`unpack ${name}: ${errors.join(' | ')}`);
+}
+
 async function installGoose(spec) {
   const dir = join(CACHE, `goose-${spec.version}`);
   const exe = IS_WIN ? 'goose.exe' : 'goose';
@@ -158,9 +213,7 @@ async function installGoose(spec) {
   if (!response.ok) throw new Error(`download ${url}: HTTP ${response.status}`);
   const archive = join(dir, asset);
   writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
-  // bsdtar (macOS, Windows 10+) and GNU tar (Linux) both unpack the platform archive.
-  const unpacked = spawnSync('tar', ['-xf', archive, '-C', dir], { encoding: 'utf8' });
-  if (unpacked.status !== 0) throw new Error(`unpack ${asset}: ${unpacked.stderr}`);
+  unpack(archive, dir);
   const found = findFile(dir, exe);
   if (!found) throw new Error(`${exe} not found in ${asset}`);
   if (!IS_WIN) chmodSync(found, 0o755);
@@ -237,6 +290,14 @@ function opencodeFamily({ id, bin, configVar, extraEnv, runVerb = 'run' }) {
   };
 }
 
+/** Claude Code on Windows runs its shell tool through Git Bash; GitHub's Windows runners have Git for Windows here. */
+function gitBashEnv() {
+  if (!IS_WIN) return {};
+  const candidates = [process.env.CLAUDE_CODE_GIT_BASH_PATH, 'C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files (x86)\\Git\\bin\\bash.exe'];
+  const found = candidates.find((c) => c && existsSync(c));
+  return found ? { CLAUDE_CODE_GIT_BASH_PATH: found } : {};
+}
+
 const DRIVERS = {
   'claude-code': {
     id: 'claude-code',
@@ -253,6 +314,7 @@ const DRIVERS = {
           DISABLE_TELEMETRY: '1',
           DISABLE_AUTOUPDATER: '1',
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+          ...gitBashEnv(),
         },
       }),
     }],
@@ -560,7 +622,7 @@ async function runAgent(agentId, opts) {
   const result = { agent: agentId, version: VERSIONS[agentId]?.version ?? null, status: 'PASS', scenarios: [], models: [], notes: [] };
   if (driver.skip) return { ...result, status: 'SKIP', notes: [driver.skip] };
 
-  const root = realpathSync(mkdtempSync(join(tmpdir(), `tg-e2e-${agentId}-`)));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), `tg-e2e-${agentId}-`)));
   const home = join(root, 'home');
   mkdirSync(home, { recursive: true });
   result.home = home;
@@ -628,6 +690,13 @@ async function runAgent(agentId, opts) {
     result.notes.push(String(error?.message ?? error));
   } finally {
     fake?.stop();
+    if (result.status !== 'PASS') {
+      // Keep the server's request log of a failing agent next to the result file (CI uploads this folder).
+      try {
+        mkdirSync(join(CACHE, 'logs'), { recursive: true });
+        if (existsSync(logFile)) copyFileSync(logFile, join(CACHE, 'logs', `${agentId}.fake.jsonl`));
+      } catch { /* best effort */ }
+    }
     if (opts.keep) result.kept = root;
     else {
       try { rmSync(root, { recursive: true, force: true, maxRetries: 3 }); } catch { /* best effort */ }
