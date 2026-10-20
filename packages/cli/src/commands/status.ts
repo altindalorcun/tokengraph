@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { formatTokens, isKnownSource } from '@tokengraph/core';
+import { agentRootsReport, type AgentRootsReport } from '../agent-roots-store.js';
 import { inspectAutoSync, type AutoSyncEntry, type AutoSyncHealth } from '../auto-sync-health.js';
 import { cliVersion } from '../bin-path.js';
 import { readConfig } from '../config.js';
@@ -18,11 +19,14 @@ export interface StatusDeps {
   legacyData: () => string[];
   /** The data-retention policy of each agent that auto-deletes its logs and is installed here. */
   retention: () => Promise<RetentionPolicy[]>;
+  /** The folders each adapter scans, from this process's environment plus the roots remembered in the config. */
+  agentRoots: (remembered: Record<string, string[]>) => Promise<AgentRootsReport[]>;
 }
 
 const DEFAULT_DEPS: StatusDeps = {
   autoSync: () => inspectAutoSync(),
   retention: () => readRetentionPolicies(),
+  agentRoots: (remembered) => agentRootsReport(remembered),
   legacyData: () => {
     const legacy = legacyConfigHome();
     if (legacy === configHome()) return [];
@@ -43,6 +47,8 @@ export interface StatusReport {
   backgroundSync: Record<keyof AutoSyncHealth, { installed: boolean | null; detail: string | null; missing: string[] }>;
   lastHookSync: { at: string; error: string | null } | null;
   retention: RetentionPolicy[];
+  /** Per adapter, the folders and files it scans for and whether they exist (`origin`: default, env or remembered). */
+  agentRoots: AgentRootsReport[];
   warnings: string[];
   legacyData: string[];
 }
@@ -85,6 +91,7 @@ async function buildReport(deps: StatusDeps, autoSync: AutoSyncHealth): Promise<
     ) as StatusReport['backgroundSync'],
     lastHookSync: await readHookSync(),
     retention,
+    agentRoots: await deps.agentRoots(config.agentRoots ?? {}),
     warnings: retentionWarnings(retention, autoSync),
     legacyData: deps.legacyData(),
   };
@@ -115,6 +122,7 @@ function printReport(report: StatusReport, autoSync: AutoSyncHealth): void {
   for (const [source, count] of Object.entries(report.ledger.sources)) console.log(`  ${source}: ${count} days`);
   for (const day of report.ledger.recentDays) console.log(`  ${day.date}  ${formatTokens(day.weighted).padStart(8)}`);
   printAutoSync(autoSync);
+  printAgentRoots(report.agentRoots);
   printRetention(report.retention, report.warnings);
   if (report.lastHookSync) {
     console.log(`last hook sync: ${report.lastHookSync.at} (${hookSyncLogPath()})`);
@@ -166,4 +174,27 @@ function printRetention(policies: RetentionPolicy[], warnings: string[]): void {
   console.log('data retention:');
   for (const policy of policies) console.log(`  ${`${policy.source}:`.padEnd(18)}${retentionLine(policy)}`);
   for (const warning of warnings) console.log(`warning: ${warning}`);
+}
+
+const ORIGIN_LABEL = { default: 'default', env: 'from the environment', remembered: 'remembered' } as const;
+
+/**
+ * Where each adapter looks. Existing places are listed; a root named by the environment or remembered from
+ * an earlier run is listed even when nothing in it exists (so a profile that was moved or deleted shows up);
+ * missing default places are only counted. `--json` carries everything.
+ */
+function printAgentRoots(reports: AgentRootsReport[]): void {
+  console.log('agent folders (what sync and view scan; the schedule adds the remembered ones):');
+  for (const { source, targets } of reports) {
+    // A root that has something (a profile with `projects/` but no `transcripts/`) is shown by what it has;
+    // one with nothing, named by the environment or remembered, is shown whole so its absence is visible.
+    const rootHasData = new Set(targets.filter((target) => target.exists).map((target) => target.root));
+    const shown = targets.filter((target) => target.exists || (target.origin !== 'default' && !rootHasData.has(target.root)));
+    const hidden = targets.length - shown.length;
+    const note = hidden > 0 ? `${shown.length === 0 ? 'nothing found; ' : ''}${hidden} default location${hidden === 1 ? '' : 's'} not present` : '';
+    console.log(`  ${`${source}:`.padEnd(18)}${note}`);
+    for (const target of shown) {
+      console.log(`    ${target.exists ? 'found  ' : 'missing'}  ${target.path}${target.origin === 'default' ? '' : `  (${ORIGIN_LABEL[target.origin]})`}`);
+    }
+  }
 }
