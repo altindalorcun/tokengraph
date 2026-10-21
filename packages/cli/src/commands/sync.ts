@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import {
   addCounts,
   addDays,
+  agentName,
   dateKey,
   emptyCounts,
   formatTokens,
@@ -26,6 +27,7 @@ import { currentFingerprint } from '../publish/machine-identity.js';
 import { writeMachinesCache } from '../publish/machines-cache.js';
 import { publish, type PublishResult } from '../publish/publish.js';
 import { readmeSnippet } from '../readme-snippet.js';
+import { createSpinner, spinnerEnabled, type Spinner } from '../spinner.js';
 import { acquireSyncLock } from '../sync-lock.js';
 
 /**
@@ -61,6 +63,8 @@ export interface SyncOptions {
   quiet?: boolean;
   /** Return SYNC_SKIPPED / SYNC_NO_AGENTS (silently) instead of 0 / 1 for those two cases, for callers that react to them. */
   detailedExit?: boolean;
+  /** Shows the slow steps. Defaults to one on stderr when a person runs sync in a terminal; tests pass their own. */
+  spinner?: Spinner;
   deps?: Partial<SyncPublishDeps>;
 }
 
@@ -89,30 +93,39 @@ export async function runSync(options: SyncOptions): Promise<number> {
     console.error(`Another tokengraph sync is already running${lock.pid ? ` (pid ${lock.pid})` : ''}; skipping.`);
     return 0;
   }
+  // Also on for --quiet: `login` and `readme --colors` wait on this sync too, and the spinner is not output.
+  const spinner =
+    options.spinner ??
+    createSpinner(process.stderr, { enabled: (options.trigger ?? 'manual') === 'manual' && spinnerEnabled(process.stderr, process.env) });
   try {
-    return await runSyncLocked(options);
+    return await runSyncLocked(options, spinner);
   } finally {
+    spinner.stop();
     await lock.release();
   }
 }
 
-async function runSyncLocked(options: SyncOptions): Promise<number> {
+async function runSyncLocked(options: SyncOptions, spinner: Spinner): Promise<number> {
   const since = addDays(new Date(), -options.sinceDays);
   const sinceKey = dateKey(since);
 
   const say = (line: string): void => {
-    if (!options.quiet) console.log(line);
+    if (options.quiet) return;
+    spinner.clear();
+    console.log(line);
   };
   let before = await readLedger(ledgerPath());
-  before = await cursorStep(before, options, say);
+  before = await cursorStep(before, options, say, spinner);
   // The order each adapter finished in, so failures print between the successes exactly where they happened.
   const outcomes: ('done' | 'failed')[] = [];
   const { ledger, results: collected, failures, detected } = await collectLocal(before, since, {
     adapters: defaultAdapters(),
     onProgress: (progress) => {
-      if (progress.state !== 'scanning') outcomes.push(progress.state);
+      if (progress.state === 'scanning') spinner.start(`Reading ${agentName(progress.adapter)}…`);
+      else outcomes.push(progress.state);
     },
   });
+  spinner.stop();
   if (detected.length === 0) {
     if (options.detailedExit) return SYNC_NO_AGENTS;
     console.error(noAgentsMessage());
@@ -171,16 +184,17 @@ async function runSyncLocked(options: SyncOptions): Promise<number> {
     console.log('\nSaved locally. Run `tokengraph login` to put this graph in your GitHub README.');
     return 0;
   }
-  return publishFromSync(ledger, config, config.github, options);
+  return publishFromSync(ledger, config, config.github, options, spinner);
 }
 
 /**
  * Fetches the signed-in Cursor user's history from cursor.com (unless `--local`), then folds every stored
  * account file into the ledger. Cursor trouble never fails a sync: it is one line and the run goes on.
  */
-async function cursorStep(ledger: Ledger, options: SyncOptions, say: (line: string) => void): Promise<Ledger> {
+async function cursorStep(ledger: Ledger, options: SyncOptions, say: (line: string) => void, spinner: Spinner): Promise<Ledger> {
   try {
     if (!options.local) {
+      spinner.start('Checking Cursor usage…');
       const report = await runCursorFetch({ trigger: options.trigger ?? 'manual', silent: options.quiet === true, deps: options.deps?.cursor });
       for (const line of report.lines) say(line);
     }
@@ -198,10 +212,17 @@ const DEFAULT_PUBLISH_DEPS: SyncPublishDeps = {
   now: () => new Date(),
 };
 
-async function publishFromSync(ledger: Ledger, config: CliConfig, github: GitHubAccount, options: SyncOptions): Promise<number> {
+async function publishFromSync(
+  ledger: Ledger,
+  config: CliConfig,
+  github: GitHubAccount,
+  options: SyncOptions,
+  spinner: Spinner,
+): Promise<number> {
   const deps = { ...DEFAULT_PUBLISH_DEPS, ...options.deps };
   const now = deps.now();
   let result: PublishResult;
+  spinner.start('Publishing your graph to GitHub…');
   try {
     result = await publish({
       client: deps.clientFor(github.auth),
@@ -220,6 +241,7 @@ async function publishFromSync(ledger: Ledger, config: CliConfig, github: GitHub
       },
     });
   } catch (error) {
+    spinner.stop();
     if (error instanceof GitHubAuthError) {
       console.error('\nGitHub no longer accepts this login. Run `tokengraph login` again. Your usage is saved locally.');
     } else if (error instanceof GitHubNotFoundError) {
@@ -237,6 +259,7 @@ async function publishFromSync(ledger: Ledger, config: CliConfig, github: GitHub
     }
     return 1;
   }
+  spinner.stop();
 
   if (result.restoredDays > 0 || result.ledger !== ledger) await writeLedger(ledgerPath(), result.ledger);
   // The publish took several round trips: a logout, login or `readme --colors` may have happened in
