@@ -37,3 +37,35 @@ describe('renderPublishedGraphs', () => {
     expect(renderPublishedGraphs([], { today: '2026-10-13', colors: 'model' })['tokengraph-dark.svg']).toContain('No tokens synced yet');
   });
 });
+
+describe('the published files', () => {
+  const files = renderPublishedGraphs(usage, { today: '2026-10-13', colors: 'model' });
+
+  it('keep their names, so every README snippet keeps working', () => {
+    expect([...PUBLISHED_GRAPH_FILES]).toEqual([
+      'tokengraph-dark.svg',
+      'tokengraph-light.svg',
+      'tokengraph-compact-dark.svg',
+      'tokengraph-compact-light.svg',
+    ]);
+  });
+
+  it('stay under the size budget with the embedded font', () => {
+    for (const svg of Object.values(files)) expect(Buffer.byteLength(svg)).toBeLessThan(150_000);
+  });
+
+  it('carry the motion CSS and the font, and only daily totals plus family names', () => {
+    for (const svg of Object.values(files)) {
+      expect(svg).toContain('prefers-reduced-motion:no-preference');
+      expect(svg).toContain('@font-face');
+    }
+    expect(files['tokengraph-dark.svg']).toContain('>Claude</text>');
+    expect(files['tokengraph-dark.svg']).not.toMatch(/opus|gpt-5|\d%</);
+  });
+
+  it('are the same bytes for the same data and day', () => {
+    expect(renderPublishedGraphs(usage, { today: '2026-10-13', colors: 'single' })).toEqual(
+      renderPublishedGraphs(usage, { today: '2026-10-13', colors: 'single' }),
+    );
+  });
+});

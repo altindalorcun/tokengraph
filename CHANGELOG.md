@@ -7,7 +7,9 @@ The first public release.
 - **A graph of your token use.** `tokengraph login` publishes a GitHub-style graph of the last
   year to a public gist on your own account and copies a README snippet for it. It follows the
   reader's light or dark theme, and each day is coloured by the model family that used most of it.
-  `tokengraph sync`, the agent hooks and `tokengraph schedule` keep it current.
+  `tokengraph sync`, the agent hooks and `tokengraph schedule` keep it current. The graph carries a
+  strip of five figures (current and longest streak, best day, active days, and the family that
+  led the most days), and it animates in once, still when the reader prefers reduced motion.
 - **Several machines, one graph.** Each machine writes its own file to a secret gist on your
   account. Machines are summed into one graph, and a reinstalled machine gets its history back.
 - **Terminal view.** Running `tokengraph` in a terminal shows a year heatmap, models, agents and

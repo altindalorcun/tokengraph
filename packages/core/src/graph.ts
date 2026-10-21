@@ -10,6 +10,7 @@ import {
   type DisplaySurface,
   type Theme,
 } from './graph-colors.js';
+import { computeGraphStats, type GraphStats } from './graph-stats.js';
 import { computeThresholds, levelFor, type Level } from './levels.js';
 import { FAMILY_LABELS, FAMILY_LOGOS, MODEL_FAMILIES, type ModelFamily } from './model-makers.js';
 
@@ -45,6 +46,8 @@ export interface RenderOptions {
 interface Layout {
   width: number;
   pad: number;
+  /** Space above the header. */
+  top: number;
   cell: number;
   gap: number;
   cellRadius: number;
@@ -53,17 +56,16 @@ interface Layout {
   metaSize: number;
   /** Space between the header and whatever follows it. */
   headerGap: number;
+  /** Labels, the stats strip, the hue key and the footer: the full variant only. */
   showLabels: boolean;
   labelSize: number;
-  monthGap: number;
   dayLabelWidth: number;
   dayLabelGap: number;
-  legendGap: number;
 }
 
-/** Corner rule: 17px cells get 4px corners, 13px get 3, smaller get 2. */
+/** Corner rule: 17px cells get 4px corners, 13px get 3.5, smaller get 2. */
 function cellRadiusFor(cell: number): number {
-  return cell >= 16 ? 4 : cell >= 13 ? 3 : 2;
+  return cell >= 16 ? 4 : cell >= 13 ? 3.5 : 2;
 }
 
 /**
@@ -73,25 +75,24 @@ function cellRadiusFor(cell: number): number {
 const FULL: Layout = {
   width: 900,
   pad: 20,
+  top: 26,
   cell: 13,
   gap: 3,
   cellRadius: cellRadiusFor(13),
-  totalSize: 40,
+  totalSize: 46,
   captionSize: 14,
-  metaSize: 13,
-  headerGap: 22,
+  metaSize: 12.5,
+  headerGap: 20,
   showLabels: true,
   labelSize: 11,
-  monthGap: 8,
   dayLabelWidth: 26,
   dayLabelGap: 5,
-  legendGap: 16,
 };
 
 const COMPACT: Layout = {
   ...FULL,
   width: 560,
-  pad: 20,
+  top: 20,
   cell: 8,
   gap: 2,
   cellRadius: cellRadiusFor(8),
@@ -180,13 +181,15 @@ function text(
     weight?: 400 | 500;
     anchor?: 'start' | 'middle' | 'end';
     tracking?: number;
+    opacity?: number;
   },
 ): string {
   const anchor = options.anchor && options.anchor !== 'start' ? ` text-anchor="${options.anchor}"` : '';
   const tracking = options.tracking ? ` letter-spacing="${n(options.tracking)}"` : '';
+  const opacity = options.opacity !== undefined ? ` fill-opacity="${options.opacity}"` : '';
   return (
     `<text x="${n(x)}" y="${n(y)}" font-size="${options.size}" font-weight="${options.weight ?? 400}" ` +
-    `fill="${options.fill}"${anchor}${tracking}>${escapeXml(content)}</text>`
+    `fill="${options.fill}"${opacity}${anchor}${tracking}>${escapeXml(content)}</text>`
   );
 }
 
@@ -435,104 +438,323 @@ export function visibleMonths(months: readonly { label: string; column: number }
   return months.filter((_, index) => index % 2 === 0);
 }
 
-export function renderGraphSvg(days: readonly GraphDay[], options: RenderOptions): string {
-  const layout = options.compact ? COMPACT : FULL;
-  const theme = options.theme ?? 'dark';
-  const colorMode = options.colorMode ?? 'single';
+/**
+ * Chrome colours that belong to the graph card only (the shared display surfaces also serve the
+ * terminal and story cards). The light ring is deliberately stronger than the dark one: on a white
+ * README page a 6% hairline vanishes.
+ */
+interface Chrome {
+  ring: string;
+  /** The stats strip's panel. */
+  soft: string;
+  /** Hairlines inside the strip. */
+  hair: string;
+  /** Month dividers through the grid. */
+  divider: string;
+  /** The corner glow: neutral, never tinted by a family (a tint would differ per user). */
+  glow: string;
+  glowOpacity: number;
+}
+
+const CHROME: Record<Theme, Chrome> = {
+  dark: {
+    ring: 'rgb(255 255 255 / 0.08)',
+    soft: 'rgb(255 255 255 / 0.04)',
+    hair: 'rgb(255 255 255 / 0.08)',
+    divider: 'rgb(255 255 255 / 0.075)',
+    glow: '#ffffff',
+    glowOpacity: 0.06,
+  },
+  light: {
+    ring: 'rgb(31 35 40 / 0.14)',
+    soft: 'rgb(31 35 40 / 0.045)',
+    hair: 'rgb(31 35 40 / 0.09)',
+    divider: 'rgb(31 35 40 / 0.10)',
+    glow: '#1b1f24',
+    glowOpacity: 0.035,
+  },
+};
+
+/**
+ * The README graph's motion. The default state (outside any media query) is the finished picture,
+ * so a renderer that never runs CSS animation, or a reader who prefers reduced motion, sees the
+ * whole graph at once. Animation exists only inside `no-preference`: the header and strip fade up,
+ * the grid appears column by column (~1.6s), then today's cell pulses gently.
+ */
+const ANIMATION_CSS =
+  '.halo{opacity:0;transform-box:fill-box;transform-origin:center}.ring{opacity:.7}' +
+  '@media (prefers-reduced-motion:no-preference){' +
+  '@keyframes tgin{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}' +
+  '@keyframes tgpulse{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(2.3)}}' +
+  '@keyframes tgring{0%,100%{opacity:.35}50%{opacity:.95}}' +
+  '.h{animation:tgin .7s cubic-bezier(.22,.8,.3,1) both}' +
+  '.c{animation:tgin .55s cubic-bezier(.22,.8,.3,1) both}' +
+  Array.from({ length: WEEKS }, (_, i) => `.d${i}{animation-delay:${(0.3 + i * 0.016).toFixed(3)}s}`).join('') +
+  '.halo{animation:tgpulse 2.8s cubic-bezier(.2,.6,.3,1) 1.9s infinite}' +
+  '.ring{animation:tgring 2.8s ease-in-out 1.9s infinite}}';
+
+/** The graph card: surface, neutral corner glow, hairline ring, then the body. */
+function graphFrame(
+  layout: Layout,
+  height: number,
+  theme: Theme,
+  body: string,
+  label: string,
+  fontFaceCss: string | undefined,
+): string {
+  const { width } = layout;
   const surface = DISPLAY_SURFACES[theme];
-  const grid = buildGraphGrid(days, options.endDate);
-  const { pad } = layout;
+  const chrome = CHROME[theme];
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
+    `viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(label)}" font-family="${FONT}">` +
+    `<style>${fontFaceCss ?? ''}${ANIMATION_CSS}</style>` +
+    `<defs><radialGradient id="tg-glow" cx="0" cy="0" r="560" gradientUnits="userSpaceOnUse">` +
+    `<stop offset="0" stop-color="${chrome.glow}" stop-opacity="${chrome.glowOpacity}"/>` +
+    `<stop offset="1" stop-color="${chrome.glow}" stop-opacity="0"/></radialGradient></defs>` +
+    `<rect width="${width}" height="${height}" rx="14" fill="${surface.background}"/>` +
+    `<rect width="${width}" height="${height}" rx="14" fill="url(#tg-glow)"/>` +
+    `<rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="13.5" fill="none" stroke="${chrome.ring}"/>` +
+    body +
+    `</svg>`
+  );
+}
 
-  const pitch = layout.cell + layout.gap;
-  const gridHeight = DAYS * layout.cell + (DAYS - 1) * layout.gap;
-  const gridX = pad + layout.dayLabelWidth + layout.dayLabelGap;
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`;
+}
 
-  // Header: the big total, its caption on the same baseline, and the active-day count at the right.
-  const empty = grid.total === 0 || options.title !== undefined;
-  const baseline = pad + layout.totalSize * 0.8;
-  const tracking = -0.02 * layout.totalSize;
-  const total = options.title !== undefined ? '—' : formatTokens(grid.total);
-  const caption = options.title ?? (empty ? 'No tokens yet, last 12 months' : 'tokens, last 12 months');
-  const totalW = textWidth(total, layout.totalSize, 500, tracking);
-  const activeLabel = `${grid.activeDays} active ${grid.activeDays === 1 ? 'day' : 'days'}`;
+function monthDay(date: string): string {
+  return `${MONTHS[Number(date.slice(5, 7)) - 1]} ${Number(date.slice(8, 10))}`;
+}
 
-  const parts: string[] = [
-    text(total, pad, baseline, {
-      size: layout.totalSize,
-      fill: empty ? surface.muted : surface.ink,
-      weight: 500,
-      tracking,
-    }),
-    text(caption, pad + totalW + layout.totalSize * 0.3, baseline, { size: layout.captionSize, fill: surface.muted }),
-    text(activeLabel, layout.width - pad, baseline, {
-      size: layout.metaSize,
-      fill: surface.muted,
-      weight: 500,
-      anchor: 'end',
-    }),
+function monthYear(date: string): string {
+  return `${MONTHS[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`;
+}
+
+/** "Oct 2025 to Oct 2026", or empty for a grid with no days. */
+function rangeLabel(stats: GraphStats): string {
+  return stats.firstDate && stats.lastDate ? `${monthYear(stats.firstDate)} to ${monthYear(stats.lastDate)}` : '';
+}
+
+const STRIP_HEIGHT = 60;
+/** Widths of the strip's first four columns; the fifth (family name and day count) takes the rest. */
+const STRIP_COLUMN = 148;
+const STRIP_INSET = 18;
+
+interface StripItem {
+  label: string;
+  value: string;
+  sub: string;
+  /** A family swatch before the value. */
+  dot?: string;
+}
+
+function stripItems(stats: GraphStats, colorMode: ColorMode, theme: Theme): StripItem[] {
+  const dash = (value: string, sub: string): Pick<StripItem, 'value' | 'sub'> =>
+    stats.activeDays === 0 ? { value: '—', sub: '' } : { value, sub };
+  const ramps = theme === 'light' ? FAMILY_RAMPS_LIGHT : FAMILY_RAMPS;
+  const fifth: StripItem =
+    colorMode === 'per-model'
+      ? stats.topFamily
+        ? {
+            label: 'TOP FAMILY',
+            value: FAMILY_LABELS[stats.topFamily.family],
+            sub: `led ${plural(stats.topFamily.days, 'day')}`,
+            dot: ramps[stats.topFamily.family][4],
+          }
+        : { label: 'TOP FAMILY', value: '—', sub: '' }
+      : { label: 'AVG ACTIVE DAY', ...dash(formatTokens(stats.total / Math.max(stats.activeDays, 1)), 'tokens') };
+  return [
+    { label: 'CURRENT STREAK', ...dash(String(stats.currentStreak), stats.currentStreak === 1 ? 'day' : 'days') },
+    { label: 'LONGEST STREAK', ...dash(String(stats.longestStreak), stats.longestStreak === 1 ? 'day' : 'days') },
+    {
+      label: 'BEST DAY',
+      ...(stats.bestDay ? { value: formatTokens(stats.bestDay.weighted), sub: monthDay(stats.bestDay.date) } : { value: '—', sub: '' }),
+    },
+    { label: 'ACTIVE DAYS', value: String(stats.activeDays), sub: `of ${stats.windowDays}` },
+    fifth,
   ];
-  let y = pad + layout.totalSize + layout.headerGap;
+}
 
-  const rows =
-    colorMode === 'per-model' && layout.showLabels
-      ? legendRows(legendEntries(grid), 13, layout.width - 2 * pad)
-      : [];
-  if (rows.length > 0) {
-    parts.push(hueLegend(rows, layout, surface, theme, y));
-    y += rows.length * LEGEND_ROW + (rows.length - 1) * LEGEND_ROW_GAP + 16;
-  }
+/** The five-figure panel under the header. Daily totals and one family name, nothing else. */
+function statsStrip(
+  layout: Layout,
+  stats: GraphStats,
+  colorMode: ColorMode,
+  theme: Theme,
+  y: number,
+): string {
+  const surface = DISPLAY_SURFACES[theme];
+  const chrome = CHROME[theme];
+  const { pad } = layout;
+  const innerWidth = layout.width - 2 * pad;
+  const parts = [
+    `<rect x="${pad}" y="${n(y)}" width="${innerWidth}" height="${STRIP_HEIGHT}" rx="10" fill="${chrome.soft}"/>`,
+    `<rect x="${pad + 0.5}" y="${n(y + 0.5)}" width="${innerWidth - 1}" height="${STRIP_HEIGHT - 1}" rx="9.5" fill="none" stroke="${chrome.hair}"/>`,
+  ];
+  stripItems(stats, colorMode, theme).forEach((item, index) => {
+    const left = pad + index * STRIP_COLUMN;
+    const x = left + STRIP_INSET;
+    if (index > 0) parts.push(`<path d="M${left} ${n(y + 14)}V${n(y + STRIP_HEIGHT - 14)}" stroke="${chrome.hair}"/>`);
+    parts.push(text(item.label, x, y + 22, { size: 10, fill: surface.muted, weight: 500, tracking: 0.9 }));
+    let valueX = x;
+    if (item.dot) {
+      parts.push(`<rect x="${n(x)}" y="${n(y + 34)}" width="9" height="9" rx="3" fill="${item.dot}"/>`);
+      valueX += 15;
+    }
+    parts.push(text(item.value, valueX, y + 43, { size: 19, fill: surface.ink, weight: 500, tracking: -0.2 }));
+    if (item.sub) {
+      parts.push(text(item.sub, valueX + textWidth(item.value, 19, 500, -0.2) + 6, y + 43, { size: 12.5, fill: surface.muted }));
+    }
+  });
+  return parts.join('');
+}
 
-  let monthBaseline = 0;
+/** Month labels that fit: a first month cut short by the window start would collide with the next. */
+function labelledMonths(months: GraphGrid['months']): GraphGrid['months'] {
+  return months.filter((mark, index) => !(index === 0 && months[1] && months[1].column - mark.column < 3));
+}
+
+interface Heatmap {
+  svg: string;
+  bottom: number;
+}
+
+/**
+ * Month labels with hairline dividers, weekday labels (full variant) and the cells, one animated
+ * group per week. Today's cell gets a ring, and a halo when it has tokens.
+ */
+function heatmap(
+  grid: GraphGrid,
+  layout: Layout,
+  theme: Theme,
+  colorMode: ColorMode,
+  endDate: string,
+  y: number,
+): Heatmap {
+  const surface = DISPLAY_SURFACES[theme];
+  const chrome = CHROME[theme];
+  const pitch = layout.cell + layout.gap;
+  const gridX = layout.pad + layout.dayLabelWidth + layout.dayLabelGap;
+  const gridY = layout.showLabels ? y + 19 : y;
+  const bottom = gridY + 7 * pitch - layout.gap;
+  const parts: string[] = [];
+
   if (layout.showLabels) {
-    monthBaseline = y + layout.labelSize * 0.85;
-    y += layout.labelSize + layout.monthGap;
-  }
-  const gridY = y;
-
-  if (layout.showLabels) {
-    visibleMonths(grid.months).forEach((mark) => {
-      parts.push(
-        text(mark.label, gridX + mark.column * pitch, monthBaseline, { size: layout.labelSize, fill: surface.muted }),
-      );
-    });
+    for (const mark of labelledMonths(grid.months)) {
+      parts.push(text(mark.label, gridX + mark.column * pitch, y + 9.5, { size: layout.labelSize, fill: surface.muted }));
+    }
     for (const [row, label] of [
       [1, 'Mon'],
       [3, 'Wed'],
       [5, 'Fri'],
     ] as const) {
       parts.push(
-        text(label, pad, gridY + row * pitch + layout.cell / 2 + layout.labelSize * 0.36, {
+        text(label, layout.pad, gridY + row * pitch + layout.cell / 2 + layout.labelSize * 0.36, {
           size: layout.labelSize,
           fill: surface.muted,
         }),
       );
     }
+    for (const mark of grid.months.slice(1)) {
+      const x = gridX + mark.column * pitch - layout.gap / 2;
+      parts.push(`<path d="M${n(x)} ${n(y + 1)}V${n(bottom)}" stroke="${chrome.divider}"/>`);
+    }
   }
 
+  let today: { x: number; y: number; fill: string; active: boolean } | null = null;
   grid.columns.forEach((column, week) => {
-    column.forEach((cell, weekday) => {
-      if (!cell) return;
-      const fill = cellColor(cell.level, { colorMode, theme, family: cell.topFamily, empty: surface.empty });
-      parts.push(
-        `<rect x="${n(gridX + week * pitch)}" y="${n(gridY + weekday * pitch)}" ` +
-          `width="${layout.cell}" height="${layout.cell}" rx="${layout.cellRadius}" fill="${fill}">` +
-          `<title>${escapeXml(cellTitle(cell))}</title></rect>`,
-      );
-    });
+    const rects = column
+      .map((cell, weekday) => {
+        if (!cell) return '';
+        const fill = cellColor(cell.level, { colorMode, theme, family: cell.topFamily, empty: surface.empty });
+        const x = gridX + week * pitch;
+        const cy = gridY + weekday * pitch;
+        if (cell.date === endDate) today = { x, y: cy, fill, active: cell.weighted > 0 };
+        return (
+          `<rect x="${n(x)}" y="${n(cy)}" width="${layout.cell}" height="${layout.cell}" rx="${layout.cellRadius}" fill="${fill}">` +
+          `<title>${escapeXml(cellTitle(cell))}</title></rect>`
+        );
+      })
+      .join('');
+    parts.push(`<g class="c d${week}">${rects}</g>`);
   });
-  y = gridY + gridHeight;
+
+  if (today) {
+    const { x, y: cy, fill, active } = today;
+    const reach = layout.cell >= 13 ? 1.5 : 1;
+    if (active) {
+      parts.push(
+        `<rect class="halo" x="${n(x)}" y="${n(cy)}" width="${layout.cell}" height="${layout.cell}" rx="${layout.cellRadius}" fill="${fill}"/>`,
+      );
+    }
+    // A day without tokens still gets its ring, dimmer, so the grid always shows where today is.
+    parts.push(
+      `<rect class="ring" x="${n(x - reach)}" y="${n(cy - reach)}" width="${layout.cell + 2 * reach}" height="${layout.cell + 2 * reach}" ` +
+        `rx="${layout.cellRadius + 1.5}" fill="none" stroke="${surface.ink}" stroke-width="${layout.cell >= 13 ? 1.25 : 1}"` +
+        `${active ? '' : ' stroke-opacity="0.6"'}/>`,
+    );
+  }
+  return { svg: parts.join(''), bottom };
+}
+
+export function renderGraphSvg(days: readonly GraphDay[], options: RenderOptions): string {
+  const layout = options.compact ? COMPACT : FULL;
+  const theme = options.theme ?? 'dark';
+  const colorMode = options.colorMode ?? 'single';
+  const surface = DISPLAY_SURFACES[theme];
+  const grid = buildGraphGrid(days, options.endDate);
+  const stats = computeGraphStats(grid);
+  const { pad } = layout;
+
+  // Header: the big total, its caption on the same baseline, the date range (active days when compact) at the right.
+  const empty = grid.total === 0 || options.title !== undefined;
+  const baseline = layout.top + layout.totalSize * 0.8;
+  const tracking = -0.025 * layout.totalSize;
+  const total = options.title !== undefined ? '—' : formatTokens(grid.total);
+  const caption = options.title ?? (empty ? 'No tokens yet, last 12 months' : 'tokens, last 12 months');
+  const totalWidth = textWidth(total, layout.totalSize, 500, tracking);
+  const meta = layout.showLabels ? rangeLabel(stats) : plural(stats.activeDays, 'active day');
+
+  const header =
+    text(total, pad, baseline, { size: layout.totalSize, fill: empty ? surface.muted : surface.ink, weight: 500, tracking }) +
+    text(caption, pad + totalWidth + layout.totalSize * 0.3, baseline, { size: layout.captionSize, fill: surface.muted }) +
+    (meta ? text(meta, layout.width - pad, baseline, { size: layout.metaSize, fill: surface.muted, anchor: 'end' }) : '');
+  const parts: string[] = [`<g class="h">${header}</g>`];
+  let y = layout.top + layout.totalSize + layout.headerGap;
 
   if (layout.showLabels) {
-    y += layout.legendGap;
-    parts.push(intensityLegend(layout, surface, theme, colorMode, y));
-    y += layout.cell;
+    parts.push(`<g class="h">${statsStrip(layout, stats, colorMode, theme, y)}</g>`);
+    y += STRIP_HEIGHT + 22;
+    if (colorMode === 'per-model') {
+      const rows = legendRows(legendEntries(grid), 13, layout.width - 2 * pad);
+      if (rows.length > 0) {
+        parts.push(hueLegend(rows, layout, surface, theme, y));
+        y += rows.length * LEGEND_ROW + (rows.length - 1) * LEGEND_ROW_GAP + 20;
+      }
+    }
   }
-  const height = Math.round(y + pad);
+
+  const map = heatmap(grid, layout, theme, colorMode, options.endDate, y);
+  parts.push(map.svg);
+
+  let height: number;
+  if (layout.showLabels) {
+    const footerY = map.bottom + 20;
+    parts.push(
+      text('tokengraph', pad, footerY + 10, { size: 11, fill: surface.muted, weight: 500, tracking: 0.4, opacity: 0.8 }),
+      intensityLegend(layout, surface, theme, colorMode, footerY),
+    );
+    height = Math.round(footerY + layout.cell + 22);
+  } else {
+    height = Math.round(map.bottom + pad);
+  }
 
   const label =
-    `Token usage graph, ${formatTokens(grid.total)} weighted tokens over ` +
-    `${grid.activeDays} active ${grid.activeDays === 1 ? 'day' : 'days'}`;
-  return card(layout, height, surface, parts.join(''), label, options.fontFaceCss);
+    `Token usage graph, ${formatTokens(grid.total)} weighted tokens over ${plural(grid.activeDays, 'active day')}` +
+    (grid.activeDays > 0 ? `, current streak ${plural(stats.currentStreak, 'day')}` : '');
+  return graphFrame(layout, height, theme, parts.join(''), label, options.fontFaceCss);
 }
 
 /**

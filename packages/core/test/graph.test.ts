@@ -31,14 +31,13 @@ describe('renderGraphSvg', () => {
   it('asks for IBM Plex Sans with a system fallback stack, and loads nothing by itself', () => {
     const svg = renderGraphSvg([], { endDate: END });
     expect(svg).toContain(`font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"`);
-    expect(svg).not.toContain('<style>');
     expect(svg).not.toContain('@font-face');
   });
 
   it('inlines the given font-face CSS, and only then', () => {
     const css = "@font-face{font-family:'IBM Plex Sans';src:url(data:font/woff2;base64,AAAA) format('woff2');}";
     const svg = renderGraphSvg([], { endDate: END, fontFaceCss: css });
-    expect(svg).toContain(`<style>${css}</style>`);
+    expect(svg).toContain(`<style>${css}`);
     expect(renderNoticeSvg('x', { fontFaceCss: css })).toContain(`<style>${css}</style>`);
   });
 
@@ -46,8 +45,9 @@ describe('renderGraphSvg', () => {
     const svg = renderGraphSvg(daysEndingAt(END, 400, () => 1000), { endDate: END });
     const cells = (svg.match(/<title>/g) ?? []).length;
     expect(cells).toBe(WEEKS * 7 - OMITTED_AFTER_END);
-    // Cells, six Less/More swatches, and the card's surface, shade and ring (the clip is in defs).
-    expect((svg.match(/<rect /g) ?? []).length).toBe(cells + 6 + 3 + 1);
+    // Cells, six Less/More swatches, today's halo and ring, the strip's panel and outline, and the
+    // card's surface, glow and ring.
+    expect((svg.match(/<rect /g) ?? []).length).toBe(cells + 6 + 2 + 2 + 3);
   });
 
   it('never draws a day after the end date', () => {
@@ -80,7 +80,7 @@ describe('renderGraphSvg', () => {
     const light = renderGraphSvg([], { endDate: END, theme: 'light' });
     expect(dark).toContain('fill="#0b0c0e"');
     expect(light).toContain('fill="#ffffff"');
-    expect(dark).toContain('rx="12"');
+    expect(dark).toContain('rx="14"');
     expect(dark).not.toContain('>token-graph<');
     expect(dark).not.toContain('last 12 months —');
   });
@@ -89,15 +89,15 @@ describe('renderGraphSvg', () => {
     const svg = renderGraphSvg(daysEndingAt(END, 3, () => 47_531_939), { endDate: END });
     expect(svg).toMatch(/font-weight="500"[^>]*>142\.6M<\/text>/);
     expect(svg).toContain('>tokens, last 12 months</text>');
-    expect(svg).toMatch(/text-anchor="end"[^>]*>3 active days<\/text>/);
-    expect(renderGraphSvg([{ date: END, weighted: 5 }], { endDate: END })).toContain('>1 active day</text>');
+    expect(svg).toMatch(/text-anchor="end"[^>]*>Sep 2025 to Sep 2026<\/text>/);
+    expect(renderGraphSvg([{ date: END, weighted: 5 }], { endDate: END, compact: true })).toContain('>1 active day</text>');
   });
 
   it('shows a custom title in the header position, muted, when there is nothing to count', () => {
     const svg = renderGraphSvg([], { endDate: END, title: 'No tokens synced yet' });
     expect(svg).toContain('>—</text>');
     expect(svg).toContain('>No tokens synced yet</text>');
-    expect(svg).toContain('>0 active days</text>');
+    expect(svg).not.toContain('NaN');
     expect(svg).toContain(`fill="${DISPLAY_SURFACES.dark.muted}"`);
   });
 
@@ -164,7 +164,9 @@ describe('renderGraphSvg', () => {
 
   it('reports the weighted total in the accessible label and the heading', () => {
     const svg = renderGraphSvg(daysEndingAt(END, 3, () => 1_000_000), { endDate: END });
-    expect(svg).toContain('role="img" aria-label="Token usage graph, 3.0M weighted tokens over 3 active days"');
+    expect(svg).toContain(
+      'role="img" aria-label="Token usage graph, 3.0M weighted tokens over 3 active days, current streak 3 days"',
+    );
     expect(svg).toContain('>3.0M</text>');
   });
 });
@@ -253,7 +255,7 @@ describe('legend with every family present', () => {
     for (const family of MODEL_FAMILIES) expect(svg).toContain(`>${FAMILY_LABELS[family]}<`);
     const width = Number(/width="(\d+)"/.exec(svg)![1]);
     const names = MODEL_FAMILIES.map((family) => FAMILY_LABELS[family]).join('|');
-    const xs = [...svg.matchAll(new RegExp(`<text x="([\\d.]+)"[^>]*>(?:${names})<`, 'g'))].map((m) => Number(m[1]));
+    const xs = [...svg.matchAll(new RegExp(`<text x="([\\d.]+)" y="[\\d.]+" font-size="13"[^>]*>(?:${names})<`, 'g'))].map((m) => Number(m[1]));
     expect(xs).toHaveLength(MODEL_FAMILIES.length);
     for (const x of xs) expect(x).toBeLessThan(width - 40);
     // Wrapped: the x position restarts at least once.
@@ -281,5 +283,163 @@ describe('gridFamilies', () => {
       '2026-09-30',
     );
     expect(gridFamilies(grid)).toEqual(['claude', 'kimi']);
+  });
+});
+
+describe('the alive README graph', () => {
+  const mixed = daysEndingAt(END, 120, (i) => (i % 7 === 3 ? 0 : 1000 + i * 40)).map((d, i) => ({
+    ...d,
+    topFamily: (i % 3 === 0 ? 'claude' : 'gpt') as 'claude' | 'gpt',
+  }));
+  const full = (options: Partial<Parameters<typeof renderGraphSvg>[1]> = {}) =>
+    renderGraphSvg(mixed, { endDate: END, colorMode: 'per-model', ...options });
+
+  it('is deterministic: the same data gives the same bytes, with no clock in it', () => {
+    expect(full()).toBe(full());
+    expect(full({ compact: true, theme: 'light' })).toBe(full({ compact: true, theme: 'light' }));
+  });
+
+  it('animates only inside the no-preference media query, so reduced motion and no-CSS renders show the finished graph', () => {
+    const svg = full();
+    const media = svg.indexOf('@media (prefers-reduced-motion:no-preference){');
+    expect(media).toBeGreaterThan(-1);
+    expect(svg.slice(0, media)).not.toContain('animation');
+    expect(svg.slice(0, media)).not.toContain('@keyframes');
+    expect(svg.slice(media)).toContain('@keyframes tgin');
+    expect(svg.slice(media)).toContain('@keyframes tgpulse');
+    // The default state hides only the halo, which exists to be animated.
+    expect(svg).toContain('.halo{opacity:0;');
+    expect(svg).toContain('.ring{opacity:.7}');
+  });
+
+  it('appears column by column: 52 column groups, each with its own delay', () => {
+    const svg = full();
+    expect((svg.match(/<g class="c d\d+">/g) ?? []).length).toBe(WEEKS);
+    expect((svg.match(/\.d\d+\{animation-delay:/g) ?? []).length).toBe(WEEKS);
+    expect(svg).toContain('<g class="h">');
+  });
+
+  it('pulses a halo and ring on today when it has tokens', () => {
+    const svg = full();
+    expect(svg).toContain('class="halo"');
+    expect(svg).toMatch(/class="ring"[^>]*stroke="#eef0f2"/);
+    expect(svg).not.toContain('stroke-opacity="0.6"');
+  });
+
+  it('still marks an empty today with a dimmer ring and no halo', () => {
+    const svg = renderGraphSvg(daysEndingAt(END, 20, (i) => (i === 19 ? 0 : 500)), { endDate: END });
+    expect(svg).not.toContain('class="halo"');
+    expect(svg).toMatch(/class="ring"[^>]*stroke-opacity="0.6"/);
+  });
+
+  it('draws month dividers and the month labels', () => {
+    const svg = full();
+    const dividers = svg.match(/<path d="M[\d.]+ [\d.]+V[\d.]+" stroke="rgb\(255 255 255 \/ 0\.075\)"\/>/g) ?? [];
+    expect(dividers).toHaveLength(buildGraphGrid(mixed, END).months.length - 1);
+    for (const label of ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug']) {
+      expect(svg).toContain(`>${label}</text>`);
+    }
+  });
+
+  it('shows the stats strip with the five figures, led days instead of a percentage', () => {
+    const svg = full();
+    for (const label of ['CURRENT STREAK', 'LONGEST STREAK', 'BEST DAY', 'ACTIVE DAYS', 'TOP FAMILY']) {
+      expect(svg).toContain(`>${label}</text>`);
+    }
+    expect(svg).toMatch(/>led \d+ days<\/text>/);
+    expect(svg).toContain('>of 362</text>');
+    expect(svg).not.toMatch(/\d%</);
+  });
+
+  it('swaps the top family for the average active day in single-colour mode', () => {
+    const svg = full({ colorMode: 'single' });
+    expect(svg).toContain('>AVG ACTIVE DAY</text>');
+    expect(svg).not.toContain('>TOP FAMILY</text>');
+    expect(svg).not.toContain('>led ');
+  });
+
+  it('keeps the longest family name and a three-digit day count inside the strip', () => {
+    const allOther = renderGraphSvg(
+      daysEndingAt(END, 400, () => 100).map((d) => ({ ...d, topFamily: 'other' as const })),
+      { endDate: END, colorMode: 'per-model' },
+    );
+    const led = /<text x="([\d.]+)"[^>]*font-size="12.5"[^>]*>led (\d+) days<\/text>/.exec(allOther)!;
+    expect(Number(led[2])).toBe(WEEKS * 7 - OMITTED_AFTER_END);
+    // 12 glyphs at ~0.55em each, ending inside the strip.
+    expect(Number(led[1]) + 12 * 12.5 * 0.55).toBeLessThan(900 - 20);
+  });
+
+  it('keeps the glow neutral: not tinted by the leading family', () => {
+    const glow = (family: 'claude' | 'qwen') =>
+      renderGraphSvg(
+        daysEndingAt(END, 60, () => 900).map((d) => ({ ...d, topFamily: family })),
+        { endDate: END, colorMode: 'per-model' },
+      ).match(/<radialGradient id="tg-glow".*?<\/radialGradient>/)![0];
+    expect(glow('claude')).toBe(glow('qwen'));
+    expect(glow('claude')).toContain('stop-color="#ffffff"');
+  });
+
+  it('makes the light ring stronger than the dark one', () => {
+    expect(full({ theme: 'light' })).toContain('stroke="rgb(31 35 40 / 0.14)"');
+    expect(full()).toContain('stroke="rgb(255 255 255 / 0.08)"');
+  });
+
+  it('carries a muted tokengraph mark opposite Less and More, in the full graph only', () => {
+    expect(full()).toMatch(/fill="#a3aab3" fill-opacity="0.8" letter-spacing="0.4">tokengraph<\/text>/);
+    expect(renderGraphSvg([], { endDate: END, compact: true })).not.toContain('>tokengraph</text>');
+  });
+
+  it('puts the streak in the accessible label, and leaves it out of an empty graph', () => {
+    expect(full()).toMatch(/aria-label="Token usage graph, [\d.]+K weighted tokens over \d+ active days, current streak \d+ days?"/);
+    expect(renderGraphSvg([], { endDate: END })).toContain('aria-label="Token usage graph, 0 weighted tokens over 0 active days"');
+  });
+
+  it('renders a brand-new account (a few days, or none) without NaN or empty figures', () => {
+    const few = renderGraphSvg([{ date: END, weighted: 1234 }], { endDate: END, colorMode: 'per-model' });
+    const none = renderGraphSvg([], { endDate: END, colorMode: 'per-model', title: 'No tokens synced yet' });
+    for (const svg of [few, none]) {
+      expect(svg).not.toMatch(/NaN|undefined|Infinity/);
+      expect(svg).not.toContain('></text>');
+    }
+    expect(few).toContain('>1.2K</text>');
+    expect(few).toContain('>of 362</text>');
+    // Empty: dashes in the strip, no led-days claim.
+    expect((none.match(/>—<\/text>/g) ?? []).length).toBeGreaterThanOrEqual(5);
+    expect(none).not.toContain('>led ');
+    expect(none).toContain('>0</text>');
+  });
+
+  it('keeps full and compact graphs under the size budget even with a font and thirteen families', () => {
+    const font = `@font-face{font-family:x;src:url(data:font/woff2;base64,${'A'.repeat(48_000)})}`;
+    const all = daysEndingAt(END, 400, (i) => 100 + i * 37).map((d, i) => ({
+      ...d,
+      topFamily: MODEL_FAMILIES[i % MODEL_FAMILIES.length]!,
+    }));
+    for (const theme of ['dark', 'light'] as const) {
+      for (const compact of [false, true]) {
+        const svg = renderGraphSvg(all, { endDate: END, theme, compact, colorMode: 'per-model', fontFaceCss: font });
+        expect(Buffer.byteLength(svg)).toBeLessThan(150_000);
+      }
+    }
+  });
+});
+
+describe('the compact README graph', () => {
+  const svg = renderGraphSvg(
+    daysEndingAt(END, 90, () => 2000).map((d) => ({ ...d, topFamily: 'gpt' as const })),
+    { endDate: END, compact: true, colorMode: 'per-model', theme: 'light' },
+  );
+
+  it('keeps the refined chrome and the motion, without the strip, labels or footer', () => {
+    expect(svg).toMatch(/width="560" height="\d+"/);
+    expect(svg).toContain('@media (prefers-reduced-motion:no-preference)');
+    expect(svg).toContain('stroke="rgb(31 35 40 / 0.14)"');
+    expect(svg).toContain('class="halo"');
+    expect((svg.match(/<g class="c d\d+">/g) ?? []).length).toBe(WEEKS);
+    for (const gone of ['CURRENT STREAK', '>Less<', '>Mon<', '>Oct<', '>GPT<', '>tokengraph<']) expect(svg).not.toContain(gone);
+  });
+
+  it('stays small', () => {
+    expect(Number(/height="(\d+)"/.exec(svg)![1])).toBeLessThan(170);
   });
 });
