@@ -10,6 +10,7 @@ import { readLedger } from '../src/ledger.js';
 import { ledgerPath } from '../src/paths.js';
 import { machineFileName } from '../src/publish/machines.js';
 import { readLastPublish, readMachinesCache } from '../src/publish/machines-cache.js';
+import type { Spinner } from '../src/spinner.js';
 import { acquireSyncLock } from '../src/sync-lock.js';
 import { fakeGitHubClient } from './fake-github-client.js';
 
@@ -381,6 +382,80 @@ describe('runSync across agents', () => {
       const output = vi.mocked(console.log).mock.calls.flat().join('\n');
       expect(output).not.toContain('source:');
       expect(output).toContain('Graph published');
+    });
+  });
+
+  describe('spinner', () => {
+    const LOGIN = { github: { login: 'octocat', auth: { kind: 'token' as const, token: 't' } } };
+
+    /** Spinner calls and printed lines, in the order they happened. */
+    function recorder() {
+      const events: string[] = [];
+      const spinner: Spinner = {
+        start: (text) => events.push(`start ${text}`),
+        clear: () => events.push('clear'),
+        stop: () => events.push('stop'),
+      };
+      vi.mocked(console.log).mockImplementation((line: string) => void events.push(`print ${line}`));
+      vi.mocked(console.error).mockImplementation((line: string) => void events.push(`print ${line}`));
+      return { events, spinner };
+    }
+
+    /** Lines printed while the spinner's line was on screen (it would have been drawn over). */
+    function printedOverSpinner(events: string[]): string[] {
+      let showing = false;
+      const over: string[] = [];
+      for (const event of events) {
+        if (event.startsWith('start ')) showing = true;
+        else if (event === 'clear' || event === 'stop') showing = false;
+        else if (showing) over.push(event);
+      }
+      return over;
+    }
+
+    it('names each agent while reading it and never prints over the spinner', async () => {
+      await writeClaude();
+      await writeCodex();
+      const { events, spinner } = recorder();
+      expect(await runSync({ ...OPTIONS, spinner })).toBe(0);
+      expect(events).toContain('start Reading Claude Code…');
+      expect(events).toContain('start Reading Codex CLI…');
+      expect(events.indexOf('start Reading Claude Code…')).toBeLessThan(events.findIndex((e) => e.startsWith('print ')));
+      expect(printedOverSpinner(events)).toEqual([]);
+      expect(events.at(-1)).toBe('stop');
+    });
+
+    it('shows the publish step and stops before the result', async () => {
+      await writeClaude();
+      await writeConfig(LOGIN);
+      const client = fakeGitHubClient();
+      const { events, spinner } = recorder();
+      expect(await runSync({ sinceDays: 30, theme: 'light', spinner, deps: { clientFor: () => client, fingerprint: async () => 'fp' } })).toBe(0);
+      const publishing = events.indexOf('start Publishing your graph to GitHub…');
+      expect(publishing).toBeGreaterThan(-1);
+      expect(publishing).toBeLessThan(events.findIndex((e) => e.includes('Graph published')));
+      expect(printedOverSpinner(events)).toEqual([]);
+    });
+
+    it('stops before explaining a failed publish', async () => {
+      await writeClaude();
+      await writeConfig(LOGIN);
+      const client = fakeGitHubClient();
+      client.getGist = async () => {
+        throw new GitHubRateLimitError('limited', 403, new Date('2026-10-13T12:00:00Z'));
+      };
+      client.listGists = client.getGist as never;
+      const { events, spinner } = recorder();
+      expect(await runSync({ sinceDays: 30, theme: 'light', spinner, deps: { clientFor: () => client, fingerprint: async () => 'fp' } })).toBe(1);
+      expect(events.some((e) => e.includes('rate-limiting'))).toBe(true);
+      expect(printedOverSpinner(events)).toEqual([]);
+    });
+
+    it('stops before the no-agents message', async () => {
+      const { events, spinner } = recorder();
+      expect(await runSync({ ...OPTIONS, spinner })).toBe(1);
+      expect(events.some((e) => e.includes('No agent usage found'))).toBe(true);
+      expect(printedOverSpinner(events)).toEqual([]);
     });
   });
 });
