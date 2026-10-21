@@ -450,7 +450,13 @@ async function handle(req, res) {
   const tool = (turns < opts.toolTurns ? pickTool(tools) : null) ?? pickCompletionTool(tools);
   const responseId = { anthropic: `msg_fake${n}`, chat: `chatcmpl-fake${n}`, responses: `resp_fake${n}`, gemini: `resp_fake${n}` }[r.protocol];
 
+  // Hold back the end of the response until the log line is written: a client that reads the log as soon as its
+  // response completes must find the line there.
+  const end = res.end.bind(res);
+  let pendingEnd = null;
+  res.end = (...args) => { pendingEnd = args; return res; };
   const out = handlers[r.protocol]({ body, model, stream, n, u, tool, res });
+  res.end = end;
   log({
     status: 200, protocol: r.protocol, endpoint, model, responseId, stream, bodyParsed: parsed,
     toolCall: tool ? tool.name : null,
@@ -460,7 +466,7 @@ async function handle(req, res) {
     usageSent: out.sent,
     reasoning: r.protocol === 'anthropic' ? 0 : u.reasoning,
   });
-  res.end();
+  end(...(pendingEnd ?? []));
 }
 
 const server = createServer((req, res) => {

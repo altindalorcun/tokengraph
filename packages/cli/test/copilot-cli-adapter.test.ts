@@ -1,6 +1,6 @@
 import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, normalize } from 'node:path';
 import type { DatabaseSync as DatabaseSyncCtor } from 'node:sqlite';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { copilotHome, createCopilotCliAdapter } from '../src/adapters/copilot-cli/index.js';
@@ -84,7 +84,8 @@ describe('copilotHome', () => {
     const previous = process.env['COPILOT_HOME'];
     try {
       process.env['COPILOT_HOME'] = '/somewhere/copilot';
-      expect(copilotHome()).toBe('/somewhere/copilot');
+      // Normalised for the host: \somewhere\copilot on Windows.
+      expect(copilotHome()).toBe(normalize('/somewhere/copilot'));
       process.env['COPILOT_HOME'] = '   ';
       expect(copilotHome()).toMatch(/\.copilot$/);
       delete process.env['COPILOT_HOME'];

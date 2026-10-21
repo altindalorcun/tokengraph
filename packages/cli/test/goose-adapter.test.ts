@@ -1,6 +1,6 @@
 import { copyFile, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import type { DatabaseSync as DatabaseSyncCtor } from 'node:sqlite';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createGooseAdapter, gooseDbCandidates } from '../src/adapters/goose/index.js';
@@ -87,16 +87,17 @@ describe('gooseDbCandidates', () => {
 
   it('lists an absolute GOOSE_PATH_ROOT first, then the default locations', () => {
     process.env['GOOSE_PATH_ROOT'] = '/some/root';
+    // Paths for an injected linux/darwin platform are POSIX paths, whatever the host is.
     const list = gooseDbCandidates('linux');
-    expect(list[0]).toBe(join('/some/root', 'data', 'sessions', 'sessions.db'));
-    expect(list).toContain(join(homedir(), '.local', 'share', 'goose', 'sessions', 'sessions.db'));
+    expect(list[0]).toBe(posix.join('/some/root', 'data', 'sessions', 'sessions.db'));
+    expect(list).toContain(posix.join(homedir(), '.local', 'share', 'goose', 'sessions', 'sessions.db'));
   });
 
   it('ignores a relative GOOSE_PATH_ROOT and uses XDG_DATA_HOME, then the legacy folders', () => {
     process.env['GOOSE_PATH_ROOT'] = 'relative/root';
     process.env['XDG_DATA_HOME'] = '/xdg/data';
     const list = gooseDbCandidates('darwin');
-    expect(list[0]).toBe(join('/xdg/data', 'goose', 'sessions', 'sessions.db'));
+    expect(list[0]).toBe(posix.join('/xdg/data', 'goose', 'sessions', 'sessions.db'));
     expect(list.some((path) => path.includes('relative'))).toBe(false);
     // The default ~/.local/share/goose stays in the union, then the three legacy folders.
     expect(list).toHaveLength(5);
