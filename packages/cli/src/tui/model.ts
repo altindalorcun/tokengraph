@@ -1,4 +1,4 @@
-import { allLedgerUsage, type Ledger } from '../ledger.js';
+import { allLedgerHours, allLedgerUsage, type Ledger } from '../ledger.js';
 import { shortDate } from './dates.js';
 import {
   addCounts,
@@ -84,6 +84,27 @@ export interface ViewModel {
   sources: string[];
   /** Per-entry rows behind `days`, for the breakdowns' counts and cost. */
   rows: UsageRow[];
+  /** Weighted tokens per local (date, hour), all agents together, ascending; empty when no adapter has hour data yet. */
+  hours: HourCell[];
+}
+
+export interface HourCell {
+  date: string;
+  hour: number;
+  weighted: number;
+}
+
+/** The 24-hour picture of the hour data: totals per hour, the busiest hour and a weekday × hour grid. */
+export interface HourProfile {
+  /** Weighted tokens per local hour, index 0..23. */
+  byHour: number[];
+  total: number;
+  /** The busiest hour and its share (0..1) of all hour data; null without data. */
+  busiest: { hour: number; share: number } | null;
+  /** First date with hour data (older days have none: logs were pruned or predate the feature). */
+  firstDate: string | null;
+  /** Weekday (Monday first) × hour, weighted tokens. */
+  grid: number[][];
 }
 
 export interface Stats {
@@ -264,7 +285,50 @@ export function buildViewModel(ledger: Ledger, today: string): ViewModel {
     firstDay: days[0]?.date ?? null,
     sources,
     rows,
+    hours: buildHours(ledger, today),
   };
+}
+
+function buildHours(ledger: Ledger, today: string): HourCell[] {
+  const sums = new Map<string, HourCell>();
+  for (const row of allLedgerHours(ledger)) {
+    if (row.date > today) continue;
+    const key = `${row.date}\0${row.hour}`;
+    const cell = sums.get(key);
+    if (cell) cell.weighted += row.weighted;
+    else sums.set(key, { date: row.date, hour: row.hour, weighted: row.weighted });
+  }
+  return [...sums.values()].sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
+}
+
+/** Hour-of-day profile over all hour data in the ledger (hour data is already limited to what logs still hold). */
+export function hourProfile(vm: ViewModel): HourProfile {
+  const byHour = new Array<number>(24).fill(0);
+  const grid = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
+  let total = 0;
+  for (const { date, hour, weighted } of vm.hours) {
+    byHour[hour] = (byHour[hour] ?? 0) + weighted;
+    const weekday = (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
+    grid[weekday]![hour] = (grid[weekday]![hour] ?? 0) + weighted;
+    total += weighted;
+  }
+  let busiest: HourProfile['busiest'] = null;
+  if (total > 0) {
+    const max = Math.max(...byHour);
+    const hour = byHour.indexOf(max);
+    busiest = { hour, share: max / total };
+  }
+  return { byHour, total, busiest, firstDate: vm.hours[0]?.date ?? null, grid };
+}
+
+/** "22–23h": the busiest hour as a range (the last hour of the day ends at 0h). */
+export function hourRange(hour: number): string {
+  return `${hour}–${(hour + 1) % 24}h`;
+}
+
+/** "22–23h · 18%" */
+export function busiestHourText(profile: HourProfile): string | null {
+  return profile.busiest ? `${hourRange(profile.busiest.hour)} · ${Math.round(profile.busiest.share * 100)}%` : null;
 }
 
 function weightedOn(vm: ViewModel, date: string): number {

@@ -1,10 +1,10 @@
 import { formatTokens } from '@tokengraph/core';
 import type { ColorDepth } from './color.js';
 import { STILL } from './animate.js';
-import { RANGE_LABELS, formatCost, modelBreakdown, rangeTotals, stats, yearGrid, type ViewModel } from './model.js';
+import { RANGE_LABELS, busiestHourText, formatCost, hourProfile, modelBreakdown, rangeTotals, stats, yearGrid, type ViewModel } from './model.js';
 import { ScreenBuffer, toAnsiLines } from './screen.js';
 import { tuiTheme, familyColor } from './theme.js';
-import { truncate } from './views/dates.js';
+import { longDate, truncate } from './views/dates.js';
 import { drawBar } from './widgets/bars.js';
 import { HEATMAP_FULL_WIDTH, HEATMAP_HEIGHT, drawHeatmap } from './widgets/heatmap.js';
 import { drawHeaderMark } from './widgets/logo.js';
@@ -26,7 +26,8 @@ export function renderSnapshot(
   const rows = modelBreakdown(vm, RANGE).slice(0, TOP_MODELS);
   const heatmapY = 3 + TILE_HEIGHT + 1;
   const modelsY = heatmapY + HEATMAP_HEIGHT + 1;
-  const height = modelsY + 1 + Math.max(1, rows.length);
+  const hoursY = modelsY + 1 + Math.max(1, rows.length) + 1;
+  const height = hoursY + 1;
   const buf = new ScreenBuffer(width, height, { fg: theme.ink, bg: theme.bg });
 
   drawHeaderMark(buf, 1, 0, theme);
@@ -73,6 +74,12 @@ export function renderSnapshot(
     x += buf.text(x, y, tokens, { fg: theme.ink });
     buf.text(x + 2, y, `${Math.round(row.share * 100)}%`.padStart(4), { fg: theme.muted });
   });
+
+  const hours = hourProfile(vm);
+  const busiest = busiestHourText(hours);
+  buf.text(1, hoursY, 'Busiest hour', { fg: theme.muted });
+  const hoursText = busiest === null ? 'no hour data yet' : `${busiest} of tokens (hour data from ${longDate(hours.firstDate!)})`;
+  buf.text(14, hoursY, truncate(hoursText, Math.max(0, inner - 13)), { fg: busiest === null ? theme.faint : theme.ink }, Math.max(0, inner - 13));
 
   const lines = toAnsiLines(buf, options.depth);
   // Without colour, trailing padding is only noise when the output is piped or copied.

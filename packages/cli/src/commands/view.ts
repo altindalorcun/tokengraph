@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { dateKey, type Theme } from '@tokengraph/core';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
 import { readConfig } from '../config.js';
-import { ledgerToUsage, mergeLedgerAccounts, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
+import { ledgerToUsage, mergeLedgerAccounts, mergeLedgerHours, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
 import { acquireSyncLock } from '../sync-lock.js';
 import { runApp, type AppDeps } from '../tui/app.js';
@@ -42,6 +42,7 @@ async function persistLedger(ledger: Ledger): Promise<'saved' | 'busy'> {
       merged = mergeUsage(merged, source, ledgerToUsage(ledger, source));
     }
     merged = mergeLedgerAccounts(merged, ledger.accounts);
+    merged = mergeLedgerHours(merged, ledger);
     await writeLedger(ledgerPath(), merged);
     return 'saved';
   } finally {

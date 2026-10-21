@@ -10,7 +10,7 @@ import {
   type PricingTier,
   type SplitTokenCounts,
 } from '@tokengraph/core';
-import { readLedger, type Ledger } from '../ledger.js';
+import { allLedgerHours, readLedger, type Ledger } from '../ledger.js';
 import { ledgerPath } from '../paths.js';
 import { combinedUsage, type MachineFile } from '../publish/machines.js';
 import { readMachinesCache } from '../publish/machines-cache.js';
@@ -22,6 +22,8 @@ export interface ExportOptions {
   out?: string;
   since?: string;
   allMachines?: boolean;
+  /** Hour-of-day rows (this machine only) instead of daily rows. */
+  hours?: boolean;
 }
 
 export interface ExportDeps {
@@ -61,11 +63,13 @@ export function parseExportArgs(values: Record<string, string | boolean | undefi
   if (format !== 'csv' && format !== 'json') return '--format must be csv or json.';
   const since = values['since'];
   if (since !== undefined && (typeof since !== 'string' || !isDateKey(since))) return '--since must be a date as YYYY-MM-DD.';
+  if (values['hours'] === true && values['all-machines'] === true) return '--hours is for this machine only; it cannot be combined with --all-machines.';
   return {
     format,
     since,
     out: typeof values['out'] === 'string' ? values['out'] : undefined,
     allMachines: values['all-machines'] === true,
+    ...(values['hours'] === true ? { hours: true } : {}),
   };
 }
 
@@ -114,6 +118,27 @@ export function buildRows(ledger: Ledger, others: readonly MachineFile[], since?
   );
 }
 
+/** One row per day, local hour and agent: weighted tokens only. */
+export interface HourExportRow {
+  date: string;
+  hour: number;
+  source: KnownSource;
+  weightedTokens: number;
+}
+
+/** Hour rows come from this machine's ledger only (hour data is never published or merged across machines). */
+export function buildHourRows(ledger: Ledger, since?: string): HourExportRow[] {
+  return allLedgerHours(ledger, since).map((row) => ({ date: row.date, hour: row.hour, source: row.source, weightedTokens: row.weighted }));
+}
+
+export function formatHoursCsv(rows: readonly HourExportRow[]): string {
+  return `${['date,hour,source,weighted_tokens', ...rows.map((row) => `${row.date},${row.hour},${row.source},${row.weightedTokens}`)].join('\n')}\n`;
+}
+
+export function formatHoursJson(rows: readonly HourExportRow[]): string {
+  return `${JSON.stringify({ schema: 1, scope: 'this-machine', rows }, null, 2)}\n`;
+}
+
 /** RFC 4180: quote only a field with a comma, a quote or a line break. */
 function csvField(value: string | number | null): string {
   if (value === null) return '';
@@ -141,8 +166,17 @@ export async function runExport(options: ExportOptions, overrides: Partial<Expor
   const deps = { ...DEFAULT_DEPS, ...overrides };
   const ledger = await deps.ledger();
   const others = options.allMachines ? await deps.machines() : [];
-  const rows = buildRows(ledger, others, options.since);
-  const text = options.format === 'json' ? formatJson(rows, options.allMachines ? 'all-machines' : 'this-machine') : formatCsv(rows);
+  let rowCount: number;
+  let text: string;
+  if (options.hours) {
+    const hourRows = buildHourRows(ledger, options.since);
+    rowCount = hourRows.length;
+    text = options.format === 'json' ? formatHoursJson(hourRows) : formatHoursCsv(hourRows);
+  } else {
+    const rows = buildRows(ledger, others, options.since);
+    rowCount = rows.length;
+    text = options.format === 'json' ? formatJson(rows, options.allMachines ? 'all-machines' : 'this-machine') : formatCsv(rows);
+  }
   if (options.out === undefined) {
     process.stdout.write(text);
     return 0;
@@ -153,6 +187,6 @@ export async function runExport(options: ExportOptions, overrides: Partial<Expor
     console.error(`Could not write ${options.out}: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
-  process.stdout.write(`Wrote ${rows.length} rows to ${options.out}.\n`);
+  process.stdout.write(`Wrote ${rowCount} rows to ${options.out}.\n`);
   return 0;
 }

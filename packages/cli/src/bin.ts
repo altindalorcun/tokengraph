@@ -227,12 +227,15 @@ Options:
   --out <file>         Write to a file instead of standard output
   --since <date>       Only days on or after this date (YYYY-MM-DD)
   --all-machines       Add your other machines, as of the last publish
+  --hours              Hour-of-day rows (date, hour, source, weighted tokens) instead of daily rows.
+                       This machine only: hour data is never published and not merged across machines.
 `,
     options: {
       format: { type: 'string', default: 'csv' },
       out: { type: 'string' },
       since: { type: 'string' },
       'all-machines': { type: 'boolean', default: false },
+      hours: { type: 'boolean', default: false },
     },
     run: (values) => {
       const options = parseExportArgs(values);
