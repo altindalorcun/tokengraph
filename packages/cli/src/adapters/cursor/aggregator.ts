@@ -15,8 +15,32 @@ import type { CursorEvent } from './events.js';
 import type { ImportedRow } from './imports.js';
 
 export { MAX_MODEL_NAME_LENGTH } from '../model-ids.js';
-/** Cursor's name for {@link normalizeClaudeModel}, kept for existing callers. */
-export const normalizeCursorModel = normalizeClaudeModel;
+
+/** Models whose Cursor slug carries a reasoning-effort word (and `-fast`) after the model name: OpenAI's gpt- and o-series, xAI's grok-. */
+const EFFORT_MODEL = /^(gpt-|grok-|o\d)/;
+/** A trailing effort level or the fast variant. `max`, `codex`, `mini` and `nano` are models, not efforts, and stay. */
+const TRAILING_EFFORT = /-(fast|none|minimal|low|medium|high|xhigh|extra-high)$/;
+/** A slug made only of these characters is a model id; anything else (`Premium (Codex 5.3)`) is a display label. */
+const MODEL_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
+
+/**
+ * The model id one Cursor slug is stored and priced under. Lowercases and trims, drops a `cursor-`
+ * prefix, rewrites Claude slugs to Anthropic's id ({@link normalizeClaudeModel}) and strips the
+ * reasoning-effort word and `-fast` from OpenAI and xAI ids, so `gpt-5.5-extra-high-fast` is
+ * `gpt-5.5` (the fast tier is read off the raw slug by {@link cursorModelIdentity}). Effort changes
+ * the token volume, not the price. Anything else is kept exactly as Cursor sent it rather than
+ * guessed at: `auto`, `agent_review` and display labels such as `Premium (Codex 5.3)` stay unpriced.
+ */
+export function normalizeCursorModel(raw: string): string {
+  const lower = raw.trim().toLowerCase();
+  const slug = lower.startsWith('cursor-') ? lower.slice('cursor-'.length) : lower;
+  if (slug.startsWith('claude-')) return normalizeClaudeModel(slug);
+  if (!MODEL_SLUG.test(slug)) return raw;
+  if (!EFFORT_MODEL.test(slug)) return slug;
+  let model = slug;
+  for (let next = model.replace(TRAILING_EFFORT, ''); next !== model; next = model.replace(TRAILING_EFFORT, '')) model = next;
+  return model;
+}
 
 export interface CursorAggregatorOptions {
   since?: Date;
@@ -57,7 +81,7 @@ function hasFastWord(raw: string): boolean {
  */
 export function cursorModelIdentity(event: Pick<CursorEvent, 'model' | 'modelId' | 'fast'>): { model: string; pricingTier: PricingTier } {
   const raw = event.modelId ?? event.model ?? 'unknown';
-  const base = normalizeClaudeModel(raw);
+  const base = normalizeCursorModel(raw);
   const fast = event.fast || hasFastWord(raw);
   if (!fast) return { model: capModelName(base), pricingTier: DEFAULT_PRICING_TIER };
   // Cursor sends this lowercase today; matched case-insensitively so a future capitalised id
