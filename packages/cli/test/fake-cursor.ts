@@ -61,6 +61,8 @@ export async function startFakeCursor(): Promise<FakeCursor> {
   const server: Server = createServer((req, res) => {
     const request: SeenRequest = { url: new URL(req.url ?? '/', 'http://127.0.0.1'), headers: req.headers };
     fake.requests.push(request);
+    // Node caches its own Date header; set it from the (possibly faked) clock so tests control the server's time.
+    res.setHeader('date', new Date().toUTCString());
     if (fake.respond) return fake.respond(request, res);
     const { start, end } = windowOf(request.url);
     const body = fake.rows.filter((line) => {

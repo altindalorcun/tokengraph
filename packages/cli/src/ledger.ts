@@ -1,3 +1,4 @@
+import { clampInstant } from './clamp-instant.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { renameWithRetry } from './fs-retry.js';
 import {
@@ -132,7 +133,9 @@ export function mergeCursorAccount(ledger: Ledger, accountKey: string, coveredTh
   const accounts = ledger.accounts?.cursor ?? {};
   const existing = accounts[accountKey];
   const merged = mergeUsage({ version: LEDGER_VERSION, sources: { [CURSOR_SOURCE]: existing?.days ?? {} } }, CURSOR_SOURCE, usage);
-  const covered = existing && existing.coveredThrough > coveredThrough ? existing.coveredThrough : coveredThrough;
+  const incoming = clampInstant(coveredThrough) ?? coveredThrough;
+  const known = existing ? (clampInstant(existing.coveredThrough) ?? existing.coveredThrough) : undefined;
+  const covered = known && known > incoming ? known : incoming;
   return {
     ...ledger,
     accounts: { ...ledger.accounts, cursor: { ...accounts, [accountKey]: { coveredThrough: covered, days: merged.sources[CURSOR_SOURCE] ?? {} } } },
@@ -260,7 +263,7 @@ function parseAccounts(raw: unknown): LedgerAccounts | undefined {
     if (!ACCOUNT_KEY.test(key) || typeof value !== 'object' || value === null) continue;
     const { coveredThrough, days } = value as Record<string, unknown>;
     if (typeof coveredThrough !== 'string' || Number.isNaN(Date.parse(coveredThrough))) continue;
-    cursor[key] = { coveredThrough: new Date(coveredThrough).toISOString(), days: parseDays(days, readTiers) ?? {} };
+    cursor[key] = { coveredThrough: clampInstant(coveredThrough)!, days: parseDays(days, readTiers) ?? {} };
   }
   return Object.keys(cursor).length > 0 ? { cursor } : undefined;
 }

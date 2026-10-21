@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cursorAccountPath, foldCursorAccounts, readAccountRows } from '../src/adapters/cursor/accounts.js';
 import { accountKeyFor } from '../src/adapters/cursor/credentials.js';
 import {
@@ -16,10 +16,11 @@ import {
   THROTTLE_MS,
   type CursorFetchDeps,
 } from '../src/adapters/cursor/fetch.js';
-import { readFetchState } from '../src/adapters/cursor/fetch-state.js';
+import { parseFetchState, readFetchState } from '../src/adapters/cursor/fetch-state.js';
 import type { RootContext } from '../src/agent-roots.js';
 import { readConfig, writeConfig } from '../src/config.js';
-import { emptyLedger } from '../src/ledger.js';
+import { combineMachineUsage } from '@tokengraph/core';
+import { emptyLedger, mergeCursorAccount, parseLedgerAccounts } from '../src/ledger.js';
 import { CSV_HEADER, csvRow, fakeJwt, startFakeCursor, writeStateDb, type FakeCursor } from './fake-cursor.js';
 
 const USER = 'user_01FETCHTEST';
@@ -79,6 +80,7 @@ describe('runCursorFetch', () => {
     runCursorFetch({ trigger, explicit, deps: deps(extra) });
   const advance = (ms: number) => {
     now = new Date(now.getTime() + ms);
+    vi.setSystemTime(now);
   };
 
   beforeEach(async () => {
@@ -89,6 +91,9 @@ describe('runCursorFetch', () => {
     writeStateDb(context, { 'cursorAuth/accessToken': TOKEN, 'cursorAuth/cachedEmail': 'private@example.com' });
     cursor = await startFakeCursor();
     now = new Date('2026-10-21T15:30:00.000Z');
+    // The fetch clamps stored instants to the clock; the tests' clock is fixed (and the fake server's Date header follows it).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
     cursor.rows = [
       csvRow('2026-10-01T10:00:00.000Z', 'composer-2', { input: 100, output: 10 }),
       csvRow('2026-10-20T10:00:00.000Z', 'claude-4.5-sonnet', { input: 50, cacheRead: 500, output: 5 }),
@@ -97,6 +102,7 @@ describe('runCursorFetch', () => {
   afterEach(async () => {
     if (saved === undefined) delete process.env['TOKENGRAPH_HOME'];
     else process.env['TOKENGRAPH_HOME'] = saved;
+    vi.useRealTimers();
     await cursor.close();
     await rm(root, { recursive: true, force: true });
   });
@@ -337,5 +343,42 @@ describe('runCursorFetch', () => {
     expect(sonnet?.[1].standard).toMatchObject({ inputTokens: 50, cacheReadTokens: 500, outputTokens: 5 });
     // A file whose fetch was never recorded is not an account yet.
     expect((await foldCursorAccounts(emptyLedger(), { coveredThrough: {} })).accounts).toBeUndefined();
+  });
+
+  it('clamps coveredThrough to the server Date header when it is earlier than the local clock', async () => {
+    cursor.respond = (_request, res) => {
+      res.setHeader('date', new Date(now.getTime() - 3 * 3_600_000).toUTCString());
+      res.writeHead(200, { 'content-type': 'text/csv' });
+      res.end('');
+    };
+    await run();
+    expect((await readFetchState()).coveredThrough[KEY]).toBe('2026-10-21T12:30:00.999Z');
+  });
+
+  it('a covered instant from the future (2030) is clamped when parsed and does not stop fetching', async () => {
+    const future = '2030-01-01T00:00:00.000Z';
+    expect(parseFetchState({ coveredThrough: { [KEY]: future }, lastAttemptAt: future }).coveredThrough[KEY]).toBe(now.toISOString());
+    expect(parseFetchState({ lastAttemptAt: future, coveredThrough: {} }).lastAttemptAt).toBe(now.toISOString());
+    expect(fetchWindows(future, now.getTime())).toEqual(fetchWindows(now.toISOString(), now.getTime()));
+    expect(fetchWindows(future, now.getTime()).length).toBeGreaterThan(0);
+    // The ledger side: parsing an account (own state or another machine's file) and merging both clamp.
+    const parsed = parseLedgerAccounts({ cursor: { [KEY]: { coveredThrough: future, days: {} } } });
+    expect(parsed?.cursor?.[KEY]?.coveredThrough).toBe(now.toISOString());
+    expect(mergeCursorAccount(emptyLedger(), KEY, future, []).accounts?.cursor?.[KEY]?.coveredThrough).toBe(now.toISOString());
+    // And the hook rows before that 2030 day are no longer dropped: the account covers up to now only.
+    const hook = { source: 'cursor' as const, date: '2026-10-25', model: 'composer-2', pricingTier: 'standard' as const, counts: { inputTokens: 5, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: null, cacheCreation1hTokens: null } };
+    const ledger = mergeCursorAccount(emptyLedger(), KEY, future, []);
+    const rows = combineMachineUsage([{ usage: [hook], accounts: Object.fromEntries(Object.entries(ledger.accounts!.cursor!).map(([k, a]) => [k, { coveredThrough: a.coveredThrough, usage: [] }])) }]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('keys account days on UTC days whatever the machine time zone, and keeps hours local', async () => {
+    cursor.rows = [csvRow('2026-10-20T20:00:00.000Z', 'composer-2', { input: 100, output: 10 })];
+    await run();
+    const ledger = await foldCursorAccounts(emptyLedger(), await readFetchState(), 'Pacific/Port_Moresby');
+    const account = ledger.accounts?.cursor?.[KEY];
+    expect(Object.keys(account?.days ?? {})).toEqual(['2026-10-20']);
+    // 20:00 UTC is already the next morning at +10: the hour lands on the local day.
+    expect(Object.keys(ledger.accountHours?.[KEY] ?? {})).toEqual(['2026-10-21']);
   });
 });

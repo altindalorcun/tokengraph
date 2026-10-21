@@ -181,7 +181,7 @@ async function runSyncLocked(options: SyncOptions): Promise<number> {
 async function cursorStep(ledger: Ledger, options: SyncOptions, say: (line: string) => void): Promise<Ledger> {
   try {
     if (!options.local) {
-      const report = await runCursorFetch({ trigger: options.trigger ?? 'manual', deps: options.deps?.cursor });
+      const report = await runCursorFetch({ trigger: options.trigger ?? 'manual', silent: options.quiet === true, deps: options.deps?.cursor });
       for (const line of report.lines) say(line);
     }
     return await foldCursorAccounts(ledger, await readFetchState());

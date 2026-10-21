@@ -68,6 +68,8 @@ export interface CursorFetchOptions {
   trigger: 'manual' | 'hook' | 'schedule';
   /** `tokengraph cursor fetch`: ignores the hourly throttle (never the back-off) and says why when it does nothing. */
   explicit?: boolean;
+  /** The caller prints nothing (login, readme): the announcement would never be seen, so it counts as not shown. */
+  silent?: boolean;
   deps?: Partial<CursorFetchDeps>;
 }
 
@@ -75,7 +77,8 @@ const utcDayStart = (ms: number): number => Math.floor(ms / DAY_MS) * DAY_MS;
 
 /** The request window, aligned to whole UTC days so rows that share a timestamp land in the same response. */
 export function fetchWindow(coveredThrough: string | undefined, nowMs: number): { startMs: number; endMs: number } {
-  const start = coveredThrough ? utcDayStart(Date.parse(coveredThrough)) - OVERLAP_DAYS * DAY_MS : FIRST_START_MS;
+  // A covered instant in the future (a clock that ran ahead once) counts as now: it never hides today.
+  const start = coveredThrough ? utcDayStart(Math.min(Date.parse(coveredThrough), nowMs)) - OVERLAP_DAYS * DAY_MS : FIRST_START_MS;
   return { startMs: Math.max(FIRST_START_MS, start), endMs: utcDayStart(nowMs) + DAY_MS - 1 };
 }
 
@@ -116,7 +119,7 @@ export async function runCursorFetch(options: CursorFetchOptions): Promise<Curso
     return explicit ? report('off', 'Cursor fetching is off. Turn it on with `tokengraph cursor on`.') : report('off');
   }
   // Consent is announced to a person once, in the terminal. A background run never reads Cursor's files before that.
-  if (setting === undefined && options.trigger !== 'manual') return report('not-announced');
+  if (setting === undefined && (options.trigger !== 'manual' || options.silent === true)) return report('not-announced');
 
   const now = deps.now();
   const state = await readFetchState();
@@ -173,7 +176,9 @@ export async function runCursorFetch(options: CursorFetchOptions): Promise<Curso
     await ensureAccountFile(signIn.accountKey);
     stored += 1;
     const last = index === windows.length - 1;
-    coveredThrough[signIn.accountKey] = last ? now.toISOString() : new Date(window.endMs).toISOString();
+    // Never later than this machine's clock, nor than the server's own clock when it told us (the header has whole-second resolution).
+    const limit = Math.min(now.getTime(), outcome.serverDate === undefined ? Infinity : outcome.serverDate + 999);
+    coveredThrough[signIn.accountKey] = new Date(last ? limit : Math.min(window.endMs, limit)).toISOString();
     if (last) {
       const { lastError: _cleared, backoffUntil: _lifted, ...kept } = state;
       await writeFetchState({ ...kept, lastAttemptAt: now.toISOString(), lastSuccessAt: now.toISOString(), coveredThrough });

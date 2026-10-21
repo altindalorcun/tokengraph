@@ -26,7 +26,7 @@ export function isCursorUrl(url: URL): boolean {
 }
 
 export type FetchOutcome =
-  | { kind: 'ok'; parsed: CursorCsvParse }
+  | { kind: 'ok'; parsed: CursorCsvParse; /** The response's `Date` header (epoch ms) when it is a valid date. */ serverDate?: number }
   /** 401 or 403: the sign-in has expired. */
   | { kind: 'expired' }
   /** 429, with the wait the server asked for when it said (seconds). */
@@ -136,14 +136,16 @@ export async function fetchCursorUsageCsv(request: FetchRequest, options: FetchC
         await response.body?.cancel().catch(() => undefined);
         return { kind: 'failed', reason: `cursor.com answered with status ${response.status}` };
       }
+      const date = Date.parse(response.headers.get('date') ?? '');
+      const serverDate = Number.isNaN(date) ? {} : { serverDate: date };
       const text = await readBounded(response, maxBytes);
       // A window with no usage may come back empty. An HTML page (a bot challenge) never counts as one.
       if (text.trim() === '' && /csv/i.test(response.headers.get('content-type') ?? '')) {
-        return { kind: 'ok', parsed: { ok: true, rows: [], rowsRead: 0, malformed: 0, zero: 0 } };
+        return { kind: 'ok', parsed: { ok: true, rows: [], rowsRead: 0, malformed: 0, zero: 0 }, ...serverDate };
       }
       const parsed = parseCursorCsv(text);
       if (!parsed.ok) return { kind: 'failed', reason: 'cursor.com did not answer with a usage export (a sign-in check or an unknown layout)' };
-      return { kind: 'ok', parsed };
+      return { kind: 'ok', parsed, ...serverDate };
     }
   } catch (error) {
     if (error instanceof TooLarge) return { kind: 'failed', reason: 'the response was larger than the limit and was dropped' };

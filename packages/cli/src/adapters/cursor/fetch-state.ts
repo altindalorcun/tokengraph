@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { clampInstant } from '../../clamp-instant.js';
 import { cursorFetchStatePath } from '../../paths.js';
 
 /**
@@ -28,8 +29,10 @@ export function parseFetchState(raw: unknown): CursorFetchState {
   const state: CursorFetchState = { coveredThrough: {} };
   if (typeof raw !== 'object' || raw === null) return state;
   const fields = raw as Record<string, unknown>;
-  const lastAttemptAt = instant(fields['lastAttemptAt']);
-  const lastSuccessAt = instant(fields['lastSuccessAt']);
+  // A timestamp from the future (a clock that ran ahead once) would throttle fetching until then.
+  const past = (value: unknown): string | undefined => (typeof value === 'string' ? (clampInstant(value) ?? undefined) : undefined);
+  const lastAttemptAt = past(fields['lastAttemptAt']);
+  const lastSuccessAt = past(fields['lastSuccessAt']);
   const backoffUntil = instant(fields['backoffUntil']);
   if (lastAttemptAt) state.lastAttemptAt = lastAttemptAt;
   if (lastSuccessAt) state.lastSuccessAt = lastSuccessAt;
@@ -38,7 +41,7 @@ export function parseFetchState(raw: unknown): CursorFetchState {
   const covered = fields['coveredThrough'];
   if (typeof covered === 'object' && covered !== null) {
     for (const [key, value] of Object.entries(covered as Record<string, unknown>)) {
-      const at = instant(value);
+      const at = typeof value === 'string' ? clampInstant(value) : null;
       if (ACCOUNT_KEY.test(key) && at) state.coveredThrough[key] = at;
     }
   }

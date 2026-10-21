@@ -69,6 +69,22 @@ describe('sync, cursor and status with the Cursor fetch', () => {
     expect((await readConfig()).cursor).toEqual({ fetch: true });
   });
 
+  it('a quiet sync (login, readme) before the announcement reads no sign-in and fetches nothing; after it, it fetches', async () => {
+    const readSignIn = vi.fn(async () => ({ kind: 'not-installed' as const }));
+    const quietDeps = { cursor: { ...deps().cursor, readSignIn } };
+    await runSync({ ...OPTIONS, quiet: true, deps: quietDeps });
+    expect(readSignIn).not.toHaveBeenCalled();
+    expect(cursor.requests).toHaveLength(0);
+    expect((await readConfig()).cursor).toBeUndefined();
+    // Once a person has been told (a manual, non-quiet run), a quiet sync fetches like a background one.
+    await runSync({ ...OPTIONS, deps: deps() });
+    const first = cursor.requests.length;
+    expect(first).toBeGreaterThan(0);
+    now = new Date(now.getTime() + 2 * 3_600_000);
+    await runSync({ ...OPTIONS, quiet: true, deps: deps() });
+    expect(cursor.requests.length).toBeGreaterThan(first);
+  });
+
   it('sync --local never fetches, but still folds what an earlier fetch stored', async () => {
     await runSync({ ...OPTIONS, deps: deps() });
     await rm(ledgerPath());

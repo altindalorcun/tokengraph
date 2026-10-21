@@ -72,7 +72,7 @@ export async function appendAccountRows(accountKey: string, csvRows: readonly Cu
 }
 
 /**
- * Folds every stored account file into the ledger's `accounts.cursor` (max-merge). An account counts only
+ * Folds every stored account file into the ledger's `accounts.cursor` (max-merge), days on UTC days. An account counts only
  * once a fetch has recorded how far it is covered; a file without that record is left out.
  */
 export async function foldCursorAccounts(ledger: Ledger, state: CursorFetchState, timeZone?: string): Promise<Ledger> {
@@ -80,10 +80,14 @@ export async function foldCursorAccounts(ledger: Ledger, state: CursorFetchState
   for (const accountKey of await listAccountKeys()) {
     const coveredThrough = state.coveredThrough[accountKey];
     if (!coveredThrough) continue;
-    const aggregator = new CursorUsageAggregator(timeZone ? { timeZone } : {});
-    for (const row of await readAccountRows(accountKey)) aggregator.addImported(row);
-    const result = aggregator.result();
-    merged = mergeAccountHours(mergeCursorAccount(merged, accountKey, coveredThrough, result.usage), accountKey, result.hours);
+    // Days are UTC days so machines in different time zones key the same events alike; hours stay local (display only).
+    const days = new CursorUsageAggregator({ timeZone: 'UTC' });
+    const hours = new CursorUsageAggregator(timeZone ? { timeZone } : {});
+    for (const row of await readAccountRows(accountKey)) {
+      days.addImported(row);
+      hours.addImported(row);
+    }
+    merged = mergeAccountHours(mergeCursorAccount(merged, accountKey, coveredThrough, days.result().usage), accountKey, hours.result().hours);
   }
   return merged;
 }
