@@ -49,25 +49,26 @@ function* rows(days: HourDays | undefined): Generator<HourlyUsage> {
 
 /**
  * Hour data for this machine only (hours never leave it), with the same Cursor rule as the daily
- * `combineMachineUsage`: account hours are summed across accounts and are complete up to the newest
- * `coveredThrough` (local day D). The `cursor` source's hook hours are ignored for days before D; from D on,
- * per (date, hour), the larger of the account sum and the hook hours wins. With no account, nothing is ignored.
+ * `combineMachineUsage`: account hours are summed across accounts. Let D be the local day of the OLDEST
+ * `coveredThrough` among the accounts. The `cursor` source's hook hours are ignored for days before D (every
+ * account is complete there); from D on (the newest account's day and later too), per (date, hour), the
+ * larger of the account sum and the hook hours wins. With no account, nothing is ignored.
  * `timeZone` must be the one the hours were keyed with (default: the system's).
  */
 export function combineMachineHours(machine: MachineHours, timeZone?: string): SourcedHourly[] {
   const result: SourcedHourly[] = [];
   const accountTotals = new Map<string, HourlyUsage>();
-  let newest: string | null = null;
+  let oldest: Date | null = null;
   for (const account of Object.values(machine.accounts)) {
-    if (newest === null || account.coveredThrough > newest) newest = account.coveredThrough;
+    const covered = new Date(account.coveredThrough);
+    if (!Number.isNaN(covered.getTime()) && (oldest === null || covered < oldest)) oldest = covered;
     for (const row of rows(account.hours)) {
       const key = `${row.date}\0${row.hour}`;
       const existing = accountTotals.get(key);
       accountTotals.set(key, existing ? { ...existing, weighted: existing.weighted + row.weighted } : row);
     }
   }
-  const instant = newest === null ? null : new Date(newest);
-  const coveredDay = instant && !Number.isNaN(instant.getTime()) ? dateKey(instant, timeZone) : null;
+  const coveredDay = oldest === null ? null : dateKey(oldest, timeZone);
 
   for (const [source, days] of Object.entries(machine.sources) as [KnownSource, HourDays][]) {
     if (source === CURSOR_SOURCE && coveredDay !== null) continue;

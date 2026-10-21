@@ -97,9 +97,9 @@ where `sources` is the ledger body.
   `accounts` field that older versions ignore). One pure function in core, `combineMachineUsage`,
   is the combining rule for the graph, the view, the story cards, `export --all-machines` and
   `status`: per account key the machines are merged by per-field max and different accounts are
-  summed; the hook and import `cursor` source is ignored for local days before the newest
-  `coveredThrough`, and from that day on the larger of the account and the summed source is
-  used per model. A machine whose account is never fetched anywhere loses its hook data on
+  summed; account days are UTC days. The hook and import `cursor` source is ignored for days before
+  the oldest `coveredThrough` among the accounts, and from that day on the larger of the summed
+  accounts and the summed source is used per model. A machine whose account is never fetched anywhere loses its hook data on
   covered days (documented in `docs/agents/cursor-usage.md`).
 - Other machines' files are cached in `machines.json`, so `story` and `view` can show
   all-machines numbers offline. The cache is rewritten only by a successful publish.

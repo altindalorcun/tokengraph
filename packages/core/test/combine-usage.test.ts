@@ -25,8 +25,6 @@ function totals(rows: readonly SourcedUsage[]): Record<string, number> {
   return out;
 }
 
-const UTC = 'UTC';
-
 describe('combineMachineUsage', () => {
   it('sums agents across machines and leaves them alone without an account', () => {
     const rows = combineMachineUsage(
@@ -34,7 +32,6 @@ describe('combineMachineUsage', () => {
         machine([local('claude-code', '2026-10-01', 'm', 5), local('cursor', '2026-10-01', 'c', 7)]),
         machine([local('claude-code', '2026-10-01', 'm', 3), local('cursor', '2026-10-01', 'c', 2)]),
       ],
-      UTC,
     );
     expect(totals(rows)).toEqual({ 'claude-code 2026-10-01 m': 8, 'cursor 2026-10-01 c': 9 });
   });
@@ -43,19 +40,18 @@ describe('combineMachineUsage', () => {
     const a1 = account('2026-10-10T12:00:00.000Z', day('2026-10-09', 'c', 100, 10));
     const a2 = account('2026-10-10T18:00:00.000Z', day('2026-10-09', 'c', 120, 5));
     const b = account('2026-10-10T09:00:00.000Z', day('2026-10-09', 'c', 40));
-    const rows = combineMachineUsage([machine([], { aaaa: a1, bbbb: b }), machine([], { aaaa: a2 })], UTC);
+    const rows = combineMachineUsage([machine([], { aaaa: a1, bbbb: b }), machine([], { aaaa: a2 })]);
     // account aaaa: max(100,120)=120 input and max(10,5)=10 output; account bbbb: 40.
     expect(totals(rows)).toEqual({ 'cursor 2026-10-09 c': 160 });
     expect(rows.reduce((sum, row) => sum + row.counts.outputTokens, 0)).toBe(10);
   });
 
-  it('ignores the cursor source on days before the newest coveredThrough', () => {
+  it('ignores the cursor source on days before the covered day (one account)', () => {
     const rows = combineMachineUsage(
       [
         machine([local('cursor', '2026-10-08', 'c', 999), local('cursor', '2026-10-09', 'c', 999)], { aaaa: account('2026-10-10T12:00:00.000Z', day('2026-10-08', 'c', 50), day('2026-10-09', 'c', 60)) }),
         machine([local('cursor', '2026-10-08', 'c', 999)]),
       ],
-      UTC,
     );
     expect(totals(rows)).toEqual({ 'cursor 2026-10-08 c': 50, 'cursor 2026-10-09 c': 60 });
   });
@@ -75,7 +71,6 @@ describe('combineMachineUsage', () => {
         // A second machine's hook events for the same day add to the first machine's before the comparison.
         machine([local('cursor', '2026-10-10', 'big-account', 15)]),
       ],
-      UTC,
     );
     expect(totals(rows)).toEqual({
       'cursor 2026-10-10 big-hooks': 500,
@@ -86,40 +81,52 @@ describe('combineMachineUsage', () => {
   });
 
   it('keeps the account on the boundary day when there is no hook data', () => {
-    const rows = combineMachineUsage([machine([], { aaaa: account('2026-10-10T23:59:00.000Z', day('2026-10-10', 'c', 70)) })], UTC);
+    const rows = combineMachineUsage([machine([], { aaaa: account('2026-10-10T23:59:00.000Z', day('2026-10-10', 'c', 70)) })]);
     expect(totals(rows)).toEqual({ 'cursor 2026-10-10 c': 70 });
   });
 
-  it('uses the newest coveredThrough of any account, from any machine', () => {
-    const rows = combineMachineUsage(
-      [
-        machine([local('cursor', '2026-10-09', 'c', 999)], { aaaa: account('2026-10-08T10:00:00.000Z', day('2026-10-08', 'c', 1)) }),
-        machine([], { bbbb: account('2026-10-10T10:00:00.000Z', day('2026-10-10', 'c', 2)) }),
-      ],
-      UTC,
-    );
-    // The 9th is before the 10th (newest), so the hook rows are dropped there.
-    expect(totals(rows)).toEqual({ 'cursor 2026-10-08 c': 1, 'cursor 2026-10-10 c': 2 });
+  it('stale second account: hooks survive from the oldest coveredThrough on, accounts are summed before it', () => {
+    const rows = combineMachineUsage([
+      machine(
+        [local('cursor', '2026-07-20', 'c', 999), local('cursor', '2026-10-10', 'c', 300), local('cursor', '2026-10-10', 'hook-only', 8)],
+        {
+          aaaaaaaaaaaaaaaa: account('2026-10-21T10:00:00.000Z', day('2026-07-20', 'c', 5), day('2026-10-10', 'c', 100)),
+          bbbbbbbbbbbbbbbb: account('2026-08-01T00:00:00.000Z', day('2026-07-20', 'c', 7)),
+        },
+      ),
+    ]);
+    // 07-20 is before the oldest covered day (08-01): accounts only (5+7), the hook 999 ignored.
+    // 10-10 is after it: B never covers it, so the hook rows count again (max(100, 300)).
+    expect(totals(rows)).toEqual({ 'cursor 2026-07-20 c': 12, 'cursor 2026-10-10 c': 300, 'cursor 2026-10-10 hook-only': 8 });
+  });
+
+  it('two fresh accounts: the oldest of them sets the covered day, accounts are summed', () => {
+    const rows = combineMachineUsage([
+      machine([local('cursor', '2026-10-09', 'c', 999), local('cursor', '2026-10-10', 'c', 10)], {
+        aaaaaaaaaaaaaaaa: account('2026-10-10T20:00:00.000Z', day('2026-10-09', 'c', 1), day('2026-10-10', 'c', 20)),
+        bbbbbbbbbbbbbbbb: account('2026-10-10T08:00:00.000Z', day('2026-10-09', 'c', 2), day('2026-10-10', 'c', 30)),
+      }),
+    ]);
+    expect(totals(rows)).toEqual({ 'cursor 2026-10-09 c': 3, 'cursor 2026-10-10 c': 50 });
   });
 
   it('works with an account present on only one machine', () => {
     const rows = combineMachineUsage(
       [machine([local('claude-code', '2026-10-01', 'm', 4)], { aaaa: account('2026-10-02T00:00:00.000Z', day('2026-10-01', 'c', 9)) }), machine([local('claude-code', '2026-10-01', 'm', 1)])],
-      UTC,
     );
     expect(totals(rows)).toEqual({ 'claude-code 2026-10-01 m': 5, 'cursor 2026-10-01 c': 9 });
   });
 
-  it('keys the day by the given time zone', () => {
-    const covered = account('2026-10-10T20:00:00.000Z');
-    const hooks = machine([local('cursor', '2026-10-10', 'c', 5), local('cursor', '2026-10-11', 'c', 6)], { aaaa: covered });
-    // In UTC the covered day is the 10th (hooks kept from the 10th); at +10 hours it is already the 11th.
-    expect(totals(combineMachineUsage([hooks], 'UTC'))).toEqual({ 'cursor 2026-10-10 c': 5, 'cursor 2026-10-11 c': 6 });
-    expect(totals(combineMachineUsage([hooks], 'Pacific/Port_Moresby'))).toEqual({ 'cursor 2026-10-11 c': 6 });
+  it('compares account days as UTC days whatever the machine time zone is', () => {
+    const hooks = machine([local('cursor', '2026-10-09', 'c', 5), local('cursor', '2026-10-10', 'c', 6)], {
+      aaaaaaaaaaaaaaaa: account('2026-10-10T20:00:00.000Z', day('2026-10-09', 'c', 1)),
+    });
+    // The covered day is the UTC day 10-10: the 9th is account-only, the 10th keeps its hook row.
+    expect(totals(combineMachineUsage([hooks]))).toEqual({ 'cursor 2026-10-09 c': 1, 'cursor 2026-10-10 c': 6 });
   });
 
   it('keeps an unknown cache split unknown', () => {
-    const rows = combineMachineUsage([machine([], { aaaa: account('2026-10-10T00:00:00.000Z', day('2026-10-09', 'c', 1)) })], UTC);
+    const rows = combineMachineUsage([machine([], { aaaa: account('2026-10-10T00:00:00.000Z', day('2026-10-09', 'c', 1)) })]);
     expect(rows[0]!.counts.cacheCreation5mTokens).toBeNull();
   });
 });

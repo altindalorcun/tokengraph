@@ -38,17 +38,21 @@ function addInto(map: Map<string, DailyModelUsage>, entry: DailyModelUsage, how:
  *   different usage. The result lists them unmerged, as separate rows.
  * - An account's figures are the same data on every machine that fetched it, so per account key the
  *   machines are merged by per-field maximum. Different accounts are different usage and add up.
- * - The `cursor` source (hook events and manual CSV imports) overlaps the account figures. Let C be the
- *   newest `coveredThrough` of any account and D the local day containing it. The source is ignored for
- *   days before D (the account figure is complete there). From D on, per day, model and tier the result is
- *   max(account sum, the sum of the machines' `cursor` source): hooks show a turn before cursor.com has it,
- *   and the account figure wins once it has.
+ * - The `cursor` source (hook events and manual CSV imports) overlaps the account figures. Let `low` be the
+ *   OLDEST `coveredThrough` among the accounts (after the per-key merge across machines) and `high` the newest.
+ *   Days before `low`'s day are covered by every account: the source is ignored and the accounts are summed.
+ *   From `low`'s day on (through `high`'s day and every later day) some account may not have its figure
+ *   yet, so per day, model and tier the result is max(sum of the accounts, summed `cursor` source): hooks
+ *   show a turn before cursor.com has it, and the account figure wins once it has. A stale second account
+ *   (signed out, switched) therefore only keeps the hook rows alive; it never hides them. With one account
+ *   `low` = `high`.
  * - With no account at all, nothing is ignored.
  *
- * Account rows carry the `cursor` source. `timeZone` must be the one the days were keyed with
- * (default: the system's, like every adapter).
+ * Account rows carry the `cursor` source and are keyed on UTC days (the fetch folds them that way, so
+ * machines in different time zones agree on the keys); the covered day is the UTC day of `low`. The
+ * `cursor` source keeps each machine's local days and is compared as is.
  */
-export function combineMachineUsage(machines: readonly MachineUsage[], timeZone?: string): SourcedUsage[] {
+export function combineMachineUsage(machines: readonly MachineUsage[]): SourcedUsage[] {
   const accountsByKey = new Map<string, { coveredThrough: string; days: Map<string, DailyModelUsage> }>();
   for (const machine of machines) {
     for (const [accountKey, account] of Object.entries(machine.accounts)) {
@@ -62,13 +66,13 @@ export function combineMachineUsage(machines: readonly MachineUsage[], timeZone?
   }
 
   const accountTotals = new Map<string, DailyModelUsage>();
-  let newest: string | null = null;
+  let oldest: Date | null = null;
   for (const account of accountsByKey.values()) {
-    if (newest === null || account.coveredThrough > newest) newest = account.coveredThrough;
+    const covered = new Date(account.coveredThrough);
+    if (!Number.isNaN(covered.getTime()) && (oldest === null || covered < oldest)) oldest = covered;
     for (const entry of account.days.values()) addInto(accountTotals, entry, addSplitCounts);
   }
-  const instant = newest === null ? null : new Date(newest);
-  const coveredDay = instant && !Number.isNaN(instant.getTime()) ? dateKey(instant, timeZone) : null;
+  const coveredDay = oldest === null ? null : dateKey(oldest, 'UTC');
 
   const cursorTotals = new Map<string, DailyModelUsage>();
   const result: SourcedUsage[] = [];

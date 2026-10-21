@@ -50,6 +50,21 @@ describe('combineMachineHours', () => {
     ]);
   });
 
+  it('a stale second account keeps hook hours alive after its day', () => {
+    const rows = combineMachineHours(
+      machine(
+        { cursor: { '2026-09-01': { '9': 50 }, '2026-10-01': { '9': 40 } } },
+        {
+          aaaaaaaaaaaaaaaa: { coveredThrough: '2026-10-05T00:00:00Z', hours: { '2026-09-01': { '9': 2 }, '2026-10-01': { '9': 1 } } },
+          bbbbbbbbbbbbbbbb: { coveredThrough: '2026-09-10T00:00:00Z', hours: { '2026-09-01': { '9': 3 } } },
+        },
+      ),
+      UTC,
+    );
+    // 09-01 is before the oldest covered day (09-10): accounts summed (2+3), hooks ignored; 10-01 is after: max(1, 40).
+    expect(cursorRows(rows)).toEqual(['2026-09-01 9 5', '2026-10-01 9 40']);
+  });
+
   it('sums different accounts and leaves other agents out of the Cursor rule', () => {
     const rows = combineMachineHours(
       machine(
