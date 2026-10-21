@@ -66,6 +66,10 @@ const SLUGS: ReadonlyArray<readonly [slug: string, model: string, tier: 'standar
   ['o3-mini', 'o3-mini', 'standard', true],
   ['cursor-grok-4.5-medium', 'grok-4.5', 'standard', true],
   ['grok-4.3', 'grok-4.3', 'standard', true],
+  // `fast` is part of these names, not a tier: they keep their full id and the standard tier.
+  ['grok-4-fast', 'grok-4-fast', 'standard', false],
+  ['grok-code-fast-1', 'grok-code-fast-1', 'standard', false],
+  ['grok-4-fast-medium', 'grok-4-fast', 'standard', false],
   // Retired, no published price; a preview id is never priced as its successor.
   ['grok-3-beta', 'grok-3-beta', 'standard', false],
   ['gemini-3-pro-preview', 'gemini-3-pro-preview', 'standard', false],

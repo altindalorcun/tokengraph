@@ -19,17 +19,21 @@ import type { ImportedRow } from './imports.js';
 
 export { MAX_MODEL_NAME_LENGTH } from '../model-ids.js';
 
-/** Models whose Cursor slug carries a reasoning-effort word (and `-fast`) after the model name: OpenAI's gpt- and o-series, xAI's grok-. */
+/** Models whose Cursor slug carries a reasoning-effort word after the model name: OpenAI's gpt- and o-series, xAI's grok-. */
 const EFFORT_MODEL = /^(gpt-|grok-|o\d)/;
-/** A trailing effort level or the fast variant. `max`, `codex`, `mini` and `nano` are models, not efforts, and stay. */
-const TRAILING_EFFORT = /-(fast|none|minimal|low|medium|high|xhigh|extra-high)$/;
+/** OpenAI's gpt- and o-series: the only ids where a trailing `-fast` is the fast tier, not part of the name (`grok-4-fast`, `grok-code-fast-1` are models). */
+const OPENAI_MODEL = /^(gpt-|o\d)/;
+/** A trailing effort level. `max`, `codex`, `mini` and `nano` are models, not efforts, and stay. */
+const TRAILING_EFFORT = /-(none|minimal|low|medium|high|xhigh|extra-high)$/;
+const TRAILING_FAST = /-fast$/;
 /** A slug made only of these characters is a model id; anything else (`Premium (Codex 5.3)`) is a display label. */
 const MODEL_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
 
 /**
  * The model id one Cursor slug is stored and priced under. Lowercases and trims, drops a `cursor-`
  * prefix, rewrites Claude slugs to Anthropic's id ({@link normalizeClaudeModel}) and strips the
- * reasoning-effort word and `-fast` from OpenAI and xAI ids, so `gpt-5.5-extra-high-fast` is
+ * reasoning-effort word from OpenAI and xAI ids and `-fast` from OpenAI ids only (`grok-4-fast` and
+ * `grok-code-fast-1` are models of their own), so `gpt-5.5-extra-high-fast` is
  * `gpt-5.5` (the fast tier is read off the raw slug by {@link cursorModelIdentity}). Effort changes
  * the token volume, not the price. Anything else is kept exactly as Cursor sent it rather than
  * guessed at: `auto`, `agent_review` and display labels such as `Premium (Codex 5.3)` stay unpriced.
@@ -40,8 +44,10 @@ export function normalizeCursorModel(raw: string): string {
   if (slug.startsWith('claude-')) return normalizeClaudeModel(slug);
   if (!MODEL_SLUG.test(slug)) return raw;
   if (!EFFORT_MODEL.test(slug)) return slug;
+  const openai = OPENAI_MODEL.test(slug);
+  const strip = (id: string): string => id.replace(TRAILING_EFFORT, '').replace(openai ? TRAILING_FAST : /$^/, '');
   let model = slug;
-  for (let next = model.replace(TRAILING_EFFORT, ''); next !== model; next = model.replace(TRAILING_EFFORT, '')) model = next;
+  for (let next = strip(model); next !== model; next = strip(model)) model = next;
   return model;
 }
 
@@ -74,7 +80,10 @@ const FAST_SUFFIX = '-fast';
  * to be read off the raw slug before normalising, not off the normalised result.
  */
 function hasFastWord(raw: string): boolean {
-  return raw.trim().toLowerCase().split('-').includes('fast');
+  const slug = raw.trim().toLowerCase().replace(/^cursor-/, '');
+  // Only where `fast` is a tier word: Claude slugs, Composer and OpenAI ids. For anything else (`grok-4-fast`) it is part of the name.
+  if (!slug.startsWith('claude-') && !slug.startsWith('composer-') && !OPENAI_MODEL.test(slug)) return false;
+  return slug.split('-').includes('fast');
 }
 
 /**
