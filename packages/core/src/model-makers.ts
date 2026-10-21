@@ -14,7 +14,8 @@ export type Maker =
   | 'moonshot'
   | 'zhipu'
   | 'minimax'
-  | 'cohere';
+  | 'cohere'
+  | 'cursor';
 
 const NAMES: Record<Maker, string> = {
   anthropic: 'Claude',
@@ -29,6 +30,7 @@ const NAMES: Record<Maker, string> = {
   zhipu: 'Zhipu AI',
   minimax: 'MiniMax',
   cohere: 'Cohere',
+  cursor: 'Cursor',
 };
 
 /** A name fragment counts only at the start of the id or after a separator ("opus-mt" is not "gpt"). */
@@ -51,6 +53,8 @@ const RULES: readonly (readonly [Maker, RegExp])[] = [
   ['zhipu', at('glm|zhipu')],
   ['minimax', at('minimax|abab')],
   ['cohere', at('command|cohere')],
+  // After grok: Cursor's own "cursor-grok-*" ids are xAI's model, not Cursor's Composer.
+  ['cursor', at('composer|cursor-small')],
 ];
 
 function match(id: string): Maker | null {
@@ -84,12 +88,42 @@ export function makerOfIds(ids: readonly string[]): Maker | null {
 
 /**
  * What the graph colours by in per-model mode: the family a model belongs to. Claude, GPT,
- * Gemini, DeepSeek, Qwen, GLM and Kimi each have a hue; everything else, including ids nobody
- * recognises, shares "other". The order is the legend's and breaks ties.
+ * Gemini, DeepSeek, Qwen, GLM, Kimi, Grok, Composer (Cursor's own models), Mistral, Llama and
+ * MiniMax each have a hue; everything else, including ids nobody recognises and Cursor's router
+ * ids ("auto"), shares "other". The order is the legend's and breaks ties between families; new
+ * families go after the older ones so a day's colour in an already published graph cannot change
+ * on a tie.
  */
-export type ModelFamily = 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'qwen' | 'glm' | 'kimi' | 'other';
+export type ModelFamily =
+  | 'claude'
+  | 'gpt'
+  | 'gemini'
+  | 'deepseek'
+  | 'qwen'
+  | 'glm'
+  | 'kimi'
+  | 'grok'
+  | 'composer'
+  | 'mistral'
+  | 'llama'
+  | 'minimax'
+  | 'other';
 
-export const MODEL_FAMILIES: readonly ModelFamily[] = ['claude', 'gpt', 'gemini', 'deepseek', 'qwen', 'glm', 'kimi', 'other'];
+export const MODEL_FAMILIES: readonly ModelFamily[] = [
+  'claude',
+  'gpt',
+  'gemini',
+  'deepseek',
+  'qwen',
+  'glm',
+  'kimi',
+  'grok',
+  'composer',
+  'mistral',
+  'llama',
+  'minimax',
+  'other',
+];
 
 export const FAMILY_LABELS: Record<ModelFamily, string> = {
   claude: 'Claude',
@@ -99,6 +133,11 @@ export const FAMILY_LABELS: Record<ModelFamily, string> = {
   qwen: 'Qwen',
   glm: 'GLM',
   kimi: 'Kimi',
+  grok: 'Grok',
+  composer: 'Composer',
+  mistral: 'Mistral',
+  llama: 'Llama',
+  minimax: 'MiniMax',
   other: 'Other models',
 };
 
@@ -110,6 +149,11 @@ const MAKER_FAMILIES: Partial<Record<Maker, ModelFamily>> = {
   qwen: 'qwen',
   zhipu: 'glm',
   moonshot: 'kimi',
+  xai: 'grok',
+  cursor: 'composer',
+  mistral: 'mistral',
+  meta: 'llama',
+  minimax: 'minimax',
 };
 
 export function familyForMaker(maker: Maker | null): ModelFamily {
@@ -121,7 +165,7 @@ export function modelFamily(modelId: string): ModelFamily {
   return familyForMaker(modelMaker(modelId));
 }
 
-/** Each family's mark for legends. Claude, GPT and Gemini reuse the agents' art so they look identical. */
+/** Each family's mark for legends. Claude, GPT, Gemini and Composer (Cursor) reuse the agents' art so they look identical. */
 export const FAMILY_LOGOS: Partial<Record<ModelFamily, BrandLogoArt>> = {
   claude: AGENT_LOGOS['claude-code'],
   gpt: AGENT_LOGOS['codex-cli'],
@@ -130,7 +174,15 @@ export const FAMILY_LOGOS: Partial<Record<ModelFamily, BrandLogoArt>> = {
   qwen: MAKER_LOGOS.qwen,
   glm: MAKER_LOGOS.zhipu,
   kimi: MAKER_LOGOS.moonshot,
+  grok: MAKER_LOGOS.xai,
+  composer: AGENT_LOGOS.cursor,
+  mistral: MAKER_LOGOS.mistral,
+  llama: MAKER_LOGOS.meta,
+  minimax: MAKER_LOGOS.minimax,
 };
+
+/** Cursor records its model picker's "Auto" choice as one of these ids. */
+const CURSOR_AUTO_IDS = new Set(['auto', 'default']);
 
 const CLAUDE_TIER_NAMES: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' };
 
@@ -140,6 +192,8 @@ const CLAUDE_TIER_NAMES: Record<string, string> = { opus: 'Opus', sonnet: 'Sonne
  * its recorded id minus a release-date suffix, since guessing prettier names would invent them.
  */
 export function displayModelName(modelId: string): string {
+  // Cursor's router ids are a setting, not a model.
+  if (CURSOR_AUTO_IDS.has(modelId.toLowerCase().trim())) return 'Cursor Auto';
   if (modelMaker(modelId) === 'anthropic') {
     const id = modelId.toLowerCase().trim();
     const fromClaude = id.includes('claude') ? id.slice(id.indexOf('claude')) : id;

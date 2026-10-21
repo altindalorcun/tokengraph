@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DISPLAY_SURFACES, FAMILY_RAMPS, FAMILY_RAMPS_LIGHT } from '../src/graph-colors.js';
+import { FAMILY_LABELS, MODEL_FAMILIES } from '../src/model-makers.js';
 import { buildGraphGrid, gridFamilies, formatTokens, formatTokensExact, renderGraphSvg, renderNoticeSvg, WEEKS, type GraphDay } from '../src/graph.js';
 
 function daysEndingAt(endDate: string, count: number, value: (index: number) => number): GraphDay[] {
@@ -241,6 +242,29 @@ describe('per-model legend', () => {
     expect(new Set(ids).size).toBe(ids.length);
     const refs = [...svg.matchAll(/url\(#([^)]+)\)/g)].map((m) => m[1]!);
     for (const ref of refs) expect(ids).toContain(ref);
+  });
+});
+
+describe('legend with every family present', () => {
+  const all = MODEL_FAMILIES.map((family, i) => ({ date: `2026-09-${String(i + 1).padStart(2, '0')}`, weighted: 100 + i, topFamily: family }));
+
+  it('names all thirteen families and wraps them inside the card width', () => {
+    const svg = renderGraphSvg(all, { endDate: '2026-09-30', colorMode: 'per-model' });
+    for (const family of MODEL_FAMILIES) expect(svg).toContain(`>${FAMILY_LABELS[family]}<`);
+    const width = Number(/width="(\d+)"/.exec(svg)![1]);
+    const names = MODEL_FAMILIES.map((family) => FAMILY_LABELS[family]).join('|');
+    const xs = [...svg.matchAll(new RegExp(`<text x="([\\d.]+)"[^>]*>(?:${names})<`, 'g'))].map((m) => Number(m[1]));
+    expect(xs).toHaveLength(MODEL_FAMILIES.length);
+    for (const x of xs) expect(x).toBeLessThan(width - 40);
+    // Wrapped: the x position restarts at least once.
+    expect(xs.some((x, i) => i > 0 && x < xs[i - 1]!)).toBe(true);
+  });
+
+  it('draws a unique gradient id per mark and resolves every reference', () => {
+    const svg = renderGraphSvg(all, { endDate: '2026-09-30', colorMode: 'per-model', theme: 'light' });
+    const ids = [...svg.matchAll(/id="([^"]*)"/g)].map((m) => m[1]!);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const ref of [...svg.matchAll(/url\(#([^)]+)\)/g)].map((m) => m[1]!)) expect(ids).toContain(ref);
   });
 });
 

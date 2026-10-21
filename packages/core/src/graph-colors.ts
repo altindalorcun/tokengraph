@@ -27,9 +27,17 @@ export const CLAUDE_RAMP_DARK: Ramp = ['#292524', '#431407', '#9a3412', '#c2410c
 export const CLAUDE_RAMP_LIGHT: Ramp = ['#ebe9e6', '#fed7aa', '#fdba74', '#f97316', '#ea580c', '#9a3412'];
 
 /**
- * One hue per model family. Eight hues are not all distinguishable under colour-vision
- * deficiency; hue is never the only channel (the legend carries logos and names, each cell's
- * `data-tip` text names its family).
+ * One hue per model family. The first eight hues are published (users' README graphs use them) and
+ * never change. Thirteen hues cannot all be told apart: the dataviz validator, run over the legend
+ * swatches (step 4 of each ramp, all pairs), already fails for the original eight (violet and blue
+ * collapse under deuteranopia), and the five newer hues do not make that worst pair worse. Their
+ * own separation is limited (validator, normal vision; closest pairs): dark 9.2 (Mistral red vs
+ * Claude orange), light 7.6 (Grok emerald vs GLM green). Where separation had to give, it gave
+ * away from the common families: every new hue is at least 9 (dark) / 13 (light) from Claude, GPT
+ * and Gemini under normal vision and at least 6 under colour-vision deficiency. The weakest pairs
+ * are among rarer families (Grok vs GLM/DeepSeek/Llama, Mistral vs Qwen, Composer vs Llama under
+ * CVD). Hue is never the only channel (the legend carries logos and names, each cell's `data-tip`
+ * text names its family).
  */
 export const FAMILY_RAMPS: Record<ModelFamily, Ramp> = {
   claude: CLAUDE_RAMP_DARK,
@@ -39,6 +47,11 @@ export const FAMILY_RAMPS: Record<ModelFamily, Ramp> = {
   qwen: ['#292524', '#500724', '#9d174d', '#be185d', '#db2777', '#f472b6'],
   glm: ['#292524', '#052e16', '#166534', '#15803d', '#16a34a', '#4ade80'],
   kimi: ['#292524', '#422006', '#854d0e', '#a16207', '#ca8a04', '#facc15'],
+  grok: ['#292524', '#022c22', '#065f46', '#059669', '#34d399', '#a7f3d0'],
+  composer: ['#292524', '#4a044e', '#86198f', '#c026d3', '#e879f9', '#f5d0fe'],
+  mistral: ['#292524', '#450a0a', '#991b1b', '#dc2626', '#f87171', '#fecaca'],
+  llama: ['#292524', '#082f49', '#075985', '#0284c7', '#38bdf8', '#7dd3fc'],
+  minimax: ['#292524', '#1a2e05', '#3f6212', '#65a30d', '#a3e635', '#d9f99d'],
   other: ['#292524', '#1e293b', '#334155', '#475569', '#64748b', '#cbd5e1'],
 };
 
@@ -51,6 +64,11 @@ export const FAMILY_RAMPS_LIGHT: Record<ModelFamily, Ramp> = {
   qwen: ['#e7e5e4', '#fce7f3', '#f9a8d4', '#ec4899', '#be185d', '#831843'],
   glm: ['#e7e5e4', '#dcfce7', '#86efac', '#22c55e', '#15803d', '#14532d'],
   kimi: ['#e7e5e4', '#fef9c3', '#fde047', '#eab308', '#a16207', '#713f12'],
+  grok: ['#e7e5e4', '#d1fae5', '#6ee7b7', '#10b981', '#059669', '#064e3b'],
+  composer: ['#e7e5e4', '#fae8ff', '#f0abfc', '#d946ef', '#a21caf', '#701a75'],
+  mistral: ['#e7e5e4', '#fee2e2', '#fca5a5', '#ef4444', '#b91c1c', '#7f1d1d'],
+  llama: ['#e7e5e4', '#e0f2fe', '#7dd3fc', '#0ea5e9', '#0284c7', '#0c4a6e'],
+  minimax: ['#e7e5e4', '#ecfccb', '#d9f99d', '#a3e635', '#84cc16', '#4d7c0f'],
   other: ['#e7e5e4', '#e2e8f0', '#cbd5e1', '#94a3b8', '#64748b', '#334155'],
 };
 
@@ -63,6 +81,11 @@ export const FAMILY_HUES: Record<ModelFamily, string> = {
   qwen: FAMILY_RAMPS.qwen[5],
   glm: FAMILY_RAMPS.glm[5],
   kimi: FAMILY_RAMPS.kimi[5],
+  grok: FAMILY_RAMPS.grok[5],
+  composer: FAMILY_RAMPS.composer[5],
+  mistral: FAMILY_RAMPS.mistral[5],
+  llama: FAMILY_RAMPS.llama[5],
+  minimax: FAMILY_RAMPS.minimax[5],
   other: FAMILY_RAMPS.other[5],
 };
 
