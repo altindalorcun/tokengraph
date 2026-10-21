@@ -53,12 +53,26 @@ function killTree(child) {
   try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
 }
 
+/**
+ * A package bin Windows cannot start by itself: a .js/.mjs/.cjs file, or an extensionless script with a node shebang
+ * (cline's `bin/cline`, used when npm 10 made no shim for it).
+ */
+function isNodeScript(command) {
+  if (/\.(c|m)?js$/i.test(command)) return true;
+  if (parse(command).ext !== '' || !existsSync(command)) return false;
+  try {
+    return /^#!.*\bnode\b/.test(readFileSync(command, 'utf8').slice(0, 200));
+  } catch {
+    return false;
+  }
+}
+
 function exec(command, args, { env, cwd, timeoutMs = 180_000 } = {}) {
   return new Promise((done) => {
     // Windows: node refuses to start a .cmd/.bat without a shell (EINVAL since the 2024 security fix), and a shell needs
     // the command line quoted by hand. POSIX: own process group, so a timeout can kill the whole tree.
     const shim = IS_WIN && /\.(cmd|bat)$/i.test(command);
-    if (IS_WIN && /\.(c|m)?js$/i.test(command)) { args = [command, ...args]; command = process.execPath; } // bin entry without a shim
+    if (IS_WIN && isNodeScript(command)) { args = [command, ...args]; command = process.execPath; } // bin entry without a shim
     const child = shim
       ? spawn([command, ...args].map(cmdQuote).join(' '), { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: true, windowsHide: true })
       : spawn(command, args, { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, detached: !IS_WIN });
