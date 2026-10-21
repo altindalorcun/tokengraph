@@ -104,7 +104,8 @@ const sans = { fontFamily: 'Plex Sans', display: 'flex' };
 const mono = { fontFamily: 'Plex Mono', display: 'flex' };
 const og = h(
   'div',
-  { style: { display: 'flex', flexDirection: 'column', width: OG_WIDTH, height: OG_HEIGHT, background: OG_BACKGROUND, padding: `60px ${OG_PAD_X}px 56px`, justifyContent: 'space-between' } },
+  // border-box: Satori 0.55 adds padding to the height otherwise, and the install line falls off the card.
+  { style: { display: 'flex', flexDirection: 'column', boxSizing: 'border-box', width: OG_WIDTH, height: OG_HEIGHT, background: OG_BACKGROUND, padding: `60px ${OG_PAD_X}px 56px`, justifyContent: 'space-between' } },
   h('img', { src: core.svgUri(core.logoLockupSvg('dark')), height: logoHeight, width: logoWidth }),
   h(
     'div',
