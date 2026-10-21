@@ -1,6 +1,7 @@
 export interface HookCommand {
   type: 'command';
   command: string;
+  [field: string]: unknown;
 }
 
 export interface HookMatcher {
@@ -20,6 +21,11 @@ const TOKEN_GRAPH_HOOK = /^"[^"]+" "[^"]*token-?graph[^"]*bin\.js" (?:hook-sync|
 
 export function isTokenGraphHookCommand(command: string): boolean {
   return TOKEN_GRAPH_HOOK.test(command);
+}
+
+/** Gemini CLI runs hooks through PowerShell on Windows, where a command starting with a quoted path needs a leading `& `. */
+export function isTokenGraphGeminiHookCommand(command: string): boolean {
+  return isTokenGraphHookCommand(command.replace(/^& /, ''));
 }
 
 function readMatchers(settings: Settings, event: string): HookMatcher[] {
@@ -81,10 +87,16 @@ function withoutOurs(settings: Settings, event: string, isOurs: IsOurs): HookMat
  * Returns a new settings object with exactly one tokengraph hook (`command`) on `event`, replacing any
  * older-form copies. Returns `settings` itself when that is already the case. Unrelated keys and hooks are preserved.
  */
-export function addHook(settings: Settings, event: string, command: string, isOurs: IsOurs): Settings {
+export function addHook(
+  settings: Settings,
+  event: string,
+  command: string,
+  isOurs: IsOurs,
+  fields: Record<string, unknown> = {},
+): Settings {
   const existing = matchingCommands(settings, event, isOurs);
   if (existing.length === 1 && existing[0] === command) return settings;
-  const matchers = [...withoutOurs(settings, event, isOurs), { hooks: [{ type: 'command' as const, command }] }];
+  const matchers = [...withoutOurs(settings, event, isOurs), { hooks: [{ ...fields, type: 'command' as const, command }] }];
   return withEvent(settings, event, matchers);
 }
 

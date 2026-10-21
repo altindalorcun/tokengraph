@@ -141,7 +141,7 @@ describe('sync, cursor and status with the Cursor fetch', () => {
     logged.length = 0;
     const health = { installed: false, missing: [], detail: undefined };
     await runStatus(
-      { autoSync: async () => ({ claudeHook: health, cursorHook: health, codexNotify: health, schedule: health }) as never, legacyData: () => [], retention: async () => [] },
+      { autoSync: async () => ({ claudeHook: health, cursorHook: health, codexNotify: health, geminiHook: health, schedule: health }) as never, legacyData: () => [], retention: async () => [] },
       { json: true },
     );
     const report = JSON.parse(logged.join('\n')) as { cursorFetch: Record<string, unknown> };

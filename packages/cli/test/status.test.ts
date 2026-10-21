@@ -23,7 +23,7 @@ describe('status with a GitHub login', () => {
   });
 
   const deps = {
-    autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, schedule: HEALTH }) as never,
+    autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, geminiHook: HEALTH, schedule: HEALTH }) as never,
     legacyData: () => [],
     retention: async () => [],
   };
@@ -86,7 +86,7 @@ describe('status --json', () => {
   });
 
   const deps = {
-    autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, schedule: HEALTH }) as never,
+    autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, geminiHook: HEALTH, schedule: HEALTH }) as never,
     legacyData: () => [],
     retention: async () => [],
   };
@@ -118,7 +118,7 @@ describe('status --json', () => {
       retention: [{ source: 'claude-code', state: 'deletes', days: 30, isDefault: true, setting: 'cleanupPeriodDays', configPath: '/x/settings.json' }],
       legacyData: [],
     });
-    expect(Object.keys(report.backgroundSync).sort()).toEqual(['claudeHook', 'codexNotify', 'cursorHook', 'schedule']);
+    expect(Object.keys(report.backgroundSync).sort()).toEqual(['claudeHook', 'codexNotify', 'cursorHook', 'geminiHook', 'schedule']);
     expect(report.warnings.length).toBeGreaterThan(0);
   });
 

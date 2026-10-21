@@ -175,6 +175,7 @@ const AUTO_SYNC_ROWS: { key: keyof AutoSyncHealth; label: string; reinstall: str
   { key: 'claudeHook', label: 'claude-code hook', reinstall: 'tokengraph install-hook --agent claude-code' },
   { key: 'cursorHook', label: 'cursor hook', reinstall: 'tokengraph install-hook --agent cursor' },
   { key: 'codexNotify', label: 'codex notify', reinstall: 'tokengraph install-hook --agent codex' },
+  { key: 'geminiHook', label: 'gemini-cli hook', reinstall: 'tokengraph install-hook --agent gemini-cli' },
   { key: 'schedule', label: 'hourly schedule', reinstall: 'tokengraph schedule' },
 ];
 

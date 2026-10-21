@@ -6,6 +6,7 @@ describe('resolveHookAgent', () => {
     expect(resolveHookAgent('claude-code')).toEqual({ agent: 'claude-code' });
     expect(resolveHookAgent('cursor')).toEqual({ agent: 'cursor' });
     expect(resolveHookAgent('codex')).toEqual({ agent: 'codex' });
+    expect(resolveHookAgent('gemini-cli')).toEqual({ agent: 'gemini-cli' });
   });
 
   it('requires --agent instead of assuming Claude Code', () => {
@@ -16,6 +17,6 @@ describe('resolveHookAgent', () => {
   });
 
   it('rejects an unknown agent', () => {
-    expect((resolveHookAgent('gemini-cli') as { error: string }).error).toContain('--agent must be claude-code, cursor or codex');
+    expect((resolveHookAgent('windsurf') as { error: string }).error).toContain('--agent must be claude-code, cursor, codex or gemini-cli');
   });
 });

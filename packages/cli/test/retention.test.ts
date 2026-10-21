@@ -179,6 +179,7 @@ const health = (overrides: Partial<AutoSyncHealth> = {}): AutoSyncHealth => ({
   claudeHook: entry(false),
   cursorHook: entry(false),
   codexNotify: entry(false),
+  geminiHook: entry(false),
   schedule: entry(false),
   ...overrides,
 });

@@ -102,7 +102,7 @@ describe('views', () => {
     const agentsBuf = new ScreenBuffer(120, 30);
     drawAgents(agentsBuf, { x: 0, y: 0, width: 120, height: 30 }, {
       ...base(), state: table, detected: ['claude-code', 'codex-cli', 'gemini-cli'],
-      autoSync: { claudeHook: true, cursorHook: false, codexNotify: false, schedule: null },
+      autoSync: { claudeHook: true, cursorHook: false, codexNotify: false, geminiHook: false, schedule: null },
     });
     text = toPlainText(agentsBuf);
     expect(text).toContain('Claude Code');
@@ -123,7 +123,7 @@ describe('views', () => {
     const agents = new ScreenBuffer(160, 40);
     drawAgents(agents, { x: 0, y: 0, width: 160, height: 40 }, {
       ...base(), state: { range: '1y', selected: 0 }, detected: ['claude-code'],
-      autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, schedule: false },
+      autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, geminiHook: null, schedule: false },
     });
     const agentsText = toPlainText(agents);
     for (const s of ['TOKENS BY AGENT · 1 YEAR', '■ Claude Code', '■ Codex CLI', 'auto-sync']) expect(agentsText).toContain(s);
@@ -267,7 +267,7 @@ describe('views', () => {
       const rect = { x: 2, y: 2, width: w, height: h };
       drawOverview(buf, rect, { ...base(), state: { cursor: TODAY, yearEnd: TODAY } });
       drawModels(buf, rect, { ...base(), state: table });
-      drawAgents(buf, rect, { ...base(), state: table, detected: ['gemini-cli'], autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, schedule: false } });
+      drawAgents(buf, rect, { ...base(), state: table, detected: ['gemini-cli'], autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, geminiHook: null, schedule: false } });
       drawInsights(buf, rect, base());
       drawEmpty(buf, rect, { theme, scanning: true });
       drawHelp(buf, rect, theme);

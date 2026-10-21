@@ -162,7 +162,8 @@ export function retentionWarnings(policies: RetentionPolicy[], autoSync: AutoSyn
   const warnings: string[] = [];
   for (const policy of policies) {
     if (policy.state !== 'deletes' || policy.days === null) continue;
-    const covered = policy.source === 'claude-code' ? healthy(autoSync.claudeHook) || healthy(autoSync.schedule) : healthy(autoSync.schedule);
+    const hook = policy.source === 'claude-code' ? autoSync.claudeHook : policy.source === 'gemini-cli' ? autoSync.geminiHook : undefined;
+    const covered = (hook !== undefined && healthy(hook)) || healthy(autoSync.schedule);
     const days = formatDays(policy.days);
     const logs = policy.source === 'qwen-code' ? 'background subagent logs' : 'logs';
     const where = `${policy.setting} in ${policy.configPath}`;

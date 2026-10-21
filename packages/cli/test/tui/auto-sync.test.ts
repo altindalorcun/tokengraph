@@ -24,7 +24,7 @@ describe('detectAutoSync', () => {
       '/home/me/.claude/settings.json': JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command: HOOK }] }] } }),
       '/home/me/Library/LaunchAgents/dev.tokengraph.sync.plist': '<plist/>',
     }));
-    expect(status).toEqual({ claudeHook: true, cursorHook: false, codexNotify: false, schedule: true });
+    expect(status).toEqual({ claudeHook: true, cursorHook: false, codexNotify: false, geminiHook: false, schedule: true });
   });
 
   it('reports unknown for unreadable settings and unsupported platforms', async () => {
@@ -55,7 +55,7 @@ describe('detectAutoSync edge cases', () => {
         return files[p] ?? null;
       },
     }));
-    expect(status).toEqual({ claudeHook: null, cursorHook: false, codexNotify: false, schedule: true });
+    expect(status).toEqual({ claudeHook: null, cursorHook: false, codexNotify: false, geminiHook: false, schedule: true });
   });
 
   it('falls back to ~/.claude when CLAUDE_CONFIG_DIR is empty', async () => {

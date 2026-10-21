@@ -42,7 +42,7 @@ const DEFAULT_DEPS: UninstallDeps = {
   removeEmptyDir: (path) => rmdir(path),
 };
 
-const HOOK_AGENTS: readonly HookAgent[] = ['claude-code', 'cursor', 'codex'];
+const HOOK_AGENTS: readonly HookAgent[] = ['claude-code', 'cursor', 'codex', 'gemini-cli'];
 /**
  * Every file the CLI writes into its data folder (paths.ts, adapters/cursor/events.ts, commands/schedule.ts),
  * deleted by exact name. Nothing else in the folder is ever touched, and nothing is deleted recursively.
@@ -129,8 +129,8 @@ export async function runUninstall(options: UninstallOptions, overrides: Partial
   }
   console.log(
     failed === 0
-      ? `${options.dryRun ? 'Dry run: would remove' : 'Removed'} the Claude Code, Cursor and Codex hooks and the hourly schedule.`
-      : `${failed} of 4 removals failed.`,
+      ? `${options.dryRun ? 'Dry run: would remove' : 'Removed'} the Claude Code, Cursor, Codex and Gemini CLI hooks and the hourly schedule.`
+      : `${failed} of 5 removals failed.`,
   );
 
   let purgeFailed = false;

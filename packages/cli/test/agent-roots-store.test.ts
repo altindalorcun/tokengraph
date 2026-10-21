@@ -362,7 +362,7 @@ describe('status agent folders', () => {
     await mkdir(join(process.env['HOME']!, '.pi', 'agent', 'sessions'), { recursive: true });
     const none = { installed: null, missing: [] };
     const deps = {
-      autoSync: async () => ({ claudeHook: none, cursorHook: none, codexNotify: none, schedule: none }),
+      autoSync: async () => ({ claudeHook: none, cursorHook: none, codexNotify: none, geminiHook: none, schedule: none }),
       retention: async () => [],
       legacyData: () => [],
     };

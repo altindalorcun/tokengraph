@@ -31,7 +31,7 @@ Commands:
   readme               Print the README snippet for your graph (and copy it)
   logout               Disconnect GitHub on this machine
   status               Show the account, ledger and background syncs on this machine
-  install-hook         Sync automatically when Claude Code, Cursor or Codex finishes
+  install-hook         Sync automatically when Claude Code, Cursor, Codex or Gemini CLI finishes
   schedule             Sync every hour in the background
   story                Turn your usage into story cards and send them to your phone
   export               Write your daily usage as CSV or JSON
@@ -250,7 +250,7 @@ Options:
 Makes an agent start a background sync when it finishes, so your graph stays current.
 
 Options:
-  --agent <name>       claude-code, cursor or codex (required)
+  --agent <name>       claude-code, cursor, codex or gemini-cli (required)
   --remove             Uninstall the hook
   --dry-run            Show the resulting settings without writing them
   --event <name>       Claude Code hook event (default: ${DEFAULT_HOOK_EVENT})
@@ -286,7 +286,7 @@ Options:
     help: `Usage: tokengraph schedule [options]
 
 Runs a sync every hour in the background (launchd on macOS, cron on Linux, Task Scheduler on Windows).
-Use it for agents without a hook (Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose) or to pick up Cursor's recorded turns and, when Cursor fetching is on, your Cursor history from cursor.com.
+Use it for agents without a hook (Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose) or to pick up Cursor's recorded turns and, when Cursor fetching is on, your Cursor history from cursor.com.
 
 Options:
   --remove             Remove the hourly sync
@@ -400,7 +400,7 @@ counts it twice.
   uninstall: {
     help: `Usage: tokengraph uninstall [options]
 
-Removes everything tokengraph installed on this machine: the Claude Code, Cursor and Codex hooks and the
+Removes everything tokengraph installed on this machine: the Claude Code, Cursor, Codex and Gemini CLI hooks and the
 hourly schedule. Your gists and your agents' own data are never touched.
 
 Options:

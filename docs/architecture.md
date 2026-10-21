@@ -191,7 +191,7 @@ Code's roots also include Claude Desktop's Code and Cowork session folders (`ada
 
 ## Background syncs
 
-`install-hook` makes an agent run the hidden `hook-sync` command, which only spawns a detached
+`install-hook` makes an agent (Claude Code, Cursor, Codex, Gemini CLI) run the hidden `hook-sync` command (Gemini: a `SessionEnd` entry in `<GEMINI_CLI_HOME or home>/.gemini/settings.json`, foreign hooks and keys kept, `docs/agents/gemini-cli-usage.md`), which only spawns a detached
 `sync`, so the hook returns instantly. `schedule` installs an hourly `sync --since 30` (launchd,
 cron or Task Scheduler). Both take `~/.tokengraph/sync.lock`, so two syncs never run at once, and
 `status` checks that the installed commands still point at an existing node and script. `status` also reports the log-retention policy of Claude Code, Gemini CLI and Qwen Code (`--json` for scripts). `uninstall` removes the hooks and the schedule; `--purge` also deletes only tokengraph's own files in the state folder (anything else there is kept), never the user's gists or the agents' logs.

@@ -118,7 +118,7 @@ you run `tokengraph login`, nothing is sent anywhere.
 | Claude Code | `~/.claude/projects/**/*.jsonl` and `transcripts` (also `$CLAUDE_CONFIG_DIR`), and the Code and Cowork sessions of the Claude desktop app (`~/Library/Application Support/Claude`, `%APPDATA%\Claude`, `~/.config/Claude`) | Claude Code deletes old transcripts, so sync at least every few weeks. `tokengraph install-hook --agent claude-code` syncs when a session ends. |
 | Codex CLI | `~/.codex/sessions` and `archived_sessions` (also `$CODEX_HOME`) | `tokengraph install-hook --agent codex` syncs after a turn, at most every 10 minutes. It never overwrites a `notify` setting that is not its own. |
 | Cursor | Your own usage history from cursor.com, fetched with Cursor's sign-in on this machine (`cursor-account-*.jsonl`); `~/.tokengraph/cursor-events.jsonl`, written by Cursor's `stop` hook, for real time | Cursor keeps no usable token counts on disk. When Cursor is signed in, `tokengraph sync` fetches your whole usage history from cursor.com by itself, at most once an hour (every machine, IDE, CLI and cloud agents; turn it off with `tokengraph cursor off`). The hook (`tokengraph install-hook --agent cursor`, then restart Cursor) fills in the hours before cursor.com has them; a usage CSV (`tokengraph import cursor <csv>`) works for people who keep fetching off. |
-| Gemini CLI | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp` from the macOS sandbox (also under `$GEMINI_CLI_HOME`) | Gemini CLI deletes sessions after 30 days by default, so sync at least monthly. It never records some side calls, so totals are a lower bound. |
+| Gemini CLI | `~/.gemini/tmp/*/chats`, and `~/.cache/.gemini/tmp` from the macOS sandbox (also under `$GEMINI_CLI_HOME`) | `tokengraph install-hook --agent gemini-cli` syncs when a session ends (Gemini CLI settings, also under `$GEMINI_CLI_HOME`); `tokengraph schedule` still covers it. Gemini CLI deletes sessions after 30 days by default, so sync at least monthly. It never records some side calls, so totals are a lower bound. |
 | Cline | `saoudrizwan.claude-dev/tasks` in VS Code-family editors (VS Code, Cursor, VSCodium, Windsurf, Positron, Trae, Kiro, Antigravity and others; `$XDG_CONFIG_HOME` on Linux, `%APPDATA%` on Windows; remote `~/.vscode-server` and friends), and `~/.cline/data` (also `$CLINE_DIR`, `$CLINE_DATA_DIR`, `$CLINE_SESSION_DATA_DIR`) | Requests Cline sends through the Claude Code provider are skipped, because the Claude Code adapter already counts them. |
 | OpenCode | `~/.local/share/opencode/opencode*.db` and the older `storage/` folder (also under `$XDG_DATA_HOME`; `$OPENCODE_DB` adds one database) | Reading the database needs Node 22.13 or newer. Records from before OpenCode 1.3.16 that cannot be read with certainty are skipped and reported. |
 | Kilo CLI | `~/.local/share/kilo/kilo*.db` (also under `$XDG_DATA_HOME`; `$KILO_DB` adds one database) | Kilo Code 7.x in VS Code writes the same database, so it is counted here too. Reading the database needs Node 22.13 or newer. Records from before Kilo 7.2.6 that cannot be read with certainty are skipped and reported. |
@@ -133,7 +133,7 @@ Every agent is read from its default folder plus any folder its environment vari
 (in `config.json`) the first time a command runs with it set, so the hourly sync and the hooks, which do not get your shell's environment,
 still read it. `tokengraph status` lists the folders it scans and whether they exist.
 
-Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code and Goose need no hook: `tokengraph schedule` syncs them every hour. Aider is
+Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code and Goose have no hook (and Gemini CLI's is optional): `tokengraph schedule` syncs them every hour. Aider is
 not supported, because its local history rounds token counts.
 
 ## Commands
@@ -149,7 +149,7 @@ Every command takes `--help`. An unknown option is an error.
 | `tokengraph readme` | Prints the README snippet and copies it. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | Draws story cards, saves the PNGs (to your Downloads folder unless `--out <dir>`) and offers to send them to your phone. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>`. |
 | `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, which background syncs are installed and healthy, the folders each agent is read from (and which exist), and how long Claude Code, Gemini CLI and Qwen Code keep their logs, with a warning when a short retention puts history at risk. `--json` prints it as one JSON object for scripts and AI agents. |
-| `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
+| `tokengraph install-hook --agent <claude-code\|cursor\|codex\|gemini-cli>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off. |
 | `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. Reads the ledger only. |
 | `tokengraph cursor fetch\|on\|off` | Fetches your Cursor usage from cursor.com now (ignoring the hourly pause), or turns the automatic fetch on or off. `tokengraph import cursor --fetch` does the same as `cursor fetch`. `status` shows its state. If Cursor's sign-in has expired, open Cursor once. |
@@ -187,7 +187,7 @@ them at a tenth keeps the graph about work done. The formula is under [How it wo
 **Does it work offline?** Yes. `view`, `story`, `status`, `export`, `import <file>` and `sync --local` never use the network.
 Only publishing needs GitHub, and the Cursor fetch (`sync`, `cursor fetch`) needs cursor.com.
 
-**How do I stop?** `tokengraph uninstall` removes the Claude Code, Cursor and Codex hooks and the hourly
+**How do I stop?** `tokengraph uninstall` removes the Claude Code, Cursor, Codex and Gemini CLI hooks and the hourly
 schedule; add `--purge` to also delete tokengraph's own files in `~/.tokengraph` (the ledger, the login, logs, and the Cursor event, import and fetched-account files). Anything else in that folder stays.
 Then `npm uninstall -g tokengraph`. Your gists stay on GitHub until you delete them.
 

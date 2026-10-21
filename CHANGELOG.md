@@ -16,8 +16,9 @@ The first public release.
   receipt and sticker) on your machine and can send them to your phone with a QR code over the
   local network.
 - **Agents.** Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI,
-  pi, Qwen Code and Goose. Claude Code, Codex and Cursor can start a background sync when they
-  finish; the others are picked up by the hourly schedule.
+  pi, Qwen Code and Goose. Claude Code, Codex, Cursor and Gemini CLI can start a background sync when
+  they finish (`tokengraph install-hook --agent gemini-cli` adds a `SessionEnd` hook to Gemini's
+  settings without touching other hooks); the others are picked up by the hourly schedule.
 - **No usage missed by where an agent keeps its files.** Every agent is read from its default folder,
   the folder its environment variable names and the folders remembered from earlier runs (so the
   hourly sync still reads a profile set only in your shell), including Claude desktop's Code and
