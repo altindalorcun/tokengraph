@@ -140,7 +140,7 @@ Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code 和 Goose 没有 hook
 | `tokengraph export` | 把你的每日用量写成 CSV 或 JSON，每个日期、agent、模型和定价档位一行，附带加权 token 数和估算费用。可用 `--format csv\|json`、`--out <file>`、`--since <date>`、`--all-machines`。`--hours` 则改为每个日期、本地小时和 agent 一行（日期、小时、来源、加权 token 数；仅限这台机器）。只读取账本。 |
 | `tokengraph cursor fetch\|on\|off` | 立即从 cursor.com 获取你的 Cursor 用量（忽略每小时一次的间隔），或开启、关闭自动获取。`tokengraph import cursor --fetch` 与 `cursor fetch` 作用相同。`status` 会显示其状态。如果 Cursor 的登录已过期，请先打开一次 Cursor。 |
 | `tokengraph import cursor <file.csv>` | 手动补入 Cursor 历史，适用于关闭了自动获取的情况：从 Cursor 控制台下载用量 CSV（Usage，导出 CSV）并传给它。重复导入同一个或有重叠的文件，不会重复计数。只在一台机器上导入：各台机器的数据会相加，所以同一个文件在两台机器上导入会被计两次。从不发布。 |
-| `tokengraph uninstall` | 移除 Claude Code、Cursor 和 Codex 的 hook 以及每小时的定时任务。`--purge` 还会删除 `~/.tokengraph` 中 tokengraph 自己的文件（账本、登录信息、日志、Cursor 事件文件、导入文件和获取到的账号文件），并保留那里的其他任何东西；`--yes` 跳过确认，`--dry-run` 不做任何改动。你的 gist 绝不会被触碰。 |
+| `tokengraph uninstall` | 移除 Claude Code、Cursor、Codex 和 Gemini CLI 的 hook 以及每小时的定时任务。`--purge` 还会删除 `~/.tokengraph` 中 tokengraph 自己的文件（账本、登录信息、日志、Cursor 事件文件、导入文件和获取到的账号文件），并保留那里的其他任何东西；`--yes` 跳过确认，`--dry-run` 不做任何改动。你的 gist 绝不会被触碰。 |
 
 hook 和定时任务会记录已安装程序的路径，所以使用它们之前请全局安装 tokengraph（`npm install -g tokengraph`）；两者都拒绝从 `npx` 缓存运行。
 

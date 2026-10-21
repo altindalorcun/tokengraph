@@ -140,7 +140,7 @@ Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose에는 훅이 없습
 | `tokengraph export` | 일별 사용량을 CSV 또는 JSON으로 씁니다. 날짜, 에이전트, 모델, 요금 등급마다 한 행이며, 가중 토큰 수와 예상 비용이 들어 있습니다. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. `--hours`는 대신 날짜, 현지 시각의 시간, 에이전트마다 한 행을 씁니다(날짜, 시, 소스, 가중 토큰 수. 이 컴퓨터만). 원장만 읽습니다. |
 | `tokengraph cursor fetch\|on\|off` | cursor.com에서 Cursor 사용량을 지금 가져오거나(한 시간 대기는 무시합니다), 자동 가져오기를 켜거나 끕니다. `tokengraph import cursor --fetch`는 `cursor fetch`와 같은 동작을 합니다. `status`가 상태를 보여 줍니다. Cursor의 로그인이 만료되었다면 Cursor를 한 번 여세요. |
 | `tokengraph import cursor <file.csv>` | 가져오기를 꺼 둔 경우에 Cursor 기록을 직접 추가합니다. Cursor 대시보드에서 사용량 CSV를 내려받아(Usage, export CSV) 여기에 넘기세요. 같은 파일이나 일부 겹치는 파일을 두 번 가져와도 두 번 더해지지 않습니다. 한 컴퓨터에서만 가져오세요. 컴퓨터별 값은 합산되므로 같은 파일을 두 컴퓨터에서 가져오면 두 번 집계됩니다. 게시는 하지 않습니다. |
-| `tokengraph uninstall` | Claude Code, Cursor, Codex 훅과 한 시간마다 도는 스케줄을 제거합니다. `--purge`는 `~/.tokengraph`에 있는 tokengraph 자체 파일(원장, 로그인 정보, 로그, Cursor 이벤트 파일, 가져오기 파일, 가져온 계정 파일)도 삭제하고 그 밖의 파일은 그대로 둡니다. `--yes`는 확인을 건너뛰고, `--dry-run`은 아무것도 바꾸지 않습니다. gist는 절대 건드리지 않습니다. |
+| `tokengraph uninstall` | Claude Code, Cursor, Codex, Gemini CLI 훅과 한 시간마다 도는 스케줄을 제거합니다. `--purge`는 `~/.tokengraph`에 있는 tokengraph 자체 파일(원장, 로그인 정보, 로그, Cursor 이벤트 파일, 가져오기 파일, 가져온 계정 파일)도 삭제하고 그 밖의 파일은 그대로 둡니다. `--yes`는 확인을 건너뛰고, `--dry-run`은 아무것도 바꾸지 않습니다. gist는 절대 건드리지 않습니다. |
 
 훅과 스케줄은 설치된 프로그램의 경로를 저장하므로, 사용하기 전에 tokengraph를 전역으로 설치하세요(`npm install -g tokengraph`). 둘 다 `npx` 캐시에서는 실행을 거부합니다.
 

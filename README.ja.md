@@ -140,7 +140,7 @@ Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code、Goose にフック�
 | `tokengraph export` | 日ごとの使用量を、日付・エージェント・モデル・料金ティアごとに 1 行の CSV または JSON で書き出します。重み付きトークン数と推定コストを含みます。`--format csv\|json`、`--out <file>`、`--since <date>`、`--all-machines`。`--hours` を付けると、代わりに日付・ローカル時刻の時間帯・エージェントごとに 1 行を書き出します（日付、時、ソース、重み付きトークン数。このマシンのみ）。台帳だけを読みます。 |
 | `tokengraph cursor fetch\|on\|off` | cursor.com から Cursor の使用量を今すぐ取得するか（1 時間の待機は無視します）、自動取得をオンまたはオフにします。`tokengraph import cursor --fetch` は `cursor fetch` と同じ動作です。`status` で状態を確認できます。Cursor のサインインが期限切れなら、Cursor を一度開いてください。 |
 | `tokengraph import cursor <file.csv>` | 取得を無効にしているときに、Cursor の履歴を手作業で追加します。Cursor のダッシュボードから使用量 CSV をダウンロードし（Usage、export CSV）、ここに渡してください。同じファイルや重なりのあるファイルを 2 回取り込んでも、二重には加算されません。取り込みは 1 台のマシンだけで行ってください。マシン同士の値は合算されるので、同じファイルを 2 台で取り込むと 2 回数えられます。公開はしません。 |
-| `tokengraph uninstall` | Claude Code、Cursor、Codex のフックと 1 時間ごとのスケジュールを削除します。`--purge` を付けると、`~/.tokengraph` にある tokengraph 自身のファイル（台帳、ログイン情報、ログ、Cursor のイベントファイル、インポートファイル、取得したアカウントのファイル）も削除し、それ以外のものは残します。`--yes` で確認を省略し、`--dry-run` では何も変更しません。gist には一切手を触れません。 |
+| `tokengraph uninstall` | Claude Code、Cursor、Codex、Gemini CLI のフックと 1 時間ごとのスケジュールを削除します。`--purge` を付けると、`~/.tokengraph` にある tokengraph 自身のファイル（台帳、ログイン情報、ログ、Cursor のイベントファイル、インポートファイル、取得したアカウントのファイル）も削除し、それ以外のものは残します。`--yes` で確認を省略し、`--dry-run` では何も変更しません。gist には一切手を触れません。 |
 
 フックとスケジュールはインストール済みプログラムのパスを保存するので、使う前に tokengraph をグローバルにインストールしてください（`npm install -g tokengraph`）。どちらも `npx` のキャッシュからの実行は拒否します。
 
