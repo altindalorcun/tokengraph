@@ -6,6 +6,7 @@ export * from './font-metrics.js';
 export * from './graph.js';
 export * from './graph-colors.js';
 export * from './graph-days.js';
+export * from './graph-stats.js';
 export * from './hours.js';
 export * from './levels.js';
 export * from './maker-logos.js';
