@@ -158,30 +158,48 @@ resumes from there instead of starting over. An account with no usage still gets
 fetched. Every window starts and ends on a whole UTC day, so rows that share a timestamp are always in
 the same response: the row id is the import scheme's SHA-256 (fields plus the occurrence among identical rows
 of one response), so fetching an overlapping window again adds nothing, while two real identical requests stay
-two rows. If a row's counters change on Cursor's side after it was stored, the changed row is stored as a new
-one and the ledger keeps the larger figure per day (it never shrinks); this has not been seen in practice.
+two rows. If a row's counters change on Cursor's side after it was stored, the changed row is added again as a
+new one (its id includes the counters), so that day holds old plus new; this has not been observed.
+
+**Lock.** The fetch runs inside the sync lock, before the local logs are read. The first fetch (about forty
+windows, each with a 30 s timeout) can hold the lock for several minutes, during which a hook or scheduled
+sync reports "another sync is running" and skips; later fetches are one or two requests.
+
+**Clock.** `coveredThrough` is never later than now: it is written as the earlier of the local clock and the
+response's `Date` header (when valid) and clamped to now again whenever it is read (fetch state, ledger, and
+machine files from other machines), so a machine whose clock once ran ahead cannot make an account look
+covered into the future. A covered instant in the future is treated as now when windows are chosen.
 
 **Accounting.** The fetched data is the account's, not the machine's: it contains the machine's hook turns and
 every other machine's usage. The ledger therefore holds it in a separate section,
 `accounts.cursor[accountKey] = { coveredThrough, days }` (days in the same day/model/tier shape as a source,
-local dates, max-merged; `coveredThrough` is the instant of the last successful fetch). The machine file in the
+UTC dates, max-merged; `coveredThrough` is the instant of the last successful fetch). The machine file in the
 data gist carries the same additive `accounts` field; older versions ignore it. One pure function in
 `packages/core` (`combineMachineUsage`, `combine-usage.ts`) combines everything for the graph, the view, the story
 cards, `export --all-machines`, `status` and the publish:
 
 1. Per `accountKey`, take the per-field maximum across machines (the same account is the same data), then sum
    across different accounts.
-2. The `cursor` source (hook events and imported CSV rows, summed across machines) is ignored for every local day
-   before the day that contains the newest `coveredThrough` of any account.
-3. On that day and later, per day, model and tier, the result is the larger of the account figure and the summed
-   `cursor` source: the hook shows a turn before cursor.com has it, and the account wins once it has.
+2. Let `low` be the oldest `coveredThrough` among the accounts and `high` the newest. The `cursor` source (hook
+   events and imported CSV rows, summed across machines) is ignored for every day before `low`'s UTC day: every
+   account is complete there, and the accounts are summed.
+3. From `low`'s day on (through `high`'s day and every later day), per day, model and tier, the result is the
+   larger of the summed accounts and the summed `cursor` source: the hook shows a turn before cursor.com has it,
+   and the accounts win once they have it. A stale second account (signed out, switched, fetched months ago)
+   therefore keeps hook rows alive from its last covered day on instead of hiding them. With one account
+   `low` = `high`.
 4. With no account fetched anywhere, the `cursor` source counts as before.
 
 **Known limit.** A machine whose Cursor account is never fetched anywhere (fetching off, or Cursor never signed in
 there) loses its hook data on days another machine's fetch covers, and an account that was never fetched shows
 only what its hooks and imports hold. In practice every machine with Cursor signed in fetches its own account.
-Days are keyed by each machine's local time zone, so machines in different zones can disagree by up to a day at a
-boundary.
+
+**Time zones.** Cursor account usage is placed on **UTC days**: the fetched rows are folded with the UTC day of
+each request, so machines in different time zones agree on the keys and the per-key max across machines never
+counts one event twice. The covered-day comparison uses UTC days too. Hook and import rows (the `cursor`
+source) stay on each machine's local days, so around midnight a hook turn and its account row can sit on
+neighbouring days for a few hours until the fetch has it. Account hours (`accountHours`, local only, display
+only) stay on local hours.
 
 `tokengraph cursor off` stops fetching and keeps what was fetched; `tokengraph import cursor <file.csv>` still works
 for people who keep it off. `uninstall --purge` deletes the account files and the state.
@@ -261,8 +279,9 @@ Cursor adds up with its usage in other tools:
   `extra-high`) on `gpt-*`, `grok-*` and o-series (`o3`, `o4-mini`) ids: `gpt-5.5-extra-high` → `gpt-5.5`,
   `gpt-5.1-codex-high` → `gpt-5.1-codex`, `o3-mini-high` → `o3-mini`. Effort changes how many tokens are
   produced, not the price. `max`, `codex`, `mini`, `nano` and `pro` are models, not efforts, and stay
-  (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`). A trailing `-fast` on these ids is dropped too and read as the
-  `fast` tier (below).
+  (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`). A trailing `-fast` is dropped and read as the `fast` tier
+  (below) **only on `gpt-*` and o-series ids**: `grok-4-fast` and `grok-code-fast-1` are models of their own
+  and keep their full id and the standard tier (a `grok-4-fast-medium` slug still loses its effort word).
 - Other ids (`gemini-*`, `composer-*`, `grok-3-beta`, ...) are lowercased only. `auto`, `agent_review` and
   display labels such as `Premium (Codex 5.3)` are kept **exactly as sent** and stay unpriced: `auto` is a
   router with no per-token price, and the others do not name a model.
