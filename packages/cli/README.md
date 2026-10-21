@@ -58,7 +58,9 @@ README (the `YOUR_LOGIN/YOUR_LOGIN` repository):
 The graph switches between light and dark with the reader's GitHub theme. Every sync updates the
 same gist, so the snippet never changes. Use `tokengraph readme --compact` for a smaller graph
 without labels, and `tokengraph readme --colors single` for one colour instead of one per model
-family (`--colors model` switches back).
+family (`--colors model` switches back). The families are Claude, GPT, Gemini, DeepSeek, Qwen,
+GLM, Kimi, Grok, Composer (Cursor's own models), Mistral, Llama and MiniMax; every other model
+counts as "Other models".
 
 ## Share your day
 
