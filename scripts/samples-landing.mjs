@@ -116,7 +116,9 @@ export function dayModels(core, modelRows, dates) {
 
 export function buildLanding(core, { referenceDate, handle }) {
   const now = new Date(`${referenceDate}T12:00:00Z`);
-  const { days, modelRows } = core.demoUsage(now);
+  // The demo year the story cards draw, so the site's numbers match theirs.
+  const { rows: modelRows } = core.demoStoryRows(now);
+  const days = core.toGraphDaysByFamily(modelRows);
   const endDate = core.graphEndDate(referenceDate, days.map((day) => day.date));
   const grid = core.buildGraphGrid(days, endDate);
   const cells = grid.columns.flat().filter((cell) => cell !== null);

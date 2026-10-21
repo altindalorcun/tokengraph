@@ -16,22 +16,24 @@ import { buildLanding } from './samples-landing.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REFERENCE = new Date('2026-10-11T12:00:00Z');
 const REFERENCE_DATE = '2026-10-11';
-// The README graph ends on a weekday the demo account coded on, so its TODAY figure is not zero.
-const GRAPH_DATE = '2026-10-06';
 const REPO_URL = 'https://github.com/altindalorcun/tokengraph';
 const out = resolve(process.argv.slice(2).find((arg) => !arg.startsWith('--')) ?? 'samples');
 const readme = process.argv.includes('--readme');
 mkdirSync(out, { recursive: true });
 
+// Every sample draws the demo year the story cards draw: slid so its heaviest recent day is today, so the graph's
+// TODAY, the story cards and the site's numbers all agree.
+const { rows: modelRows } = core.demoStoryRows(REFERENCE);
+const demoDays = core.toGraphDaysByFamily(modelRows);
+
 // 1. README graphs, exactly as `tokengraph sync` publishes them.
-const { modelRows } = core.demoUsage(REFERENCE);
-const usage = modelRows.filter((row) => row.date <= GRAPH_DATE).map((row) => ({
+const usage = modelRows.map((row) => ({
   date: row.date,
   model: row.model,
   pricingTier: 'standard',
   counts: { ...row, cacheCreation5mTokens: null, cacheCreation1hTokens: null },
 }));
-const graphs = core.renderPublishedGraphs(usage, { today: GRAPH_DATE, colors: 'model' });
+const graphs = core.renderPublishedGraphs(usage, { today: REFERENCE_DATE, colors: 'model' });
 const graphFiles = {
   'graph-dark.svg': graphs['tokengraph-dark.svg'],
   'graph-light.svg': graphs['tokengraph-light.svg'],
@@ -82,7 +84,6 @@ const [, , lockupW, lockupH] = /viewBox="([^"]+)"/.exec(core.logoLockupSvg('dark
 const logoHeight = 48;
 const logoWidth = Math.round((lockupW / lockupH) * logoHeight);
 
-const { days: demoDays } = core.demoUsage(REFERENCE);
 const grid = core.buildGraphGrid(demoDays, core.graphEndDate(REFERENCE_DATE, demoDays.map((day) => day.date)));
 const pitch = innerWidth / core.WEEKS;
 const cell = pitch * 0.84;
@@ -104,7 +105,8 @@ const sans = { fontFamily: 'Plex Sans', display: 'flex' };
 const mono = { fontFamily: 'Plex Mono', display: 'flex' };
 const og = h(
   'div',
-  { style: { display: 'flex', flexDirection: 'column', width: OG_WIDTH, height: OG_HEIGHT, background: OG_BACKGROUND, padding: `60px ${OG_PAD_X}px 56px`, justifyContent: 'space-between' } },
+  // border-box: Satori 0.55 adds padding to the height otherwise, and the install line falls off the card.
+  { style: { display: 'flex', flexDirection: 'column', boxSizing: 'border-box', width: OG_WIDTH, height: OG_HEIGHT, background: OG_BACKGROUND, padding: `60px ${OG_PAD_X}px 56px`, justifyContent: 'space-between' } },
   h('img', { src: core.svgUri(core.logoLockupSvg('dark')), height: logoHeight, width: logoWidth }),
   h(
     'div',

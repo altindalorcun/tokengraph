@@ -56,6 +56,12 @@ describe('landing.json', () => {
     for (const agent of Object.values(landing.logos.agents) as { svg: string }[]) expect(agent.svg.startsWith('<svg')).toBe(true);
   });
 
+  it("ends on the story cards' day: today's cell holds the story's total", () => {
+    const story = core.demoStory('today', new Date('2026-10-11T12:00:00Z'));
+    const cells = landing.grid.columns.flat().filter((cell: unknown) => cell !== null) as { date: string; weighted: number }[];
+    expect(cells.at(-1)).toMatchObject({ date: '2026-10-11', weighted: story.total });
+  });
+
   it('is reproducible', () => {
     expect(JSON.stringify(buildLanding(core, { referenceDate: '2026-10-11', handle: 'octocat' }))).toBe(JSON.stringify(landing));
   });
