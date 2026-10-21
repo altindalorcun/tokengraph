@@ -27,8 +27,10 @@ file npm ships (`bundle/bin.js`, plus `assets/`).
 State lives in `~/.tokengraph/` (or `$TOKENGRAPH_HOME`): `config.json` (machine id, GitHub login and
 auth, gist ids, graph colours, and `agentRoots`, the agent folders remembered from earlier runs;
 mode 0600), `state.json` (the ledger), `machines.json` (the other
-machines' files from the last publish) and, for Cursor, `cursor-events.jsonl` and `cursor-import.jsonl`
-(rows imported from a dashboard CSV by `tokengraph import cursor`; neither Cursor file is ever pruned).
+machines' files from the last publish) and, for Cursor, `cursor-events.jsonl`, `cursor-import.jsonl`
+(rows imported from a dashboard CSV by `tokengraph import cursor`), `cursor-account-<accountKey>.jsonl`
+(rows fetched from cursor.com, one file per account) and `cursor-fetch.json` (last attempt, back-off, how
+far each account is covered; no secrets). None of the Cursor usage files is ever pruned.
 
 ## Data flow
 
@@ -41,6 +43,9 @@ agent logs ─► adapters ─► ledger (state.json) ─► publish ─► grap
    return per-day, per-model token counts. `collect-local.ts` runs them for both `sync` and `view`.
 2. **The ledger** merges each scan into `state.json`. Within one machine a total only grows: every
    field is merged with `max()`, so pruned transcripts never lower history.
+   Before the adapters, a non-`--local` `sync` may fetch the signed-in Cursor user's history
+   (`adapters/cursor/fetch.ts`: once an hour, a back-off after a failure) and folds the stored account
+   files into the ledger.
 3. **Publishing** runs only from `sync` (manual, a hook, or the schedule), `login` and
    `readme --colors`. It finds or creates two gists by a marker file name, never by id alone, so a
    second machine finds the same ones:
@@ -77,6 +82,16 @@ where `sources` is the ledger body.
 - **An unreadable own file is never overwritten.** If the data gist has a file under this machine's
   name that does not parse, it may hold more than the local ledger, so the CLI skips writing it and
   reports it.
+- **A Cursor account is not a machine.** The history fetched from cursor.com covers every machine and
+  surface of the account, so the ledger keeps it in a separate `accounts.cursor[accountKey] =
+  { coveredThrough, days }` section (max-merged, carried by the machine file as an additive
+  `accounts` field that older versions ignore). One pure function in core, `combineMachineUsage`,
+  is the combining rule for the graph, the view, the story cards, `export --all-machines` and
+  `status`: per account key the machines are merged by per-field max and different accounts are
+  summed; the hook and import `cursor` source is ignored for local days before the newest
+  `coveredThrough`, and from that day on the larger of the account and the summed source is
+  used per model. A machine whose account is never fetched anywhere loses its hook data on
+  covered days (documented in `docs/agents/cursor-usage.md`).
 - Other machines' files are cached in `machines.json`, so `story` and `view` can show
   all-machines numbers offline. The cache is rewritten only by a successful publish.
 
@@ -121,8 +136,12 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
 - Prompts, answers, code, file names and paths are never read or stored. Adapters read counters and
   model names only.
 - Nothing is sent to a tokengraph server, because there is none. The CLI talks only to GitHub
-  (`api.github.com`, `github.com`, `gist.githubusercontent.com`) for the logged-in user.
-- `status`, `view`, `story`, `export` and `import` work offline from local files. `sync --local` never uses the
+  (`api.github.com`, `github.com`, `gist.githubusercontent.com`) for the logged-in user and, while
+  the Cursor fetch is on (the default once Cursor is signed in; `tokengraph cursor off`), to
+  `cursor.com` to fetch the user's own usage export with Cursor's own sign-in. That token is read
+  from Cursor's local database, held in memory for the request, sent to `cursor.com` and
+  `www.cursor.com` only, and never stored, logged or printed.
+- `status`, `view`, `story`, `export` and `import <file>` work offline from local files. `sync --local` never uses the
   network. `view` never publishes.
 - The public gist exposes daily totals, model family names and colours, and never model ids or
   per-model counts. Those are only in the secret data gist.

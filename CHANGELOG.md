@@ -32,6 +32,13 @@ The first public release.
   keep their logs and warns when history is at risk. `status --json` prints it for scripts.
 - **Export.** `tokengraph export` writes daily usage as CSV or JSON from the local ledger.
 - **Cursor import.** `tokengraph import cursor <csv>` adds history from a Cursor dashboard export.
+- **Cursor history by itself.** When Cursor is signed in, `tokengraph sync` fetches your own usage history from
+  cursor.com (the export the dashboard offers), using Cursor's sign-in read from its local database. The sign-in
+  is held in memory for the request and never stored or printed; the first manual sync says what it does.
+  It covers every machine and surface of the account, so it is counted once across machines and replaces hook
+  and imported rows on the days it covers. Fetches are at most hourly, pause after an expired sign-in or a rate
+  limit, and `tokengraph cursor off` turns them off. `tokengraph cursor fetch` (or `import cursor --fetch`)
+  fetches now, and `status` shows the state.
 - **Uninstall.** `tokengraph uninstall` removes the hooks and the schedule. `--purge` also deletes
   tokengraph's own files and nothing else.
 - **Older versions.** An older tokengraph version ignores the new agents' sources; going back to an older version on the same machine drops them from that machine's ledger on its next sync.

@@ -3,9 +3,11 @@
 This note explains where, in Cursor IDE's local files, you can find out which LLM used how many
 tokens. Unlike Codex CLI, Cursor's local records are not documented as **a single primary JSONL
 stream**; the token counts are spread over several different SQLite tables, hook events and
-(partly) the context meter. tokengraph's Cursor adapter reads none of these SQLite sources. It
-collects the event file written by its own `stop` hook and, optionally, rows imported from a dashboard CSV; see "tokengraph integration" below.
-The adapter code is in `packages/cli/src/adapters/cursor/`, and it is installed with
+(partly) the context meter. tokengraph does not read these SQLite tables for usage. It has three
+sources of Cursor usage: the account's own history, fetched from cursor.com with Cursor's sign-in
+("Automatic history" below); the event file written by its own `stop` hook (real time, this machine
+only); and rows imported from a dashboard CSV. See "tokengraph integration" below.
+The adapter code is in `packages/cli/src/adapters/cursor/`, and the hook is installed with
 `tokengraph install-hook --agent cursor`. The rest of the document (the SQLite schema, the bubble
 and context meter read paths) remains as a discovery note and a reference for manual analysis, for
 the sources the adapter **does not use**.
@@ -16,10 +18,17 @@ daily token usage, not to calculate a bill.
 
 ## tokengraph integration
 
-The adapter is **hook-based only**: none of the SQLite sources below is read, because none of
-them gives a reliable token counter (see "Not verified" and the sections below it). The only
-record source is the event file written by the `stop` hook; since Cursor keeps this data nowhere
-else, **the file is never pruned**.
+None of the SQLite sources below is read for usage, because none of them gives a reliable token
+counter (see "Not verified" and the sections below it). Usage comes from three places:
+
+| Source | Covers | Stored in |
+| --- | --- | --- |
+| Automatic history (fetched from cursor.com) | The whole account: every machine and surface (IDE, CLI, cloud agents), past and present, a little behind real time | `cursor-account-<accountKey>.jsonl`, ledger `accounts.cursor` |
+| `stop` hook | This machine, from the moment the hook was installed, in real time | `cursor-events.jsonl` (ledger source `cursor`) |
+| CSV import | Whatever the downloaded file covers, before the first hook event | `cursor-import.jsonl` (ledger source `cursor`) |
+
+Cursor keeps the hook and import data nowhere else, so **those two files and the fetched account
+files are never pruned**. How the three are combined is in "Automatic history", below.
 
 ### Installation
 
@@ -98,11 +107,86 @@ Source: `packages/cli/src/adapters/cursor/events.ts`.
   are used.
 - Day: the local date of `receivedAt` (the same `--timezone` mechanism as the other adapters).
 
+### Automatic history (fetched from cursor.com)
+
+On by default when Cursor is signed in on the machine; turn it off with `tokengraph cursor off`
+(`config.json` key `cursor.fetch`). The first manual `tokengraph sync` prints one plain line saying what
+it does and how to turn it off; hook and scheduled syncs fetch only after that has happened and never
+prompt. Code: `adapters/cursor/{credentials,fetch-client,fetch,fetch-state,accounts}.ts`,
+`commands/cursor.ts`.
+
+**What is read.** Cursor's `state.vscdb` (macOS `~/Library/Application Support/Cursor/User/globalStorage/`,
+Linux `${XDG_CONFIG_HOME:-~/.config}/Cursor/User/globalStorage/`, Windows
+`%APPDATA%/Cursor/User/globalStorage/`), opened read-only with `node:sqlite` (Node 22.13 or newer; on
+older Node the fetch is skipped with a note). Never `immutable=1`, never written to. Exactly one row is
+selected: `ItemTable` key `cursorAuth/accessToken`, a JWT. The user id is its `sub` claim, with `auth0|user_X`
+normalised to `user_X` and any other WorkOS subject (`google-oauth2|...`, `github|...`) kept as it is. The
+refresh token and the e-mail address in the same table are not read. The token is not refreshed: Cursor
+refreshes it itself, so an expired one means "open Cursor once".
+
+**What is sent, and where.** One `GET
+https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens&startDate=<ms>&endDate=<ms>`,
+with the cookie `WorkosCursorSessionToken=<userId>%3A%3A<jwt>` (the one the dashboard's own page sends),
+`Referer: https://www.cursor.com/settings`, `Origin: https://cursor.com` and a browser User-Agent. That
+is the same CSV the dashboard's export button produces, parsed by the same verified parser as the CSV
+import. Nothing else is sent. Redirects are followed by hand and only to `https://cursor.com` or
+`https://www.cursor.com`; the cookie never goes anywhere else. The endpoint is undocumented and may
+change; the parser then rejects the answer and nothing is stored.
+
+**What is kept.** The token, the cookie and the user id live in memory for the one request. They are never
+logged, stored, printed or put in an error message, and a response body is never echoed or logged; failures
+are one of a few fixed sentences. What is stored: the rows (timestamp, model, max mode and the four counters,
+nothing else) in `cursor-account-<accountKey>.jsonl`, where `accountKey` is the first 16 hex digits of the
+SHA-256 of the normalised user id; and `cursor-fetch.json` (last attempt, back-off, and per account key the
+instant it is covered through). `accountKey` is the only trace of the account and cannot be turned back into
+the id.
+
+**Limits.** 30 s timeout; a response above 64 MiB is dropped; at most 3 redirects; at most one fetch per
+hour (`cursor fetch` ignores that, never a back-off). A 200 that is not a usage CSV (a bot challenge page)
+is a failure that changes nothing; an empty `text/csv` answer is an empty window. 401 or 403 prints "Cursor's
+sign-in has expired; open Cursor once" and pauses for 6 hours; a token whose `exp` has passed is not even sent.
+429 pauses for `Retry-After` (between 1 minute and 24 hours, 1 hour when absent). A network error only fails
+that run. Nothing retries in a loop. `status` shows the state (on or off, last fetch, covered through,
+back-off).
+
+**Windows.** The first fetch asks for the whole history (from 2023-01-01). Later fetches ask from two UTC days
+before the last covered day to now. Both ends are whole UTC days, so rows that share a timestamp are always in
+the same response: the row id is the import scheme's SHA-256 (fields plus the occurrence among identical rows
+of one response), so fetching an overlapping window again adds nothing, while two real identical requests stay
+two rows. If a row's counters change on Cursor's side after it was stored, the changed row is stored as a new
+one and the ledger keeps the larger figure per day (it never shrinks); this has not been seen in practice.
+
+**Accounting.** The fetched data is the account's, not the machine's: it contains the machine's hook turns and
+every other machine's usage. The ledger therefore holds it in a separate section,
+`accounts.cursor[accountKey] = { coveredThrough, days }` (days in the same day/model/tier shape as a source,
+local dates, max-merged; `coveredThrough` is the instant of the last successful fetch). The machine file in the
+data gist carries the same additive `accounts` field; older versions ignore it. One pure function in
+`packages/core` (`combineMachineUsage`, `combine-usage.ts`) combines everything for the graph, the view, the story
+cards, `export --all-machines`, `status` and the publish:
+
+1. Per `accountKey`, take the per-field maximum across machines (the same account is the same data), then sum
+   across different accounts.
+2. The `cursor` source (hook events and imported CSV rows, summed across machines) is ignored for every local day
+   before the day that contains the newest `coveredThrough` of any account.
+3. On that day and later, per day, model and tier, the result is the larger of the account figure and the summed
+   `cursor` source: the hook shows a turn before cursor.com has it, and the account wins once it has.
+4. With no account fetched anywhere, the `cursor` source counts as before.
+
+**Known limit.** A machine whose Cursor account is never fetched anywhere (fetching off, or Cursor never signed in
+there) loses its hook data on days another machine's fetch covers, and an account that was never fetched shows
+only what its hooks and imports hold. In practice every machine with Cursor signed in fetches its own account.
+Days are keyed by each machine's local time zone, so machines in different zones can disagree by up to a day at a
+boundary.
+
+`tokengraph cursor off` stops fetching and keeps what was fetched; `tokengraph import cursor <file.csv>` still works
+for people who keep it off. `uninstall --purge` deletes the account files and the state.
+
 ### CSV import (`tokengraph import cursor <file.csv>`)
 
 Cursor's dashboard (Usage, then export CSV) produces a usage CSV that covers the time before the
-hook existed. The user downloads it and passes the path; tokengraph reads no Cursor login and calls no
-Cursor API. Code: `adapters/cursor/{csv,imports}.ts`, `commands/import.ts`.
+hook existed. The user downloads it and passes the path; this is the way in when automatic fetching is
+off (`tokengraph import cursor --fetch` is an alias of `tokengraph cursor fetch`). Code:
+`adapters/cursor/{csv,imports}.ts`, `commands/import.ts`.
 
 **Checked against three real exports** published in public repositories (a team export with `User` and
 `Requests`, a personal export with `Cost`, and the 2026 layout with `Cloud Agent ID` and `Automation ID`;
@@ -138,7 +222,9 @@ requests stay two rows.
 **Overlap with the hook:** the adapter reads both files. An imported row counts only when its `at` is
 strictly before the earliest hook event in `cursor-events.jsonl` (all rows when there is none), at every
 collect, not only at import time. The two sets are disjoint, so they are summed, not max-merged. The
-command reports rows it skipped for being at or after the hook start and does not store them.
+command reports rows it skipped for being at or after the hook start and does not store them. Once an
+account has been fetched, imported rows (like hook turns) yield to the account figure on the days it covers
+(see "Automatic history").
 
 **Ledger:** after storing, the command takes the sync lock and merges the Cursor adapter's result into
 the ledger, as `sync --local` does for Cursor only, reading back to two days before the oldest row. It
@@ -207,8 +293,10 @@ sqlite3 "file:${CURSOR_STATE}?mode=ro" \
   "SELECT COUNT(*) FROM cursorDiskKV WHERE key LIKE 'bubbleId:%';"
 ```
 
-Authentication, OAuth tokens and `Cookies` files are not needed for usage analysis and **must not
-be read**.
+Usage analysis needs no authentication, OAuth token or `Cookies` file, and none is read for it. The
+one exception is the opt-out fetch of the user's own history: it reads the single `cursorAuth/accessToken`
+row of `ItemTable` and nothing else (see "Automatic history"). The SQL below only counts rows; it does not
+touch credentials.
 
 ## The SQLite schema (`state.vscdb`)
 
@@ -709,14 +797,20 @@ field is only the sum of input + output, cache not included.
 
 | | Codex CLI | Cursor IDE |
 | --- | --- | --- |
-| Primary source | `token_usage_record` JSONL | `stop` hook → `~/.tokengraph/cursor-events.jsonl` |
-| Local root | `$CODEX_HOME` (default `~/.codex`) | `$TOKENGRAPH_HOME` (default `~/.tokengraph`); Cursor's own directories (`Application Support/Cursor`, `~/.cursor`) are not read |
+| Primary source | `token_usage_record` JSONL | the account history fetched from cursor.com; the `stop` hook → `~/.tokengraph/cursor-events.jsonl` in real time |
+| Local root | `$CODEX_HOME` (default `~/.codex`) | `$TOKENGRAPH_HOME` (default `~/.tokengraph`); of Cursor's own directories only the sign-in row of `state.vscdb` is read, for the history fetch |
 | Dedup key | `response_id` | `generation_id` |
 | Model source | `turn_context` | Hook `model` / `model_id` |
 | Official schema | Partly observed JSONL | Closed source; the hook fields rest on a forum reply |
 | Cache split | OpenAI `cached_input_tokens` | Hook `cache_read_tokens` / `cache_write_tokens` |
 
 ## Not verified
+
+- **The fetch was verified with fixture databases and a local fake server only.** It was never run against
+  the real cursor.com from tests. That its totals equal a dashboard export for the same range is to be checked
+  once by hand; the endpoint, the cookie shape and the bot protection in front of it are undocumented (the
+  competing trackers TokenTracker and tokscale use the same export).
+- Whether the export with a team member's cookie returns only that member's rows is unconfirmed.
 
 - **A real `stop` hook payload was never captured** (there is no Cursor Pro subscription on this
   machine). `eventFromHookPayload` and the adapter were written defensively, following the field
