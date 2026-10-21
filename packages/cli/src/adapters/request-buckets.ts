@@ -1,7 +1,6 @@
 import {
   addSplitCounts,
-  claudeLongContextThreshold,
-  LONG_CONTEXT_THRESHOLD_TOKENS,
+  longContextThreshold,
   maxSplitCounts,
   PRICING_TIERS,
   type DailyModelUsage,
@@ -65,12 +64,12 @@ export class RequestBuckets {
 
 /**
  * The tier one request is billed at. Long context is decided by the whole prompt (input, cache
- * reads and cache writes): over 272K for a `gpt-` model, as the Codex adapter does, and over the
- * model's own threshold for a Claude model priced by prompt length (Haiku 5.5). Fast mode only
+ * reads and cache writes) and over the model's own threshold (`longContextThreshold`: 272K for
+ * OpenAI, 200K for Gemini and xAI, 100K for Claude Haiku 5.5). Fast mode only
  * where the source records it (Claude Code's usage.speed); no other provider's rule is recorded.
  */
 export function tierForModel(model: string, counts: SplitTokenCounts, fast = false): PricingTier {
-  const threshold = model.startsWith('gpt-') ? LONG_CONTEXT_THRESHOLD_TOKENS : claudeLongContextThreshold(model);
+  const threshold = longContextThreshold(model);
   const promptTokens = counts.inputTokens + counts.cacheReadTokens + counts.cacheCreationTokens;
   const long = threshold !== null && promptTokens > threshold;
   if (fast) return long ? 'fast-long-context' : 'fast';

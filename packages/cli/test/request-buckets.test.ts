@@ -37,7 +37,19 @@ describe('tierForModel', () => {
     expect(tierForModel('gpt-5.4', long)).toBe('long-context');
     expect(tierForModel('gpt-5.4', counts({ inputTokens: 272_000 }))).toBe('standard');
     expect(tierForModel('claude-sonnet-4-5', long)).toBe('standard');
-    expect(tierForModel('gemini-2.5-pro', long)).toBe('standard');
+    expect(tierForModel('gemini-3-flash-preview', long)).toBe('standard');
+  });
+
+  it('reads each model own threshold: 200K for Gemini and xAI, 272K for OpenAI, 100K for Haiku 5.5', () => {
+    const over200 = counts({ inputTokens: 100_000, cacheReadTokens: 100_001 });
+    const at200 = counts({ inputTokens: 100_000, cacheReadTokens: 100_000 });
+    expect(tierForModel('gemini-2.5-pro', over200)).toBe('long-context');
+    expect(tierForModel('gemini-3.1-pro-preview', at200)).toBe('standard');
+    expect(tierForModel('grok-4.5', over200)).toBe('long-context');
+    expect(tierForModel('grok-4.5', at200)).toBe('standard');
+    expect(tierForModel('gpt-5.4', over200)).toBe('standard');
+    expect(tierForModel('gemini-2.5-flash', over200)).toBe('standard');
+    expect(tierForModel('gemini-2.5-pro', over200, true)).toBe('fast-long-context');
   });
 });
 

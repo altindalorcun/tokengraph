@@ -176,6 +176,10 @@ keeps working.
 **Is the cost real?** It is an estimate at public API list prices, from a dated price table. It is
 not what you were billed, which depends on your plan. A model with no known price is left out of
 the total and marked unpriced, never counted as $0, so the total can only be a lower bound.
+Prices are the vendor's published list price for Claude (Anthropic), GPT and o-series (OpenAI), Gemini
+(Google), Grok (xAI) and Cursor's Composer 2.5. Open-weight models (DeepSeek, Qwen, Llama, Mistral,
+MiniMax and the like) are deliberately left unpriced, since they have no single list price, and so is any
+model whose vendor does not publish one (retired models, previews, Cursor's Auto).
 
 **Why weighted tokens?** Raw totals are mostly cache reads, which are cheap and large. Counting
 them at a tenth keeps the graph about work done. The formula is under [How it works](#how-it-works).

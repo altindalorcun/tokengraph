@@ -32,13 +32,19 @@ The first public release.
   keep their logs and warns when history is at risk. `status --json` prints it for scripts.
 - **Export.** `tokengraph export` writes daily usage as CSV or JSON from the local ledger.
 - **Cursor import.** `tokengraph import cursor <csv>` adds history from a Cursor dashboard export.
+- **More models priced.** OpenAI's nano, codex, GPT-4.1/4o and o-series models, Google's Gemini models and xAI's
+  Grok models now have list prices, with each vendor's own long-context threshold (200K for Gemini and xAI, 272K for
+  OpenAI) and no invented fast price where the vendor publishes none. Cursor's slugs are matched to them
+  (`gpt-5.5-extra-high` is `gpt-5.5`, `cursor-grok-4.5-medium` is `grok-4.5`). Open-weight models and models
+  without a published price stay unpriced.
 - **Cursor history by itself.** When Cursor is signed in, `tokengraph sync` fetches your own usage history from
   cursor.com (the export the dashboard offers), using Cursor's sign-in read from its local database. The sign-in
   is held in memory for the request and never stored or printed; the first manual sync says what it does.
   It covers every machine and surface of the account, so it is counted once across machines and replaces hook
   and imported rows on the days it covers. Fetches are at most hourly, pause after an expired sign-in or a rate
   limit, and `tokengraph cursor off` turns them off. `tokengraph cursor fetch` (or `import cursor --fetch`)
-  fetches now, and `status` shows the state.
+  fetches now, and `status` shows the state. The first fetch is split into windows of at most 31 days, fetched
+  one after another; if one fails, what was stored is kept and the next run resumes there.
 - **Uninstall.** `tokengraph uninstall` removes the hooks and the schedule. `--purge` also deletes
   tokengraph's own files and nothing else.
 - **Older versions.** An older tokengraph version ignores the new agents' sources; going back to an older version on the same machine drops them from that machine's ledger on its next sync.

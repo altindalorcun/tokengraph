@@ -2,6 +2,7 @@ import {
   addSplitCounts,
   CODEX_CLI_SOURCE,
   dateKey,
+  longContextThreshold,
   PRICING_TIERS,
   pricingTierFor,
   type CollectResult,
@@ -285,7 +286,7 @@ export class CodexUsageAggregator {
       cacheCreation5mTokens: null,
       cacheCreation1hTokens: null,
     };
-    const pricingTier = pricingTierFor({ fast: event.fast, inputTokens: input });
+    const pricingTier = pricingTierFor({ fast: event.fast, inputTokens: input, thresholdTokens: longContextThreshold(model) ?? undefined });
     const date = dateKey(event.instant, this.options.timeZone);
     const key = `${date}\0${model}\0${pricingTier}`;
     const existing = this.buckets.get(key);

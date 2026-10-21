@@ -175,8 +175,12 @@ the cost as an exact bill.
 - **Long context**: if a request's `input_tokens` exceeds 272,000, the whole request (input +
   cache read + cache write) is priced at 2× and output at 1.5× (from the [gpt-6-luna model
   page](https://developers.openai.com/api/docs/models/gpt-6-luna) and the `<272K` labels in the pricing table).
+  The threshold is read from the model's own rate entry (`longContextThreshold` in `pricing.ts`; 272K is the
+  default, Gemini and xAI models use 200K, Claude Haiku 5.5 100K), and a model without long-context rates
+  keeps its long requests in their own, unpriced tier.
 - **Fast mode** (`service_tier` `fast`, or `priority` by its old name): the whole applied price
-  is 2×.
+  is 2×, unless the model's entry says otherwise (`fastMultiplier`: a different multiple, or `null` where
+  OpenAI publishes no fast row, e.g. the nano, codex and o1 models, which then stay unpriced).
 - These four cases (standard / long-context / fast / fast-long-context) are stored separately as
   the pricing tier: model names stay clean, and the cost is computed from the request's tier
   (`pricingTierFor`, per request, before summing).
