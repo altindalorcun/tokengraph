@@ -57,7 +57,7 @@ Node.js 22 이상이 필요합니다. README 그래프를 신경 쓰지 않고�
 ```
 
 그래프는 보는 사람의 GitHub 테마에 따라 라이트와 다크로 바뀝니다. 동기화할 때마다 같은 gist가 갱신되므로 스니펫은 바뀌지 않습니다.
-레이블 없는 작은 그래프는 `tokengraph readme --compact`로, 모델 계열별 색 대신 한 가지 색으로 보려면 `tokengraph readme --colors single`을 사용하세요(`--colors model`로 되돌릴 수 있습니다).
+레이블 없는 작은 그래프는 `tokengraph readme --compact`로, 모델 계열별 색 대신 한 가지 색으로 보려면 `tokengraph readme --colors single`을 사용하세요(`--colors model`로 되돌릴 수 있습니다). 계열은 Claude, GPT, Gemini, DeepSeek, Qwen, GLM, Kimi, Grok, Composer(Cursor 자체 모델), Mistral, Llama, MiniMax이며, 그 밖의 모든 모델은 "기타 모델"로 집계됩니다.
 
 ## 하루 공유하기
 
@@ -93,6 +93,8 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 | | |
 | --- | --- |
 | **내 컴퓨터를 떠나는 것** | 내 계정의 공개 gist로: SVG 그래프(일별 토큰 합계와, 색을 나누는 데 쓰이는 모델 계열 이름), 그리고 임베드 스니펫과 링크가 담긴 README. 내 계정의 secret gist로: 일별·모델별 토큰 수, 무작위 컴퓨터 id, `darwin-3f2a1c` 같은 레이블, 해시한 컴퓨터 핑거프린트, CLI 버전, 마지막 업데이트 시각. 둘 다 `tokengraph login` 이후에만, 그리고 tokengraph가 게시할 때(`sync`, 훅, 스케줄, `login`)에만 전송됩니다. `sync --local`, `view`, `story`, `status`, `export`, `import`는 절대 전송하지 않습니다. |
+| **이 컴퓨터에 남는 것** | 각 에이전트를 하루 중 몇 시에 썼는지. tokengraph는 가장 바쁜 시간 카드와 `export --hours`를 위해 현지 시각 기준 시간별 가중 토큰 수를 `state.json`에 보관합니다. 이 값은 컴퓨터 파일, 데이터 gist, 그래프, 스토리 카드에 절대 들어가지 않습니다. 시간대 데이터는 에이전트 로그가 아직 남아 있는 날에 대해서만 존재합니다. |
+| **tokengraph가 가져오는 것** | Cursor에 한해, 그리고 켜져 있을 때만(Cursor에 로그인되어 있으면 기본값이며 `tokengraph cursor off`로 끕니다): `sync`가 Cursor의 로컬 데이터베이스에서 Cursor 자체의 로그인 토큰을 읽고(읽기 전용, 그 한 행만) cursor.com에 내 사용량 내보내기, 즉 Cursor 대시보드의 내보내기 버튼이 주는 것과 같은 파일을 요청합니다. 토큰은 cursor.com으로만 전송되고, 요청하는 동안만 메모리에 있으며, 저장되거나 출력되거나 로그에 남지 않습니다. 저장되는 것은 사용량 행(타임스탬프, 모델 이름, 토큰 수)입니다. `sync --local`은 절대 가져오지 않습니다. |
 | **절대 떠나지 않는 것** | 프롬프트, 답변, 코드, 파일 이름, 경로. tokengraph 서버로는 아무것도 전송되지 않습니다. 그런 서버 자체가 없습니다. |
 | **삭제하는 방법** | `tokengraph logout`은 이 컴퓨터에서 로그인 정보를 지웁니다. 게시된 내용을 없애려면 [gist.github.com](https://gist.github.com)에서 두 gist를 삭제하세요. |
 
@@ -104,8 +106,8 @@ secret gist는 '비공개(private)'가 아니라 '목록에 표시되지 않는(
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl`과 `transcripts`(`$CLAUDE_CONFIG_DIR`도), 그리고 Claude 데스크톱 앱의 Code 및 Cowork 세션(`~/Library/Application Support/Claude`, `%APPDATA%\Claude`, `~/.config/Claude`) | Claude Code는 오래된 대화 기록을 삭제하므로 최소한 몇 주에 한 번은 동기화하세요. `tokengraph install-hook --agent claude-code`는 세션이 끝날 때 동기화합니다. |
 | Codex CLI | `~/.codex/sessions`와 `archived_sessions`(`$CODEX_HOME`도) | `tokengraph install-hook --agent codex`는 한 턴이 끝난 뒤 동기화하며, 최대 10분에 한 번입니다. 자체 설정이 아닌 `notify` 설정은 절대 덮어쓰지 않습니다. |
-| Cursor | `~/.tokengraph/cursor-events.jsonl`, Cursor의 `stop` 훅이 기록 | Cursor는 디스크에 쓸 만한 토큰 수를 남기지 않으므로, `tokengraph install-hook --agent cursor`를 한 번 실행하고 Cursor를 다시 시작하세요. 사용량은 그 시점부터 집계되며, 이전 기록은 `tokengraph import cursor <csv>`로 가져올 수 있습니다. |
-| Gemini CLI | `~/.gemini/tmp/*/chats`와 macOS 샌드박스가 쓰는 `~/.cache/.gemini/tmp`(둘 다 `$GEMINI_CLI_HOME` 아래도) | Gemini CLI는 기본적으로 30일 후 세션을 삭제하므로 최소한 한 달에 한 번은 동기화하세요. 일부 보조 호출은 기록하지 않으므로 합계는 하한값입니다. |
+| Cursor | cursor.com에 있는 내 사용 기록, 이 컴퓨터의 Cursor 로그인으로 가져옴(`cursor-account-*.jsonl`). 실시간용으로는 Cursor의 `stop` 훅이 기록하는 `~/.tokengraph/cursor-events.jsonl` | Cursor는 디스크에 쓸 만한 토큰 수를 남기지 않습니다. Cursor에 로그인되어 있으면 `tokengraph sync`가 전체 사용 기록을 cursor.com에서 자동으로, 최대 한 시간에 한 번 가져옵니다(모든 컴퓨터, IDE, CLI, 클라우드 에이전트. `tokengraph cursor off`로 끌 수 있습니다). 훅(`tokengraph install-hook --agent cursor` 후 Cursor 재시작)은 cursor.com에 아직 반영되지 않은 최근 시간을 채워 줍니다. 사용량 CSV(`tokengraph import cursor <csv>`)는 가져오기를 꺼 둔 사람을 위한 방법입니다. |
+| Gemini CLI | `~/.gemini/tmp/*/chats`와 macOS 샌드박스가 쓰는 `~/.cache/.gemini/tmp`(둘 다 `$GEMINI_CLI_HOME` 아래도) | `tokengraph install-hook --agent gemini-cli`는 세션이 끝날 때 동기화합니다(Gemini CLI 설정에 기록되며 `$GEMINI_CLI_HOME` 아래도 해당). `tokengraph schedule`도 계속 이를 다룹니다. Gemini CLI는 기본적으로 30일 후 세션을 삭제하므로 최소한 한 달에 한 번은 동기화하세요. 일부 보조 호출은 기록하지 않으므로 합계는 하한값입니다. |
 | Cline | VS Code 계열 에디터(VS Code, Cursor, VSCodium, Windsurf, Positron, Trae, Kiro, Antigravity 등. Linux는 `$XDG_CONFIG_HOME`, Windows는 `%APPDATA%`, 원격 서버는 `~/.vscode-server` 등)의 `saoudrizwan.claude-dev/tasks`와 `~/.cline/data`(`$CLINE_DIR`, `$CLINE_DATA_DIR`, `$CLINE_SESSION_DATA_DIR`도) | Cline이 Claude Code 공급자를 통해 보내는 요청은 Claude Code 어댑터가 이미 집계하므로 건너뜁니다. |
 | OpenCode | `~/.local/share/opencode/opencode*.db`와 이전 방식의 `storage/` 폴더(`$XDG_DATA_HOME` 아래도. `$OPENCODE_DB`는 데이터베이스 하나를 추가) | 데이터베이스를 읽으려면 Node 22.13 이상이 필요합니다. OpenCode 1.3.16 이전의 기록 중 확실하게 읽을 수 없는 것은 건너뛰고 보고합니다. |
 | Kilo CLI | `~/.local/share/kilo/kilo*.db`(`$XDG_DATA_HOME` 아래도. `$KILO_DB`는 데이터베이스 하나를 추가) | VS Code의 Kilo Code 7.x도 같은 데이터베이스에 기록하므로 여기서 함께 집계됩니다. 데이터베이스를 읽으려면 Node 22.13 이상이 필요합니다. Kilo 7.2.6 이전의 기록 중 확실하게 읽을 수 없는 것은 건너뛰고 보고합니다. |
@@ -114,11 +116,11 @@ secret gist는 '비공개(private)'가 아니라 '목록에 표시되지 않는(
 | Qwen Code | `~/.qwen/projects`(`$QWEN_HOME`, `$QWEN_RUNTIME_DIR`), 채팅과 백그라운드 서브에이전트 | `/branch`로 포크한 채팅은 이전 요청을 복사하며, 이는 한 번만 집계됩니다. Qwen Code는 캐시 쓰기를 따로 기록하지 않으므로 일반 입력으로 셉니다. 백그라운드 서브에이전트의 대화 기록은 기본적으로 30일 후 삭제하므로 최소한 한 달에 한 번은 동기화하세요. 메모리 추출기의 요청이 남는 유일한 로컬 기록인 사용량 원장은 `privacy.usageStatisticsEnabled`가 true인 동안(기본값)에만 기록됩니다. 끄면 그 요청은 어떤 로컬 파일에도 남지 않으며, 채팅 요청만 집계됩니다. |
 | Goose | `~/.local/share/goose/sessions/sessions.db`(`$XDG_DATA_HOME`, 또는 `$GOOSE_PATH_ROOT/data` 아래도. Windows에서는 `%APPDATA%\Block\goose\data`. 발견된 모든 데이터베이스를 읽음) | 요청별 사용량 원장을 읽으므로 원장이 있는 Goose 버전과 Node 22.13 이상이 필요합니다. 원장이 생기기 전의 사용량은 날짜와 모델을 알 수 없으므로 건너뛰고 보고합니다. Goose를 통해 Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI, pi를 구동한 세션은 제외합니다. 해당 에이전트 자체 로그가 이미 집계하기 때문입니다(Cursor는 Goose 실행에서도 훅이 동작하는 경우에 한하며, 이는 확인되지 않았습니다). |
 
-각 에이전트의 집계는 Claude Code 2.1.304, Codex CLI 0.163.0, Gemini CLI 0.64.0, Cline 3.0.73, OpenCode 1.19.3, Kilo 7.8.15, Copilot CLI 1.0.100, pi 0.73.1, Qwen Code 0.25.3, Goose 1.55.0의 실제 실행과 대조해, 지원하는 모든 프로토콜에서 [`scripts/e2e`](https://github.com/altindalorcun/tokengraph/blob/main/scripts/e2e/README.md)로 검증합니다. Cursor는 오프라인으로 구동할 수 없습니다. CSV 가져오기는 실제 내보내기 파일로 확인했고, 훅 형식은 Cursor 문서를 따릅니다. Cline은 일부 공급자가 출력에 포함해 보고하는 추론(reasoning) 토큰을 빼고 출력 토큰을 저장하므로, 그 분량은 집계되지 않습니다.
+각 에이전트의 집계는 Claude Code 2.1.304, Codex CLI 0.163.0, Gemini CLI 0.64.0, Cline 3.0.73, OpenCode 1.19.3, Kilo 7.8.15, Copilot CLI 1.0.100, pi 0.73.1, Qwen Code 0.25.3, Goose 1.55.0의 실제 실행과 대조해, 지원하는 모든 프로토콜에서 [`scripts/e2e`](https://github.com/altindalorcun/tokengraph/blob/main/scripts/e2e/README.md)로 검증합니다. Cursor는 오프라인으로 구동할 수 없습니다. CSV 파서는 실제 내보내기 파일로, 가져오기(fetch)는 로컬 가짜 서버로 확인했고, 훅 형식은 Cursor 문서를 따릅니다. Cline은 일부 공급자가 출력에 포함해 보고하는 추론(reasoning) 토큰을 빼고 출력 토큰을 저장하므로, 그 분량은 집계되지 않습니다.
 
 각 에이전트는 기본 폴더에 더해 환경 변수가 가리키는 폴더에서도 읽습니다. tokengraph는 그 변수를 설정한 채 명령을 처음 실행할 때 해당 폴더를 (`config.json`에) 기억하므로, 셸 환경을 받지 못하는 한 시간마다의 동기화와 훅도 그 폴더를 읽습니다. `tokengraph status`는 스캔하는 폴더와 그 폴더가 존재하는지 보여 줍니다.
 
-Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose는 훅이 필요 없습니다. `tokengraph schedule`이 한 시간마다 동기화합니다. Aider는 로컬 기록이 토큰 수를 반올림하기 때문에 지원하지 않습니다.
+Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose에는 훅이 없습니다(Gemini CLI의 훅은 선택 사항입니다). `tokengraph schedule`이 한 시간마다 동기화합니다. Aider는 로컬 기록이 토큰 수를 반올림하기 때문에 지원하지 않습니다.
 
 ## 명령어
 
@@ -126,18 +128,19 @@ Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose는 훅�
 
 | 명령어 | 하는 일 |
 | --- | --- |
-| `tokengraph [view]` | 실시간 터미널 뷰를 엽니다: 연간 히트맵, 모델, 에이전트, 연속 일수. `--print`는 정적 스냅샷을 출력합니다. 터미널에서의 기본 명령어입니다. |
+| `tokengraph [view]` | 실시간 터미널 뷰를 엽니다: 연간 히트맵, 모델, 에이전트, 연속 일수, 그리고 하루 중 가장 바쁜 시간과 24시간 프로필. `--print`는 정적 스냅샷을 출력합니다. 터미널에서의 기본 명령어입니다. |
 | `tokengraph login` | GitHub에 연결하고, 그래프를 내 gist에 게시하고, README 스니펫을 출력합니다. GitHub CLI에 로그인되어 있으면 그것을 사용하고(`--gh`), 아니면 브라우저에서 승인하는 일회용 코드를 사용합니다(`--device`, `--no-open`). gist 권한만 요청합니다. |
 | `tokengraph logout` | 이 컴퓨터에서 GitHub 로그인 정보를 지웁니다. 로컬 데이터와 gist는 그대로 남습니다. |
-| `tokengraph sync` | 모든 에이전트의 로그를 원장에 읽어 들이고, 로그인되어 있으면 게시합니다. `--since <days>`는 얼마나 과거까지 읽을지 정하며(기본 90), `--local`은 네트워크를 전혀 사용하지 않습니다. |
+| `tokengraph sync` | 모든 에이전트의 로그를 원장에 읽어 들이고, 로그인되어 있으면 게시합니다. Cursor에 로그인되어 있으면 먼저 cursor.com에서 Cursor 사용량을 가져옵니다(최대 한 시간에 한 번). `--since <days>`는 얼마나 과거까지 읽을지 정하며(기본 90), `--local`은 네트워크를 전혀 사용하지 않습니다. |
 | `tokengraph readme` | README 스니펫을 출력하고 복사합니다. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | 스토리 카드를 그리고, PNG를 저장하고(`--out <dir>`을 주지 않으면 다운로드 폴더에), 휴대폰으로 보낼지 묻습니다. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>`. |
 | `tokengraph status [--json]` | GitHub 계정, 원장, 내 컴퓨터 목록, 설치되어 정상 동작 중인 백그라운드 동기화, 각 에이전트를 읽는 폴더(와 존재 여부), 그리고 Claude Code, Gemini CLI, Qwen Code가 로그를 보관하는 기간을 보여 줍니다. 보관 기간이 짧아 기록이 사라질 위험이 있을 때는 경고합니다. `--json`은 스크립트와 AI 에이전트용으로 하나의 JSON 객체로 출력합니다. |
-| `tokengraph install-hook --agent <claude-code\|cursor\|codex>` | 해당 에이전트가 끝날 때 백그라운드 동기화를 시작하게 합니다. `--remove`는 제거하고, `--dry-run`은 바뀔 내용을 보여 줍니다. |
+| `tokengraph install-hook --agent <claude-code\|cursor\|codex\|gemini-cli>` | 해당 에이전트가 끝날 때 백그라운드 동기화를 시작하게 합니다. `--remove`는 제거하고, `--dry-run`은 바뀔 내용을 보여 줍니다. |
 | `tokengraph schedule` | 한 시간마다 도는 백그라운드 동기화를 설치합니다: macOS에서는 launchd, Linux에서는 cron, Windows에서는 작업 스케줄러. `schedule --remove`로 끕니다. |
-| `tokengraph export` | 일별 사용량을 CSV 또는 JSON으로 씁니다. 날짜, 에이전트, 모델, 요금 등급마다 한 행이며, 가중 토큰 수와 예상 비용이 들어 있습니다. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. 원장만 읽습니다. |
-| `tokengraph import cursor <file.csv>` | 훅을 설치하기 전의 Cursor 기록을 추가합니다. Cursor 대시보드에서 사용량 CSV를 내려받아(Usage, export CSV) 여기에 넘기세요. 같은 파일이나 일부 겹치는 파일을 두 번 가져와도 두 번 더해지지 않습니다. 한 컴퓨터에서만 가져오세요. 컴퓨터별 값은 합산되므로 같은 파일을 두 컴퓨터에서 가져오면 두 번 집계됩니다. 게시는 하지 않습니다. |
-| `tokengraph uninstall` | Claude Code, Cursor, Codex 훅과 한 시간마다 도는 스케줄을 제거합니다. `--purge`는 `~/.tokengraph`에 있는 tokengraph 자체 파일(원장, 로그인 정보, 로그, Cursor 이벤트 파일과 가져오기 파일)도 삭제하고 그 밖의 파일은 그대로 둡니다. `--yes`는 확인을 건너뛰고, `--dry-run`은 아무것도 바꾸지 않습니다. gist는 절대 건드리지 않습니다. |
+| `tokengraph export` | 일별 사용량을 CSV 또는 JSON으로 씁니다. 날짜, 에이전트, 모델, 요금 등급마다 한 행이며, 가중 토큰 수와 예상 비용이 들어 있습니다. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. `--hours`는 대신 날짜, 현지 시각의 시간, 에이전트마다 한 행을 씁니다(날짜, 시, 소스, 가중 토큰 수. 이 컴퓨터만). 원장만 읽습니다. |
+| `tokengraph cursor fetch\|on\|off` | cursor.com에서 Cursor 사용량을 지금 가져오거나(한 시간 대기는 무시합니다), 자동 가져오기를 켜거나 끕니다. `tokengraph import cursor --fetch`는 `cursor fetch`와 같은 동작을 합니다. `status`가 상태를 보여 줍니다. Cursor의 로그인이 만료되었다면 Cursor를 한 번 여세요. |
+| `tokengraph import cursor <file.csv>` | 가져오기를 꺼 둔 경우에 Cursor 기록을 직접 추가합니다. Cursor 대시보드에서 사용량 CSV를 내려받아(Usage, export CSV) 여기에 넘기세요. 같은 파일이나 일부 겹치는 파일을 두 번 가져와도 두 번 더해지지 않습니다. 한 컴퓨터에서만 가져오세요. 컴퓨터별 값은 합산되므로 같은 파일을 두 컴퓨터에서 가져오면 두 번 집계됩니다. 게시는 하지 않습니다. |
+| `tokengraph uninstall` | Claude Code, Cursor, Codex 훅과 한 시간마다 도는 스케줄을 제거합니다. `--purge`는 `~/.tokengraph`에 있는 tokengraph 자체 파일(원장, 로그인 정보, 로그, Cursor 이벤트 파일, 가져오기 파일, 가져온 계정 파일)도 삭제하고 그 밖의 파일은 그대로 둡니다. `--yes`는 확인을 건너뛰고, `--dry-run`은 아무것도 바꾸지 않습니다. gist는 절대 건드리지 않습니다. |
 
 훅과 스케줄은 설치된 프로그램의 경로를 저장하므로, 사용하기 전에 tokengraph를 전역으로 설치하세요(`npm install -g tokengraph`). 둘 다 `npx` 캐시에서는 실행을 거부합니다.
 
@@ -149,13 +152,13 @@ Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose는 훅�
 
 **왜 gist인가요?** 무료이고, 내 소유이며, 이미지는 GitHub가 제공하고 캐시하고, 누가 운영하거나 믿거나 중단시킬 서버가 없기 때문입니다. tokengraph가 내일 사라져도 그래프는 계속 동작합니다.
 
-**비용은 실제 금액인가요?** 날짜가 붙은 가격표를 바탕으로 공개 API 정가 기준으로 낸 추정치입니다. 실제 청구 금액이 아니며, 청구 금액은 요금제에 따라 달라집니다. 가격을 알 수 없는 모델은 합계에서 빼고 가격 미정으로 표시하며 $0으로 세지 않으므로, 합계는 하한값일 수밖에 없습니다.
+**비용은 실제 금액인가요?** 날짜가 붙은 가격표를 바탕으로 공개 API 정가 기준으로 낸 추정치입니다. 실제 청구 금액이 아니며, 청구 금액은 요금제에 따라 달라집니다. 가격을 알 수 없는 모델은 합계에서 빼고 가격 미정으로 표시하며 $0으로 세지 않으므로, 합계는 하한값일 수밖에 없습니다. 가격은 Claude(Anthropic), GPT와 o 시리즈(OpenAI), Gemini(Google), Grok(xAI), Cursor의 Composer 2.5에 대해 각 벤더가 공개한 정가입니다. 오픈 웨이트 모델(DeepSeek, Qwen, Llama, Mistral, MiniMax 등)은 단일 정가가 없으므로 의도적으로 가격 미정으로 둡니다. 벤더가 가격을 공개하지 않는 모델(단종된 모델, 프리뷰, Cursor의 Auto)도 마찬가지입니다.
 
 **왜 가중 토큰인가요?** 원시 합계의 대부분은 캐시 읽기이며, 싸지만 양이 많습니다. 10분의 1로 세면 그래프가 실제로 한 작업을 반영합니다. 계산식은 [동작 방식](#동작-방식)에 있습니다.
 
-**오프라인에서 동작하나요?** 네. `view`, `story`, `status`, `export`, `import`, `sync --local`은 네트워크를 쓰지 않습니다. 게시할 때만 GitHub가 필요합니다.
+**오프라인에서 동작하나요?** 네. `view`, `story`, `status`, `export`, `import <file>`, `sync --local`은 네트워크를 쓰지 않습니다. 게시할 때만 GitHub가 필요하고, Cursor 가져오기(`sync`, `cursor fetch`)에는 cursor.com이 필요합니다.
 
-**그만두려면 어떻게 하나요?** `tokengraph uninstall`은 Claude Code, Cursor, Codex 훅과 한 시간마다 도는 스케줄을 제거합니다. `--purge`를 더하면 `~/.tokengraph`에 있는 tokengraph 자체 파일(원장, 로그인 정보, 로그, Cursor 이벤트 파일과 가져오기 파일)도 삭제합니다. 그 폴더의 나머지는 그대로 남습니다.
+**그만두려면 어떻게 하나요?** `tokengraph uninstall`은 Claude Code, Cursor, Codex, Gemini CLI 훅과 한 시간마다 도는 스케줄을 제거합니다. `--purge`를 더하면 `~/.tokengraph`에 있는 tokengraph 자체 파일(원장, 로그인 정보, 로그, Cursor 이벤트 파일, 가져오기 파일, 가져온 계정 파일)도 삭제합니다. 그 폴더의 나머지는 그대로 남습니다.
 그다음 `npm uninstall -g tokengraph`를 실행하세요. gist는 직접 삭제하기 전까지 GitHub에 남아 있습니다.
 
 **Windows는요?** 경로, 훅, 한 시간마다 도는 작업 스케줄러 작업은 Windows용으로 작성되었지만 tokengraph는 macOS와 Linux에서 개발되므로 거친 부분이 있을 수 있습니다. 문제가 있으면 이슈를 열어 주세요.
