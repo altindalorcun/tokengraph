@@ -2,8 +2,14 @@ import { existsSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+/** A blank value is unset: an empty path would resolve against whatever directory the command runs in. */
+function homeOverride(env: NodeJS.ProcessEnv): string | undefined {
+  const value = env['TOKENGRAPH_HOME']?.trim();
+  return value ? value : undefined;
+}
+
 export function configHome(): string {
-  const override = process.env['TOKENGRAPH_HOME'];
+  const override = homeOverride(process.env);
   if (override !== undefined) return override;
   // Last line of defence: a test run that skipped the setup file must fail loudly, not touch the real ~/.tokengraph.
   if (process.env['VITEST'] !== undefined) {
@@ -36,7 +42,7 @@ export function migrateLegacyHome(
   deps: MigrateHomeDeps = DEFAULT_MIGRATE_DEPS,
   env: NodeJS.ProcessEnv = process.env,
 ): 'moved' | 'none' | 'failed' {
-  if (env['TOKENGRAPH_HOME'] !== undefined) return 'none';
+  if (homeOverride(env) !== undefined) return 'none';
   const from = legacyConfigHome();
   const to = join(homedir(), '.tokengraph');
   try {
