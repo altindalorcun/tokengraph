@@ -32,6 +32,10 @@ The first public release.
 - **Retention warnings.** `tokengraph status` shows how long Claude Code, Gemini CLI and Qwen Code
   keep their logs and warns when history is at risk. `status --json` prints it for scripts.
 - **Export.** `tokengraph export` writes daily usage as CSV or JSON from the local ledger.
+- **Busiest hour.** Every agent's requests are now also bucketed by local hour of day. The insights tab shows your
+  busiest hour, a 24-hour profile and a weekday-by-hour grid; `view --print` has a Busiest hour line;
+  `tokengraph export --hours` writes the hour rows. Hour data stays in `state.json` on this machine, never in
+  a gist, and starts from the oldest day your agents' logs still hold.
 - **Cursor import.** `tokengraph import cursor <csv>` adds history from a Cursor dashboard export.
 - **More models priced.** OpenAI's nano, codex, GPT-4.1/4o and o-series models, Google's Gemini models and xAI's
   Grok models now have list prices, with each vendor's own long-context threshold (200K for Gemini and xAI, 272K for

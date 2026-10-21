@@ -26,7 +26,7 @@ file npm ships (`bundle/bin.js`, plus `assets/`).
 
 State lives in `~/.tokengraph/` (or `$TOKENGRAPH_HOME`): `config.json` (machine id, GitHub login and
 auth, gist ids, graph colours, and `agentRoots`, the agent folders remembered from earlier runs;
-mode 0600), `state.json` (the ledger), `machines.json` (the other
+mode 0600), `state.json` (the ledger, including the local-only hour tables), `machines.json` (the other
 machines' files from the last publish) and, for Cursor, `cursor-events.jsonl`, `cursor-import.jsonl`
 (rows imported from a dashboard CSV by `tokengraph import cursor`), `cursor-account-<accountKey>.jsonl`
 (rows fetched from cursor.com, one file per account) and `cursor-fetch.json` (last attempt, back-off, how
@@ -82,6 +82,15 @@ where `sources` is the ledger body.
 - **An unreadable own file is never overwritten.** If the data gist has a file under this machine's
   name that does not parse, it may hold more than the local ledger, so the CLI skips writing it and
   reports it.
+- **Hour data is local only.** Every adapter turns a request's instant into a local hour with the same
+  `Intl` zone rule as its date (`hourKey` next to `dateKey` in core) and returns `CollectResult.hours`,
+  weighted tokens summed per date and hour (each request weighted on its own; display-only, so it can differ
+  by rounding from the day's weight). The ledger keeps them as `hours[source][date][hour]` and, for Cursor
+  account rows, `accountHours[accountKey][date][hour]`, max-merged like the daily counts and written to
+  `state.json` only. The machine file builder copies `sources` and `accounts` explicitly, so hours never
+  reach a gist; a publish test searches every gist file for them. `combineMachineHours` in core applies the
+  Cursor covered-day rule to hours (account hours on covered days, hook hours after, per-hour max on the
+  boundary day). Hours exist only for days the logs still hold, so the view says where hour data starts.
 - **A Cursor account is not a machine.** The history fetched from cursor.com covers every machine and
   surface of the account, so the ledger keeps it in a separate `accounts.cursor[accountKey] =
   { coveredThrough, days }` section (max-merged, carried by the machine file as an additive
