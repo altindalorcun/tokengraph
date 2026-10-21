@@ -1,4 +1,4 @@
-import type { SplitTokenCounts } from '@tokengraph/core';
+import { dateKey, hourKey, type SplitTokenCounts } from '@tokengraph/core';
 import { describe, expect, it } from 'vitest';
 import { RequestBuckets, tierForModel } from '../src/adapters/request-buckets.js';
 
@@ -37,7 +37,19 @@ describe('tierForModel', () => {
     expect(tierForModel('gpt-5.4', long)).toBe('long-context');
     expect(tierForModel('gpt-5.4', counts({ inputTokens: 272_000 }))).toBe('standard');
     expect(tierForModel('claude-sonnet-4-5', long)).toBe('standard');
-    expect(tierForModel('gemini-2.5-pro', long)).toBe('standard');
+    expect(tierForModel('gemini-3-flash-preview', long)).toBe('standard');
+  });
+
+  it('reads each model own threshold: 200K for Gemini and xAI, 272K for OpenAI, 100K for Haiku 5.5', () => {
+    const over200 = counts({ inputTokens: 100_000, cacheReadTokens: 100_001 });
+    const at200 = counts({ inputTokens: 100_000, cacheReadTokens: 100_000 });
+    expect(tierForModel('gemini-2.5-pro', over200)).toBe('long-context');
+    expect(tierForModel('gemini-3.1-pro-preview', at200)).toBe('standard');
+    expect(tierForModel('grok-4.5', over200)).toBe('long-context');
+    expect(tierForModel('grok-4.5', at200)).toBe('standard');
+    expect(tierForModel('gpt-5.4', over200)).toBe('standard');
+    expect(tierForModel('gemini-2.5-flash', over200)).toBe('standard');
+    expect(tierForModel('gemini-2.5-pro', over200, true)).toBe('fast-long-context');
   });
 });
 
@@ -56,5 +68,33 @@ describe('tierForModel for Claude models', () => {
   it('records fast mode when the source reports it', () => {
     expect(tierForModel('claude-opus-5-5', counts(), true)).toBe('fast');
     expect(tierForModel('claude-haiku-5-5', counts({ inputTokens: 200_000 }), true)).toBe('fast-long-context');
+  });
+});
+
+describe('RequestBuckets hours', () => {
+  it('sums weighted tokens per date and hour, keeping the first copy hour and merging copies by max', () => {
+    const buckets = new RequestBuckets();
+    // weighted = 10 + 5 = 15 per request.
+    buckets.add('a', { date: '2026-09-27', hour: 22, model: 'm', pricingTier: 'standard', counts: counts() });
+    buckets.add('a', { date: '2026-09-27', hour: 23, model: 'm', pricingTier: 'standard', counts: counts({ outputTokens: 7 }) });
+    buckets.add('b', { date: '2026-09-27', hour: 22, model: 'm', pricingTier: 'standard', counts: counts() });
+    buckets.add('c', { date: '2026-09-28', hour: 0, model: 'm', pricingTier: 'standard', counts: counts() });
+    expect(buckets.toHours()).toEqual([
+      { date: '2026-09-27', hour: 22, weighted: 32 },
+      { date: '2026-09-28', hour: 0, weighted: 15 },
+    ]);
+  });
+
+  it('keeps the two instants of the repeated autumn hour in one bucket (a DST day, as every adapter keys it)', () => {
+    const tz = 'America/New_York';
+    const buckets = new RequestBuckets();
+    for (const [i, at] of ['2026-11-01T05:30:00Z', '2026-11-01T06:30:00Z', '2026-03-08T07:30:00Z'].entries()) {
+      const instant = new Date(at);
+      buckets.add(`r${i}`, { date: dateKey(instant, tz), hour: hourKey(instant, tz), model: 'm', pricingTier: 'standard', counts: counts() });
+    }
+    expect(buckets.toHours()).toEqual([
+      { date: '2026-03-08', hour: 3, weighted: 15 },
+      { date: '2026-11-01', hour: 1, weighted: 30 },
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyLedger, mergeUsage } from '../../src/ledger.js';
+import { emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
 import { MODEL_FAMILIES } from '@tokengraph/core';
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
@@ -102,7 +102,7 @@ describe('views', () => {
     const agentsBuf = new ScreenBuffer(120, 30);
     drawAgents(agentsBuf, { x: 0, y: 0, width: 120, height: 30 }, {
       ...base(), state: table, detected: ['claude-code', 'codex-cli', 'gemini-cli'],
-      autoSync: { claudeHook: true, cursorHook: false, codexNotify: false, schedule: null },
+      autoSync: { claudeHook: true, cursorHook: false, codexNotify: false, geminiHook: false, schedule: null },
     });
     text = toPlainText(agentsBuf);
     expect(text).toContain('Claude Code');
@@ -123,7 +123,7 @@ describe('views', () => {
     const agents = new ScreenBuffer(160, 40);
     drawAgents(agents, { x: 0, y: 0, width: 160, height: 40 }, {
       ...base(), state: { range: '1y', selected: 0 }, detected: ['claude-code'],
-      autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, schedule: false },
+      autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, geminiHook: null, schedule: false },
     });
     const agentsText = toPlainText(agents);
     for (const s of ['TOKENS BY AGENT · 1 YEAR', '■ Claude Code', '■ Codex CLI', 'auto-sync']) expect(agentsText).toContain(s);
@@ -267,7 +267,7 @@ describe('views', () => {
       const rect = { x: 2, y: 2, width: w, height: h };
       drawOverview(buf, rect, { ...base(), state: { cursor: TODAY, yearEnd: TODAY } });
       drawModels(buf, rect, { ...base(), state: table });
-      drawAgents(buf, rect, { ...base(), state: table, detected: ['gemini-cli'], autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, schedule: false } });
+      drawAgents(buf, rect, { ...base(), state: table, detected: ['gemini-cli'], autoSync: { claudeHook: true, cursorHook: false, codexNotify: null, geminiHook: null, schedule: false } });
       drawInsights(buf, rect, base());
       drawEmpty(buf, rect, { theme, scanning: true });
       drawHelp(buf, rect, theme);
@@ -277,5 +277,53 @@ describe('views', () => {
       expect(rows.slice(h + 2).every((row) => row.trim() === '')).toBe(true);
       expect(rows.every((row) => row.slice(0, 2).trim() === '' && row.length <= w + 2)).toBe(true);
     }
+  });
+
+  describe('insights hours', () => {
+    function withHours() {
+      let ledger = emptyLedger();
+      for (let i = 0; i < 20; i += 1) {
+        const date = shiftDate(TODAY, -i);
+        ledger = mergeUsage(ledger, 'claude-code', [{ date, model: 'claude-sonnet-4-5', pricingTier: 'standard', counts: c(10_000, 2000) }]);
+        ledger = mergeHours(ledger, 'claude-code', [
+          { date, hour: 22, weighted: 6000 },
+          { date, hour: 23, weighted: 2000 },
+          { date, hour: 10, weighted: 4000 },
+        ]);
+      }
+      return buildViewModel(ledger, TODAY);
+    }
+    const render = (width: number, height: number, vm = withHours()) => {
+      const buf = new ScreenBuffer(width, height);
+      drawInsights(buf, { x: 0, y: 0, width, height }, { vm, theme, motion: STILL, colorMode: 'per-model' });
+      return toPlainText(buf);
+    };
+
+    it('shows the busiest-hour card, the 24-hour profile and the weekday × hour grid at 160×44', () => {
+      const text = render(160, 44);
+      for (const s of ['BUSIEST HOUR', '22–23h', 'HOUR OF DAY', 'Mon', 'Sun', '■']) expect(text).toContain(s);
+      expect(text).toContain('50% of your tokens');
+      expect(text).toContain('hour data from');
+    });
+
+    it('drops the grid but keeps the card and the profile at 100×40', () => {
+      const text = render(100, 40);
+      expect(text).toContain('BUSIEST HOUR');
+      expect(text).toContain('HOUR OF DAY');
+      expect(text).not.toContain('■');
+    });
+
+    it('keeps the card at 70×24 and never writes outside the rect', () => {
+      const text = render(70, 24);
+      expect(text).toContain('BUSIEST HOUR');
+      expect(text.split('\n').every((row) => row.length <= 70)).toBe(true);
+    });
+
+    it('says there is no hour data yet when none exists, and draws no hour box', () => {
+      const text = render(120, 34, model());
+      expect(text).toContain('BUSIEST HOUR');
+      expect(text).toContain('no hour data yet');
+      expect(text).not.toContain('HOUR OF DAY');
+    });
   });
 });

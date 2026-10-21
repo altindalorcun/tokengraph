@@ -3,10 +3,19 @@
 This note explains how we can read per-request token usage from the local files of OpenCode
 (anomalyco/opencode, formerly sst/opencode; opencode.ai) and how it can be normalised into
 tokengraph's four fields. The adapter lives in `packages/cli/src/adapters/opencode/`; this note is
-the research behind it (27 September 2026). OpenCode was not installed on the research machine.
+the research behind it (27 September 2026). OpenCode was not installed on the research machine then.
 Everything below was worked out from the source code (git history included), the official
-documentation and two independent third-party parsers; it was not verified against a real local
-database (see `## Not verified`).
+documentation and two independent third-party parsers. OpenCode 1.19.3 has since been run against a fake
+LLM server (see `## Checked against real runs`); older versions were not (see `## Checked against real runs
+
+OpenCode 1.19.3, 20 October 2026, macOS, with `scripts/e2e/run.mjs` (see `scripts/e2e/README.md`): the real agent in
+a throwaway `HOME` against a fake LLM server on the chat, responses and anthropic protocols; a one-shot prompt, a
+resumed session and a tool loop per protocol. After `sync --local`, input, output, cache read and cache write
+matched the server's log per model, once the title-generation requests (the requests that offer no tools) were
+left out, as documented above. Not run: older versions (including the pre-1.3.16 rules), the `storage/` layout and
+real providers.
+
+## Not verified`).
 
 The counters OpenCode stores are local session usage; they are not a provider bill. OpenCode's own
 `cost` field is also an estimate and must not be used in tokengraph (see `## The cost field`).
@@ -445,8 +454,9 @@ equality is available, it must be used before the version rule.
 
 ## Not verified
 
-- OpenCode is not installed on this machine; **no real `opencode.db` or JSON file was seen**. The
-  example JSON was derived from the schema. The column names and JSON paths were taken from the
+- Only OpenCode 1.19.3 has produced a real `opencode.db` (in the fake-server run); **no JSON file of the
+  pre-1.2 `storage/` layout and no database of an older version was seen**. The example JSON was derived from
+  the schema. The column names and JSON paths were taken from the
   Drizzle schema and the migration SQL in the source code.
 - The provider-dependent rules in periods A/B (especially custom providers, OpenRouter's own AI
   SDK provider, and the possibility that cache was subtracted twice in period B because of the
@@ -466,7 +476,15 @@ equality is available, it must be used before the version rule.
 - The user base of the v2 line and scenarios of concurrent writes to the same database as v1 were
   not observed.
 - The real API usage of title generation (v1 and v2) and of steps that were cut off is not
-  recorded locally at all; this part is always undercounted.
+  recorded locally at all; this part is always undercounted. The end-to-end check confirmed it for title
+  generation on 1.19.3: the server saw the title request and no row in the database carries it.
+
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/opencode/roots.ts`.
+
+- Roots: `~/.local/share/opencode` on every OS (macOS and Windows included), and `$XDG_DATA_HOME/opencode` when `XDG_DATA_HOME` is a non-empty absolute path. Each root contributes every `opencode*.db` and the pre-1.2 `storage/` tree.
+- `$OPENCODE_DB` (not `:memory:`) names one more database: absolute as is, relative against the data folder, as OpenCode resolves it. Before multi-root discovery it replaced the folder scan; now it is added to it, because a run with the variable set and a run without it write different databases of one user. Messages deduplicate by id across databases, so a database reached twice only repeats work (and a database path is read once by real path).
 
 ## Sources
 

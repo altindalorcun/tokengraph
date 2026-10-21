@@ -142,7 +142,7 @@ function fakeTerminal() {
   };
 }
 
-const NO_AUTO_SYNC = async () => ({ claudeHook: null, cursorHook: null, codexNotify: null, schedule: null });
+const NO_AUTO_SYNC = async () => ({ claudeHook: null, cursorHook: null, codexNotify: null, geminiHook: null, schedule: null });
 
 describe('runApp', () => {
   it('keeps the merge in memory when the ledger is busy, then quits cleanly', async () => {

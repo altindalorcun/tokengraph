@@ -445,3 +445,79 @@ describe('Cursor Composer pricing', () => {
     expect(costForSplitCounts('default', TODAY, everything)).toEqual({ priced: false, dollars: 0 });
   });
 });
+
+describe('vendor list prices added 2026-10-21', () => {
+  const MILLION = 1_000_000;
+  const single = (overrides: Partial<SplitTokenCounts> = {}) =>
+    counts({ cacheCreation5mTokens: null, cacheCreation1hTokens: null, ...overrides });
+  const everything = single({ inputTokens: MILLION, outputTokens: MILLION, cacheReadTokens: MILLION });
+
+  it.each([
+    // [model, input, cached, output] per million
+    ['gpt-5-nano', 0.05, 0.005, 0.4],
+    ['gpt-5.4-nano', 0.2, 0.02, 1.25],
+    ['gpt-5-codex', 1.25, 0.125, 10],
+    ['gpt-5.1-codex-mini', 0.25, 0.025, 2],
+    ['codex-mini-latest', 1.5, 0.375, 6],
+    ['gpt-4.1', 2, 0.5, 8],
+    ['gpt-4o', 2.5, 1.25, 10],
+    ['o1', 15, 7.5, 60],
+    ['o3-mini', 1.1, 0.55, 4.4],
+    ['gemini-2.5-pro', 1.25, 0.125, 10],
+    ['gemini-3.1-pro-preview', 2, 0.2, 12],
+    ['gemini-3.5-flash', 1.5, 0.15, 9],
+    ['gemini-3.7-flash', 0.75, 0.075, 3.75],
+    ['gemini-2.5-flash-lite', 0.1, 0.01, 0.4],
+    ['grok-4.7', 2, 0.5, 6],
+    ['grok-4.5', 2, 0.3, 6],
+    ['grok-4.3', 1.25, 0.2, 2.5],
+    ['grok-build-0.1', 1, 0.2, 2],
+  ])('%s costs %d in, %d cached, %d out per million', (model, input, cached, output) => {
+    const result = costForSplitCounts(model, TODAY, everything);
+    expect(result.priced).toBe(true);
+    expect(result.dollars).toBeCloseTo(input + cached + output, 9);
+  });
+
+  it('prices a snapshot with a dashed date as its bare model', () => {
+    expect(costForSplitCounts('gpt-4o-2024-08-06', TODAY, everything)).toEqual(costForSplitCounts('gpt-4o', TODAY, everything));
+    expect(findRate('o3-2025-04-16', TODAY)).toEqual(findRate('o3', TODAY));
+  });
+
+  it('bills Gemini long context at 2x input and cache and 1.5x output, xAI at 2x everything', () => {
+    expect(costForSplitCounts('gemini-2.5-pro', TODAY, everything, 'long-context').dollars).toBeCloseTo(2.5 + 0.25 + 15, 9);
+    expect(costForSplitCounts('grok-4.7', TODAY, everything, 'long-context').dollars).toBeCloseTo(4 + 1 + 12, 9);
+  });
+
+  it('keeps a fast tier unpriced where the vendor publishes no fast row', () => {
+    for (const model of ['gpt-5-nano', 'gpt-5.2-codex', 'o1', 'gemini-3.8-flash', 'grok-4.5']) {
+      expect(findRate(model, TODAY)?.fastMultiplier).toBeNull();
+      expect(costForSplitCounts(model, TODAY, everything, 'fast')).toEqual({ priced: false, dollars: 0 });
+    }
+  });
+
+  it('prices the published fast rows of the older OpenAI models', () => {
+    // gpt-4.1 Fast: $3.50 in, $0.875 cached, $14 out.
+    expect(costForSplitCounts('gpt-4.1', TODAY, everything, 'fast').dollars).toBeCloseTo(3.5 + 0.875 + 14, 9);
+    // o4-mini Fast: $2.00 in, $0.50 cached, $8.00 out.
+    expect(costForSplitCounts('o4-mini', TODAY, everything, 'fast').dollars).toBeCloseTo(2 + 0.5 + 8, 9);
+  });
+
+  it('doubles Gemini 3.6 and 3.8 Flash from 2027-01-01 and Gemini 4 Argon from 2026-12-01', () => {
+    expect(findRate('gemini-3.8-flash', '2026-12-31')?.inputPerMillion).toBe(0.75);
+    expect(findRate('gemini-3.8-flash', '2027-01-01')?.inputPerMillion).toBe(1.5);
+    expect(findRate('gemini-4-argon', '2026-11-30')?.outputPerMillion).toBe(10);
+    expect(findRate('gemini-4-argon', '2026-12-01')?.outputPerMillion).toBe(20);
+  });
+
+  it('leaves models with no confirmed vendor list price unpriced', () => {
+    const unpriced = [
+      'gpt-5.5-pro', 'gpt-5.4-pro', 'gpt-5.2-pro', 'gpt-5-pro', 'o3-pro', 'o1-pro', // no cached-input price
+      'gemini-3-pro-preview', 'gemini-2.5-pro-preview-05-06', // a preview is never priced as its successor
+      'grok-3', 'grok-3-beta', 'grok-code-fast-1', 'grok-4.5-latest', // retired or alias
+      'composer-2', 'composer-2-fast', 'composer-1', 'composer-1.5', 'cursor-small', // no published cache price or retired
+      'claude-3-5-sonnet', 'claude-3-7-sonnet', 'claude-3-opus', 'claude-3-haiku', // off Anthropic's page
+      'auto', 'agent_review', 'llama-3.3-70b', 'mistral-large', 'qwen3-coder', // router and open-weight
+    ];
+    for (const model of unpriced) expect(findRate(model, TODAY), model).toBeNull();
+  });
+});

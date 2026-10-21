@@ -345,3 +345,16 @@ describe('OpenCodeAggregator model naming, since and time zone', () => {
     expect(aggregator.result().source).toBe('opencode');
   });
 });
+
+describe('OpenCodeAggregator hours', () => {
+  it('buckets each request by the hour of its message', () => {
+    const aggregator = new OpenCodeAggregator({ timeZone: 'UTC' });
+    aggregator.addSession(NEW_SESSION);
+    aggregator.addV1Message(message({ id: 'm1', createdMs: Date.parse('2026-09-27T10:00:00Z'), tokens: stepTokens(10, 5), steps: [] }));
+    aggregator.addV1Message(message({ id: 'm2', createdMs: Date.parse('2026-09-27T15:30:00Z'), tokens: stepTokens(20, 5), steps: [] }));
+    expect(aggregator.result().hours).toEqual([
+      { date: '2026-09-27', hour: 10, weighted: 15 },
+      { date: '2026-09-27', hour: 15, weighted: 25 },
+    ]);
+  });
+});

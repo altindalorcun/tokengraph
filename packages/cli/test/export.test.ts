@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { DailyModelUsage, SplitTokenCounts } from '@tokengraph/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseExportArgs, runExport } from '../src/commands/export.js';
-import { emptyLedger, mergeUsage, writeLedger } from '../src/ledger.js';
+import { emptyLedger, mergeHours, mergeUsage, writeLedger } from '../src/ledger.js';
 import { ledgerPath, machinesCachePath } from '../src/paths.js';
 import { writeMachinesCache } from '../src/publish/machines-cache.js';
 
@@ -171,5 +171,44 @@ describe('tokengraph export', () => {
     expect(parseExportArgs({ since: '2026-13-01' })).toBe('--since must be a date as YYYY-MM-DD.');
     expect(parseExportArgs({ since: 'yesterday' })).toBe('--since must be a date as YYYY-MM-DD.');
     expect(parseExportArgs({})).toEqual({ format: 'csv', since: undefined, out: undefined, allMachines: false });
+  });
+
+  describe('--hours', () => {
+    async function seedHours(): Promise<void> {
+      let ledger = emptyLedger();
+      ledger = mergeHours(ledger, 'claude-code', [
+        { date: '2026-10-01', hour: 22, weighted: 500 },
+        { date: '2026-10-02', hour: 9, weighted: 70 },
+      ]);
+      ledger = mergeHours(ledger, 'codex-cli', [{ date: '2026-10-02', hour: 9, weighted: 30 }]);
+      await mkdir(dirname(ledgerPath()), { recursive: true });
+      await writeLedger(ledgerPath(), ledger);
+    }
+
+    it('writes date, hour, source and weighted tokens as CSV', async () => {
+      await seedHours();
+      expect(await runExport({ format: 'csv', hours: true })).toBe(0);
+      expect(out).toBe('date,hour,source,weighted_tokens\n2026-10-01,22,claude-code,500\n2026-10-02,9,claude-code,70\n2026-10-02,9,codex-cli,30\n');
+    });
+
+    it('writes JSON for this machine only and respects --since', async () => {
+      await seedHours();
+      expect(await runExport({ format: 'json', hours: true, since: '2026-10-02' })).toBe(0);
+      expect(JSON.parse(out)).toEqual({
+        schema: 1,
+        scope: 'this-machine',
+        rows: [
+          { date: '2026-10-02', hour: 9, source: 'claude-code', weightedTokens: 70 },
+          { date: '2026-10-02', hour: 9, source: 'codex-cli', weightedTokens: 30 },
+        ],
+      });
+    });
+
+    it('gives only a header without hour data, and refuses --all-machines', async () => {
+      expect(await runExport({ format: 'csv', hours: true })).toBe(0);
+      expect(out).toBe('date,hour,source,weighted_tokens\n');
+      expect(parseExportArgs({ hours: true, 'all-machines': true })).toMatch(/this machine only/);
+      expect(parseExportArgs({ hours: true })).toMatchObject({ hours: true });
+    });
   });
 });

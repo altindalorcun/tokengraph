@@ -10,11 +10,13 @@ import {
   matchingCursorCommands,
   removeCursorHook,
 } from '../cursor-hooks-json.js';
+import { geminiHome } from '../adapters/gemini-cli/index.js';
 import { renameWithRetry } from '../fs-retry.js';
 import {
   addHook,
   eventsWithHook,
   hasHook,
+  isTokenGraphGeminiHookCommand,
   isTokenGraphHookCommand,
   matchingCommands,
   removeHook,
@@ -25,9 +27,9 @@ import { configHome } from '../paths.js';
 
 export const DEFAULT_HOOK_EVENT = 'SessionEnd';
 
-export type HookAgent = 'claude-code' | 'cursor' | 'codex';
+export type HookAgent = 'claude-code' | 'cursor' | 'codex' | 'gemini-cli';
 
-const HOOK_AGENTS: readonly HookAgent[] = ['claude-code', 'cursor', 'codex'];
+const HOOK_AGENTS: readonly HookAgent[] = ['claude-code', 'cursor', 'codex', 'gemini-cli'];
 
 /**
  * `--agent` is required: every agent is named the same way, so nobody installs the Claude Code
@@ -42,7 +44,7 @@ export function resolveHookAgent(value: string | undefined): { agent: HookAgent 
     };
   }
   const agent = HOOK_AGENTS.find((candidate) => candidate === value);
-  return agent ? { agent } : { error: '--agent must be claude-code, cursor or codex.' };
+  return agent ? { agent } : { error: '--agent must be claude-code, cursor, codex or gemini-cli.' };
 }
 
 export interface InstallHookOptions {
@@ -61,6 +63,18 @@ export function hookCommand(): string {
   // hook-sync spawns a detached sync and returns at once, never failing, so no shell redirects are needed
   // (Claude Code cancels SessionEnd hooks after ~1.5s; a full sync takes longer).
   return `"${stableNodePath(process.execPath)}" "${bin}" hook-sync`;
+}
+
+/** Gemini CLI's user settings: `<GEMINI_CLI_HOME or home>/.gemini/settings.json` (Storage.getGlobalSettingsPath). */
+export function geminiSettingsPath(): string {
+  return join(geminiHome(), '.gemini', 'settings.json');
+}
+
+export const GEMINI_HOOK_EVENT = 'SessionEnd';
+
+/** Gemini runs the string through bash -c, or PowerShell on Windows (where `& ` is needed to call a quoted path). */
+export function geminiHookCommand(): string {
+  return `${process.platform === 'win32' ? '& ' : ''}${hookCommand()}`;
 }
 
 export function cursorHooksPath(): string {
@@ -127,6 +141,48 @@ async function installCursorHook(options: InstallHookOptions): Promise<number> {
   return hasCursorHook(next, command) === !options.remove ? 0 : 1;
 }
 
+async function installGeminiHook(options: InstallHookOptions): Promise<number> {
+  const path = geminiSettingsPath();
+  const command = geminiHookCommand();
+  let settings: Settings;
+  try {
+    settings = await readSettings(path);
+  } catch (error) {
+    console.error(`Could not read ${path} as plain JSON (${error instanceof Error ? error.message : String(error)}).`);
+    console.error('It was left alone. If it has comments, remove them or add the hook by hand, or run `tokengraph schedule` instead.');
+    return 1;
+  }
+  const replacedOlder = matchingCommands(settings, GEMINI_HOOK_EVENT, isTokenGraphGeminiHookCommand).some((existing) => existing !== command);
+  // No matcher: it matches every SessionEnd reason. A timeout well under Gemini's 60 s default; hook-sync returns at once.
+  const next = options.remove
+    ? removeHook(settings, GEMINI_HOOK_EVENT, isTokenGraphGeminiHookCommand)
+    : addHook(settings, GEMINI_HOOK_EVENT, command, isTokenGraphGeminiHookCommand, { name: 'tokengraph', timeout: 5000 });
+
+  if (next === settings) {
+    console.log(options.remove ? 'No tokengraph Gemini CLI hook found. Nothing to do.' : 'The tokengraph Gemini CLI hook is already installed.');
+    return 0;
+  }
+  if (options.dryRun) {
+    console.log(`Would write ${path}:\n`);
+    console.log(JSON.stringify(next, null, 2));
+    return 0;
+  }
+  await writeJsonFile(path, next);
+  if (options.remove) console.log('Removed the tokengraph Gemini CLI hook.');
+  else if (replacedOlder) console.log('Updated the tokengraph Gemini CLI hook (replaced an older command).');
+  else console.log('Installed the tokengraph Gemini CLI hook on SessionEnd.');
+  console.log(`settings: ${path}`);
+  if (!options.remove) {
+    const hooksConfig = settings['hooksConfig'];
+    if (typeof hooksConfig === 'object' && hooksConfig !== null && (hooksConfig as Record<string, unknown>)['enabled'] === false) {
+      console.log('\nNote: hooksConfig.enabled is false in that file, so Gemini CLI will not run any hook until you turn it on.');
+    }
+    console.log(`\nGemini CLI runs it when a session ends; the background sync logs to ${join(configHome(), 'hook-sync.log')}.`);
+    console.log('Gemini CLI reads its settings at start, so sessions already open need a restart.');
+  }
+  return hasHook(next, GEMINI_HOOK_EVENT, command) === !options.remove ? 0 : 1;
+}
+
 async function readTextOrEmpty(path: string): Promise<string> {
   try {
     return await readFile(path, 'utf8');
@@ -181,6 +237,7 @@ export async function runInstallHook(options: InstallHookOptions): Promise<numbe
   }
   if (options.agent === 'cursor') return installCursorHook(options);
   if (options.agent === 'codex') return installCodexHook(options);
+  if (options.agent === 'gemini-cli') return installGeminiHook(options);
 
   const path = settingsPath();
   const command = hookCommand();

@@ -120,11 +120,21 @@ export function drawHeatmap(buf: ScreenBuffer, rect: Rect, props: HeatmapProps):
   write(x, legendY, 'More', { fg: theme.muted });
   x += 4;
   if (colorMode === 'per-model') {
-    for (const family of gridFamilies(grid)) {
+    const families = gridFamilies(grid);
+    for (const [i, family] of families.entries()) {
+      const label = FAMILY_LABELS[family];
+      const rest = families.length - i;
+      const more = (n: number) => `+${n} more`;
+      // Whatever does not fit whole collapses into "+N more": a family is never cut mid-name.
+      const fits = x + 2 + step + label.length + (rest > 1 ? 2 + more(rest - 1).length : 0) <= right;
+      if (!fits) {
+        if (x + 2 + more(rest).length <= right) write(x + 2, legendY, more(rest), { fg: theme.muted });
+        break;
+      }
       x += 2;
       write(x, legendY, swatch, { fg: familyColor(family, theme), bg: theme.bg });
-      write(x + step, legendY, FAMILY_LABELS[family], { fg: theme.muted });
-      x += step + FAMILY_LABELS[family].length;
+      write(x + step, legendY, label, { fg: theme.muted });
+      x += step + label.length;
     }
   }
   return layout;

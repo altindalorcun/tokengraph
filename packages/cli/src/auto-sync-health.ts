@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { eventsWithHook, isTokenGraphHookCommand, matchingCommands, type Settings } from './hook-settings.js';
+import { eventsWithHook, isTokenGraphGeminiHookCommand, isTokenGraphHookCommand, matchingCommands, type Settings } from './hook-settings.js';
 import { isTokenGraphCursorHookCommand, matchingCursorCommands, type CursorHooksFile } from './cursor-hooks-json.js';
 import { hasCronEntry, SCHEDULE_LABEL } from './schedule-entries.js';
 import { DEFAULT_AUTO_SYNC_DEPS, type AutoSyncDeps } from './tui/auto-sync.js';
@@ -22,6 +22,7 @@ export interface AutoSyncHealth {
   claudeHook: AutoSyncEntry;
   cursorHook: AutoSyncEntry;
   codexNotify: AutoSyncEntry;
+  geminiHook: AutoSyncEntry;
   schedule: AutoSyncEntry;
 }
 
@@ -64,6 +65,16 @@ async function cursorHook(deps: AutoSyncDeps): Promise<AutoSyncEntry> {
   const commands = matchingCursorCommands(file as CursorHooksFile, isTokenGraphCursorHookCommand);
   if (commands.length === 0) return ABSENT;
   return { installed: true, missing: await missingPaths(deps, commands.flatMap(commandPaths)) };
+}
+
+async function geminiHook(deps: AutoSyncDeps): Promise<AutoSyncEntry> {
+  const home = deps.env['GEMINI_CLI_HOME'] || deps.home();
+  const settings = await readJson(deps, join(home, '.gemini', 'settings.json'));
+  if (settings === undefined) return ABSENT;
+  if (settings === null) return UNKNOWN;
+  const commands = matchingCommands(settings as Settings, 'SessionEnd', isTokenGraphGeminiHookCommand);
+  if (commands.length === 0) return ABSENT;
+  return { installed: true, detail: 'SessionEnd', missing: await missingPaths(deps, commands.flatMap((c) => commandPaths(c.replace(/^& /, '')))) };
 }
 
 /** The string elements of the top-level `notify = [...]` when it runs our hook-sync, else null. */
@@ -143,11 +154,12 @@ async function guarded(check: () => Promise<AutoSyncEntry>): Promise<AutoSyncEnt
 /** Which background syncs are installed and whether the programs they run still exist. Never throws. */
 export async function inspectAutoSync(overrides: Partial<AutoSyncDeps> = {}): Promise<AutoSyncHealth> {
   const deps: AutoSyncDeps = { ...DEFAULT_AUTO_SYNC_DEPS, ...overrides };
-  const [claude, cursor, codex, scheduled] = await Promise.all([
+  const [claude, cursor, codex, gemini, scheduled] = await Promise.all([
     guarded(() => claudeHook(deps)),
     guarded(() => cursorHook(deps)),
     guarded(() => codexNotify(deps)),
+    guarded(() => geminiHook(deps)),
     guarded(() => schedule(deps)),
   ]);
-  return { claudeHook: claude, cursorHook: cursor, codexNotify: codex, schedule: scheduled };
+  return { claudeHook: claude, cursorHook: cursor, codexNotify: codex, geminiHook: gemini, schedule: scheduled };
 }

@@ -4,9 +4,13 @@ import { join } from 'node:path';
 import type { DailyModelUsage, PricingTier } from '@tokengraph/core';
 import { describe, expect, it } from 'vitest';
 import {
+  allLedgerHours,
   allLedgerUsage,
   emptyLedger,
   ledgerToUsage,
+  mergeAccountHours,
+  mergeCursorAccount,
+  mergeHours,
   mergeUsage,
   parseLedger,
   readLedger,
@@ -278,5 +282,104 @@ describe('ledger v3', () => {
     let ledger = mergeUsage(emptyLedger(), 'claude-code', [usage('2026-09-01', 'a'), usage('2026-09-10', 'a')]);
     ledger = mergeUsage(ledger, 'codex-cli', [usage('2026-09-10', 'b')]);
     expect(allLedgerUsage(ledger, '2026-09-05').map((u) => u.date)).toEqual(['2026-09-10', '2026-09-10']);
+  });
+});
+
+describe('Cursor accounts in the ledger', () => {
+  const KEY = '0123456789abcdef';
+  const day = (date: string, input: number) => usage(date, 'composer-2', { inputTokens: input });
+
+  it('max-merges an account and never moves coveredThrough back', () => {
+    let ledger = mergeCursorAccount(emptyLedger(), KEY, '2026-10-10T10:00:00.000Z', [day('2026-10-09', 50)]);
+    ledger = mergeCursorAccount(ledger, KEY, '2026-10-09T10:00:00.000Z', [day('2026-10-09', 30), day('2026-10-08', 5)]);
+    const account = ledger.accounts?.cursor?.[KEY];
+    expect(account?.coveredThrough).toBe('2026-10-10T10:00:00.000Z');
+    expect(account?.days['2026-10-09']?.['composer-2']?.standard?.inputTokens).toBe(50);
+    expect(account?.days['2026-10-08']).toBeDefined();
+  });
+
+  it('survives mergeUsage, a write and a read', async () => {
+    let ledger = mergeCursorAccount(emptyLedger(), KEY, '2026-10-10T10:00:00.000Z', [day('2026-10-09', 50)]);
+    ledger = mergeUsage(ledger, 'claude-code', [usage('2026-10-09', 'claude-opus-5-5', { inputTokens: 1 })]);
+    expect(ledger.accounts?.cursor?.[KEY]).toBeDefined();
+    const path = join(await mkdtemp(join(tmpdir(), 'tg-ledger-')), 'state.json');
+    await writeLedger(path, ledger);
+    expect(await readLedger(path)).toEqual(ledger);
+  });
+
+  it('parses a ledger without accounts and drops malformed ones', () => {
+    expect(parseLedger({ version: 3, sources: {} }).accounts).toBeUndefined();
+    const parsed = parseLedger({
+      version: 3,
+      sources: {},
+      accounts: { cursor: { 'not-a-key': { coveredThrough: '2026-10-10T00:00:00Z', days: {} }, [KEY]: { coveredThrough: 'yesterday', days: {} } } },
+    });
+    expect(parsed.accounts).toBeUndefined();
+  });
+
+  it('keeps an account whose history is empty: it still says how far it is covered', () => {
+    const parsed = parseLedger({ version: 3, sources: {}, accounts: { cursor: { [KEY]: { coveredThrough: '2026-10-10T00:00:00Z', days: {} } } } });
+    expect(parsed.accounts?.cursor?.[KEY]).toEqual({ coveredThrough: '2026-10-10T00:00:00.000Z', days: {} });
+  });
+
+  it('allLedgerUsage replaces cursor hook rows with the account figure on covered days', () => {
+    let ledger = mergeUsage(emptyLedger(), 'cursor', [usage('2026-10-08', 'composer-2', { inputTokens: 999 })]);
+    ledger = mergeCursorAccount(ledger, KEY, '2036-01-01T00:00:00.000Z', [day('2026-10-08', 40)]);
+    expect(allLedgerUsage(ledger).map((entry) => [entry.source, entry.counts.inputTokens])).toEqual([['cursor', 40]]);
+  });
+});
+
+describe('hours in the ledger', () => {
+  const rows = [
+    { date: '2026-10-01', hour: 22, weighted: 500 },
+    { date: '2026-10-01', hour: 23, weighted: 120 },
+  ];
+
+  it('max-merges per date and hour, never lowering a bucket', () => {
+    let ledger = mergeHours(emptyLedger(), 'claude-code', rows);
+    ledger = mergeHours(ledger, 'claude-code', [{ date: '2026-10-01', hour: 22, weighted: 300 }, { date: '2026-10-02', hour: 0, weighted: 9 }]);
+    expect(ledger.hours).toEqual({ 'claude-code': { '2026-10-01': { '22': 500, '23': 120 }, '2026-10-02': { '0': 9 } } });
+  });
+
+  it('survives a write and a read, with Cursor account hours', async () => {
+    let ledger = mergeHours(emptyLedger(), 'codex-cli', rows);
+    ledger = mergeAccountHours(ledger, 'abcdef0123456789', [{ date: '2026-10-01', hour: 4, weighted: 77 }]);
+    const path = join(await mkdtemp(join(tmpdir(), 'tokengraph-hours-')), 'state.json');
+    await writeLedger(path, ledger);
+    expect(await readLedger(path)).toEqual(ledger);
+  });
+
+  it('reads a state.json written before hours existed, without inventing any', () => {
+    const old = { version: 3, sources: { 'claude-code': { '2026-10-01': { 'claude-opus-5-5': { standard: { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0 } } } } } };
+    const ledger = parseLedger(old);
+    expect(ledger.hours).toBeUndefined();
+    expect(ledger.accountHours).toBeUndefined();
+    expect(allLedgerHours(ledger)).toEqual([]);
+    expect(ledgerToUsage(ledger, 'claude-code')).toHaveLength(1);
+  });
+
+  it('drops malformed hour data instead of throwing', () => {
+    const ledger = parseLedger({
+      version: 3,
+      sources: {},
+      hours: {
+        'claude-code': { '2026-10-01': { '5': 10, '24': 3, x: 1, '6': -2, '7': 'a' }, nope: { '1': 1 } },
+        'not-an-agent': { '2026-10-01': { '1': 1 } },
+      },
+      accountHours: { 'not-a-key': { '2026-10-01': { '1': 1 } } },
+    });
+    expect(ledger.hours).toEqual({ 'claude-code': { '2026-10-01': { '5': 10 } } });
+    expect(ledger.accountHours).toBeUndefined();
+  });
+
+  it('applies the Cursor covered-day rule to the ledger (account hours on covered days, hook hours after)', () => {
+    let ledger = mergeCursorAccount(emptyLedger(), 'abcdef0123456789', '2026-10-02T12:00:00.000Z', []);
+    ledger = mergeAccountHours(ledger, 'abcdef0123456789', [{ date: '2026-10-01', hour: 9, weighted: 20 }]);
+    ledger = mergeHours(ledger, 'cursor', [
+      { date: '2026-10-01', hour: 9, weighted: 999 },
+      { date: '2099-01-01', hour: 8, weighted: 40 },
+    ]);
+    const cursor = allLedgerHours(ledger).filter((row) => row.source === 'cursor').map((row) => `${row.date} ${row.hour} ${row.weighted}`);
+    expect(cursor).toEqual(['2026-10-01 9 20', '2099-01-01 8 40']);
   });
 });

@@ -5,7 +5,8 @@ VS Code extension `saoudrizwan.claude-dev` and the Cline CLI). The adapter lives
 `packages/cli/src/adapters/cline/`; this document collects the format, the traps and the
 recommended normalisation that were checked against the source code before the adapter was
 written. All claims were read from Cline's source code (the commits below); Cline was not
-installed on the research machine, and nothing was verified against a real user file.
+installed on the research machine then. Since then Cline 3.0.73 has been run against a fake LLM server
+(see "Checked against real runs"); other versions and the editor extension's classic files were not run.
 
 Sources examined:
 
@@ -336,7 +337,7 @@ The official contract: [`messages-contract-v1.md`](https://github.com/cline/clin
 - `id`: `createUID("msg")`, persistent; `nanoid()` is generated at write time only if it is
   missing.
 
-### B: `inputTokens` INCLUDES cache, for all providers
+### B: `inputTokens` usually includes cache, but not for every model
 
 The SDK calls providers through the AI SDK, and `normalizeUsage` takes `inputTokens` from the AI
 SDK's `inputTokens.total` (or from `prompt_tokens`/`promptTokenCount`): **the full request size,
@@ -353,26 +354,64 @@ the following formula:
 
 | SDK `metrics` field | tokengraph field |
 | --- | --- |
-| `max(0, inputTokens − cacheReadTokens − cacheWriteTokens)` | `inputTokens` |
+| `inputTokens − cacheReadTokens − cacheWriteTokens` (inclusive row), or `inputTokens` as is (exclusive row, see below) | `inputTokens` |
 | `outputTokens` | `outputTokens` (reasoning note below) |
 | `cacheWriteTokens` | `cacheCreationTokens` |
 | `cacheReadTokens` | `cacheReadTokens` |
 | no TTL split | `cacheCreation5mTokens` / `cacheCreation1hTokens` = `null` |
 
-The `max(0, …)` clamp is the same as Cline's own; it prevents the old ApiHandler-based paths from
-going negative.
+Cline's own code clamps with `max(0, …)`; tokengraph does not clamp (see below).
 
-**Reasoning warning (an unreleased change):** on `main` (after v4.1.21 / SDK 0.0.86, not tagged
-yet), `normalizeUsage` now **subtracts** reasoning tokens from `outputTokens` and puts them in a
+#### B: exclusive rows behind the Cline gateway
+
+The "includes cache" statement holds for the library code, but the SDK forwards whatever
+`prompt_tokens` the upstream or gateway sends: `@ai-sdk/openai-compatible` and the OpenRouter
+provider pass it through unchecked, and the `cline` / `cline-pass` providers are built on that
+path. Real data shows a gateway model that sends it **exclusive of cache**: provider `cline`,
+model `minimax/minimax-m2.5`
+([real sample: MasterVKT/HIVMeet_FrontEnd, `~/.cline/data/sessions`, March 2026](https://github.com/MasterVKT/HIVMeet_FrontEnd)).
+Rows such as `inputTokens 45865 / cacheReadTokens 88671` (cache larger than the whole input) are
+impossible for an inclusive count, and the recorded `cost` of all four sampled rows is reproduced
+exactly by `input × 0.30e-6 + cacheRead × 0.03e-6 + output × 1.20e-6` with `input` as the fresh
+input (the per-million prices are a curve fit, not a cited price list). The same provider id is
+inclusive for `deepseek/deepseek-v4-flash` (cost fit with `fresh = input − cacheRead`), so the
+provider alone cannot decide.
+
+The rule the adapter applies:
+
+1. Row rule: if `cacheRead + cacheWrite > inputTokens` (strictly; equality is a legitimate
+   inclusive row with 0 fresh), the row is exclusive and the fresh input is the reported
+   `inputTokens`. Also applied to classic rows of providers outside `CACHE_EXCLUSIVE_PROVIDERS`.
+2. Model rule: a (provider, model id) pair, as recorded, with one such row anywhere in the current
+   collection is exclusive for all its SDK rows in that collection (a first pass over the session
+   files collects the pairs; files are read one at a time, so memory stays bounded). Not applied
+   to classic rows.
+3. Seed: provider `cline` or `cline-pass` with a model id starting `minimax/` is exclusive even
+   before a violating row is seen (a row such as `8281 / cacheRead 6711` does not violate but is
+   exclusive by cost). Not seeded: `cline-free/`, `cline-pass/` model prefixes and `:free` models
+   (no evidence).
+
+Diagnostics: `exclusiveDetected` counts rows read as exclusive by any of the three rules, shown as
+a note; `clamped` should no longer fire on the SDK path.
+
+Still unconfirmed: a gateway model that is exclusive but never violates (and is not seeded) is
+still undercounted. The classic handlers for `cline`, `openrouter` and `vercel-ai-gateway` already
+clamp (`max(0, prompt − cacheRead − cacheWrite)`) before writing `tokensIn`, so an exclusive
+upstream's fresh input is already lost in the file and nothing can recover it. Why the Cline
+backend forwards exclusive counts for MiniMax is unknown (the backend is not public).
+
+**Reasoning warning (shipped; confirmed on Cline 3.0.73):** on `main` (after v4.1.21 / SDK 0.0.86), `normalizeUsage` now **subtracts** reasoning tokens from `outputTokens` and puts them in a
 separate `reasoningTokenCount`
 ([`ai-sdk.ts#L1340`](https://github.com/cline/cline/blob/252082b9e93b4f91253876391e35b4c13326f5e6/sdk/packages/llms/src/providers/ai-sdk.ts#L1340)),
 but when writing to disk `agentMetricsToMetrics` **drops** `reasoningTokenCount`
 ([`agent-message-codec.ts#L321`](https://github.com/cline/cline/blob/252082b9e93b4f91253876391e35b4c13326f5e6/sdk/packages/core/src/runtime/config/agent-message-codec.ts#L321)).
-The result: if this code ships, the persisted `outputTokens` will not include reasoning for
-providers that report reasoning separately (OpenAI/Gemini/xAI and similar), and it cannot be
-recovered (an undercount). The tags v4.1.0 ... v4.1.21 do not have this subtraction; there
-`outputTokens` includes reasoning. Claude models are not affected (Anthropic does not report
-reasoning separately). This behaviour should be checked again when the adapter is written.
+The result: the persisted `outputTokens` does not include reasoning for providers that report reasoning
+separately (OpenAI/Gemini/xAI and similar), and it cannot be recovered (an undercount). The code has shipped:
+Cline CLI 3.0.73 (checked 20 October 2026 with `scripts/e2e/run.mjs`) wrote `outputTokens` 47 for a chat
+completion with `completion_tokens` 53, of which 6 were reasoning; only the 47 is on disk and `reasoningTokenCount`
+is not written. tokengraph therefore counts the 47. The tags v4.1.0 ... v4.1.21 do not have this subtraction;
+there `outputTokens` includes reasoning. Claude models are not affected (Anthropic does not report reasoning
+separately).
 
 ### B: what must be skipped or handled specially
 
@@ -460,17 +499,18 @@ directly to Roo/Kilo; separate research is needed (not gone into).
 
 ## Not verified
 
-- Cline is not on the research machine; no real `ui_messages.json` / `messages.json` was opened.
-  The example JSON was built from the source code and the official fixture, and the numbers are
-  examples.
+- The example JSON was built from the source code and the official fixture, and the numbers are
+  examples. Only Cline CLI 3.0.73 (SDK `*.messages.json`) has been run; no classic `ui_messages.json`
+  from the editor extension was produced by a real run.
 - The host directory names (`Cursor`, `VSCodium`, `Windsurf`, `~/.cursor-server`, portable mode,
   `--user-data-dir`) are VS Code conventions, do not appear in the Cline source, and were not
   verified one by one.
 - That `inputTokens` excludes cache reads/writes on Bedrock Converse rests on the AWS
   documentation; it was not verified in the Cline code or in a real response.
-- That on the SDK side `inputTokens.total` includes cache for **every** AI SDK provider rests on
-  Cline's comments and two tests (OpenRouter, Gemini); that the AI SDK's Anthropic/Bedrock
-  providers compute `total` to include the cache write was not checked in the library code.
+- The AI SDK's Anthropic/Bedrock/Google providers compute `inputTokens.total` inclusive (checked in
+  the library code). The OpenAI-compatible and OpenRouter providers pass the upstream
+  `prompt_tokens` through unchecked, so inclusive-ness there depends on the upstream; see
+  "exclusive rows behind the Cline gateway".
 - That `ai-sdk-provider-claude-code` / the Claude Agent SDK writes the session to
   `~/.claude/projects` (and so there is a double-counting risk) is an assumption; not verified.
   The safe side: skip.
@@ -481,10 +521,28 @@ directly to Roo/Kilo; separate research is needed (not gone into).
   only `openai`, `anthropic`, `openrouter`, `openai-native`, `gemini`, `bedrock`, `ollama`,
   `deepseek` and `litellm` were sampled; older versions of the other providers were not checked.
 - In tasks before 3.12 there is no per-request model or provider (model `unknown`).
-- The subtraction of reasoning from `outputTokens` exists only on `main`; whether it will be
-  released, and whether `reasoningTokenCount` will be added to the persisted format, is unknown.
+- Whether a later Cline release will persist `reasoningTokenCount` is unknown; 3.0.73 does not.
+- Resuming a Cline session was not run: `--id` together with `--json` fails headlessly in 3.0.73.
 - Whether the old Cline CLI (Go-based 1.x/2.x) and the JetBrains plugin set `CLINE_DIR` to a
   different place was not checked.
+
+## Checked against real runs
+
+Cline CLI 3.0.73 (`cline` on npm), 20 October 2026, macOS, with `scripts/e2e/run.mjs` (see `scripts/e2e/README.md`):
+the real agent in a throwaway `HOME` against a fake LLM server on the chat, responses and anthropic protocols; a
+one-shot prompt and a tool loop per protocol. After `sync --local`, input, output, cache read and cache write matched
+the server's log per model, except the reasoning tokens described above (rule `cline-reasoning-subtracted`).
+Not run: other Cline versions, the editor extension, and any real provider.
+
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/cline/roots.ts`.
+
+- Cline data folder (`sessions/` for the SDK and CLI, `tasks/` for the standalone and JetBrains build): `~/.cline/data`, `$CLINE_DIR/data`, `$CLINE_DATA_DIR`. The standalone build ignores `CLINE_DATA_DIR` and uses `$CLINE_DIR/data`, so both are read. `$CLINE_SESSION_DATA_DIR` is a sessions folder of its own. All `CLINE_*` values are trimmed, as in the SDK (`storage/paths.ts`); a relative one is ignored.
+- Home for `~/.cline`: the SDK takes `$HOME`, then `$USERPROFILE`, then `$HOMEDRIVE$HOMEPATH` (all trimmed, `HOME` first even on Windows, where Git Bash exports it), then `os.homedir()`. tokengraph reads the SDK's home and the OS home, so a `HOME` that differs from `USERPROFILE` no longer hides Cline's sessions. A Git Bash style `HOME` (`/c/Users/me`) is converted on Windows.
+- Editor user-data folders (classic `tasks/` under `<user data>/User/globalStorage/saoudrizwan.claude-dev`), one per platform: macOS `~/Library/Application Support`, Linux `$XDG_CONFIG_HOME` and `~/.config`, Windows `%APPDATA%` and `<home>\AppData\Roaming`. Product folders: Code, Code - Insiders, Code - OSS, Cursor, VSCodium, VSCodium - Insiders, Windsurf, Windsurf - Next, Positron, Trae, Kiro, Antigravity. The VS Code, Cursor, VSCodium and Windsurf names come from those products' conventions; Windsurf Next, Trae, Kiro, Antigravity and Positron follow the same convention but have not been checked against an install, and cost nothing when absent.
+- Remote server installs, `<home>/<server>/data/User/globalStorage/...`: `.vscode-server`, `.vscode-server-insiders`, `.cursor-server`, `.windsurf-server`, `.vscodium-server`.
+- Not followed: `VSCODE_PORTABLE`, `VSCODE_APPDATA` and `--user-data-dir` installs (nothing in a later run can discover them), `code-server` (`~/.local/share/code-server/User/...`, unverified), and a `CLINE_SESSION_DATA_DIR` that is remembered (it is remembered as a sessions folder, which is read).
 
 ## Sources
 

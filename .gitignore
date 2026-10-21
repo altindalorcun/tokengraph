@@ -7,3 +7,6 @@ dist/
 coverage/
 bundle/
 .superpowers/
+
+# Claude Code local state (subagent worktrees)
+.claude/

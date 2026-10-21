@@ -175,8 +175,12 @@ the cost as an exact bill.
 - **Long context**: if a request's `input_tokens` exceeds 272,000, the whole request (input +
   cache read + cache write) is priced at 2× and output at 1.5× (from the [gpt-6-luna model
   page](https://developers.openai.com/api/docs/models/gpt-6-luna) and the `<272K` labels in the pricing table).
+  The threshold is read from the model's own rate entry (`longContextThreshold` in `pricing.ts`; 272K is the
+  default, Gemini and xAI models use 200K, Claude Haiku 5.5 100K), and a model without long-context rates
+  keeps its long requests in their own, unpriced tier.
 - **Fast mode** (`service_tier` `fast`, or `priority` by its old name): the whole applied price
-  is 2×.
+  is 2×, unless the model's entry says otherwise (`fastMultiplier`: a different multiple, or `null` where
+  OpenAI publishes no fast row, e.g. the nano, codex and o1 models, which then stay unpriced).
 - These four cases (standard / long-context / fast / fast-long-context) are stored separately as
   the pricing tier: model names stay clean, and the cost is computed from the request's tier
   (`pricingTierFor`, per request, before summing).
@@ -219,8 +223,8 @@ tier.
 
 ## Not verified
 
-- Only one Codex version was observed locally (0.155.1); consistency across versions was not
-  tested.
+- Codex versions 0.155.1 (local files) and 0.163.0 (a run against a fake Responses API server, 20 October
+  2026, with `scripts/e2e/run.mjs`; counters matched exactly) were observed; other versions were not.
 - `cache_write_input_tokens` was always 0 in local samples; the rule itself (1.25× for GPT-5.6+)
   was taken correctly from the documentation but was not verified with a real non-zero value.
 - The `service_tier` value Codex writes while fast mode is on was never seen. `fast` and
@@ -232,6 +236,13 @@ tier.
 - The regional data-residency price increase (listed separately on the API pricing page) is not
   taken into account, because the region of processing cannot be known locally.
 - The cost is API-equivalent; with a ChatGPT plan it is not a real bill.
+
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/codex/roots.ts`.
+
+- Roots: `~/.codex`, and `$CODEX_HOME` when it is a non-empty absolute path (an empty `CODEX_HOME` is unset, as in Codex's `utils/home-dir`; a relative value is ignored, because Codex resolves it against its own working directory).
+- Read through `sessions/` and `archived_sessions/` only. Files are deduplicated by real path across roots as well as by `response_id`, because older rollouts carry no `response_id` (`fallbackEvents`) and a second copy of one would count twice. Two profiles with different rollouts add up.
 
 ## Sources
 

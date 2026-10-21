@@ -19,9 +19,22 @@ describe('modelFamily', () => {
     ['glm-4.6', 'glm'],
     ['kimi-k2', 'kimi'],
     ['moonshot-v1-8k', 'kimi'],
-    ['llama-3.3-70b', 'other'],
-    ['bedrock/meta.llama3-70b-instruct-v1:0', 'other'],
-    ['grok-4', 'other'],
+    ['llama-3.3-70b', 'llama'],
+    ['bedrock/meta.llama3-70b-instruct-v1:0', 'llama'],
+    ['grok-4', 'grok'],
+    ['grok-code-fast-1', 'grok'],
+    ['cursor-grok-4.5-medium', 'grok'],
+    ['composer-2.5-fast', 'composer'],
+    ['composer-2', 'composer'],
+    ['cursor-small', 'composer'],
+    ['mistral-large', 'mistral'],
+    ['devstral', 'mistral'],
+    ['minimax-m2.5', 'minimax'],
+    ['minimax/minimax-m2.5', 'minimax'],
+    ['auto', 'other'],
+    ['default', 'other'],
+    ['agent_review', 'other'],
+    ['premium', 'other'],
     ['some-custom-model', 'other'],
     ['opus-mt-en-de', 'other'],
     ['', 'other'],
@@ -31,11 +44,13 @@ describe('modelFamily', () => {
 
   it('maps an unknown maker to other', () => {
     expect(familyForMaker(null)).toBe('other');
-    expect(familyForMaker('mistral')).toBe('other');
+    expect(familyForMaker('cohere')).toBe('other');
   });
 
   it('lists families in legend order with a label each', () => {
-    expect(MODEL_FAMILIES).toEqual(['claude', 'gpt', 'gemini', 'deepseek', 'qwen', 'glm', 'kimi', 'other']);
+    expect(MODEL_FAMILIES).toEqual(['claude', 'gpt', 'gemini', 'deepseek', 'qwen', 'glm', 'kimi', 'grok', 'composer', 'mistral', 'llama', 'minimax', 'other']);
+    for (const family of MODEL_FAMILIES) expect(FAMILY_LABELS[family]).toBeTruthy();
+    expect(FAMILY_LABELS.composer).toBe('Composer');
     expect(FAMILY_LABELS.gpt).toBe('GPT');
     expect(FAMILY_LABELS.other).toBe('Other models');
   });
@@ -48,6 +63,11 @@ describe('modelFamily', () => {
     expect(FAMILY_LOGOS.qwen).toBe(MAKER_LOGOS.qwen);
     expect(FAMILY_LOGOS.glm).toBe(MAKER_LOGOS.zhipu);
     expect(FAMILY_LOGOS.kimi).toBe(MAKER_LOGOS.moonshot);
+    expect(FAMILY_LOGOS.grok).toBe(MAKER_LOGOS.xai);
+    expect(FAMILY_LOGOS.composer).toBe(AGENT_LOGOS.cursor);
+    expect(FAMILY_LOGOS.mistral).toBe(MAKER_LOGOS.mistral);
+    expect(FAMILY_LOGOS.llama).toBe(MAKER_LOGOS.meta);
+    expect(FAMILY_LOGOS.minimax).toBe(MAKER_LOGOS.minimax);
     expect(FAMILY_LOGOS.other).toBeUndefined();
   });
 
@@ -70,6 +90,9 @@ describe('displayModelName', () => {
     ['deepseek-v4.1-flash', 'deepseek-v4.1-flash'],
     ['gpt-6-luna', 'gpt-6-luna'],
     ['gpt-5-20250807', 'gpt-5'],
+    ['auto', 'Cursor Auto'],
+    ['default', 'Cursor Auto'],
+    ['composer-2.5-fast', 'composer-2.5-fast'],
     ['claude-unknown-9', 'claude-unknown-9'],
   ])('%s is shown as %s', (id, name) => {
     expect(displayModelName(id)).toBe(name);

@@ -1,10 +1,12 @@
 import {
   addSplitCounts,
-  claudeLongContextThreshold,
-  LONG_CONTEXT_THRESHOLD_TOKENS,
+  HourSums,
+  weightedTokens,
+  longContextThreshold,
   maxSplitCounts,
   PRICING_TIERS,
   type DailyModelUsage,
+  type HourlyUsage,
   type PricingTier,
   type SplitTokenCounts,
 } from '@tokengraph/core';
@@ -12,6 +14,8 @@ import {
 /** One upstream API request's usage, already normalised to tokengraph's four counters. */
 export interface RequestRecord {
   date: string;
+  /** Local hour (0-23) of the request, in the zone `date` was keyed with. */
+  hour: number;
   model: string;
   pricingTier: PricingTier;
   counts: SplitTokenCounts;
@@ -21,7 +25,7 @@ export interface RequestRecord {
  * Collects requests keyed by a source's stable request id. The same request is often seen more
  * than once (a file rewritten or copied, a session forked, a record migrated between stores);
  * copies are merged with a per-field max so a request is counted once, at its most complete
- * snapshot. The first copy's date and model win, so a later copy cannot move a request.
+ * snapshot. The first copy's date, hour and model win, so a later copy cannot move a request.
  */
 export class RequestBuckets {
   private readonly requests = new Map<string, RequestRecord>();
@@ -40,6 +44,13 @@ export class RequestBuckets {
     const counts = new Map<string, number>();
     for (const { date } of this.requests.values()) counts.set(date, (counts.get(date) ?? 0) + 1);
     return counts;
+  }
+
+  /** Weighted tokens per (date, hour) of the merged requests. */
+  toHours(): HourlyUsage[] {
+    const sums = new HourSums();
+    for (const { date, hour, counts } of this.requests.values()) sums.add(date, hour, weightedTokens(counts));
+    return sums.toList();
   }
 
   toUsage(): DailyModelUsage[] {
@@ -65,12 +76,12 @@ export class RequestBuckets {
 
 /**
  * The tier one request is billed at. Long context is decided by the whole prompt (input, cache
- * reads and cache writes): over 272K for a `gpt-` model, as the Codex adapter does, and over the
- * model's own threshold for a Claude model priced by prompt length (Haiku 5.5). Fast mode only
+ * reads and cache writes) and over the model's own threshold (`longContextThreshold`: 272K for
+ * OpenAI, 200K for Gemini and xAI, 100K for Claude Haiku 5.5). Fast mode only
  * where the source records it (Claude Code's usage.speed); no other provider's rule is recorded.
  */
 export function tierForModel(model: string, counts: SplitTokenCounts, fast = false): PricingTier {
-  const threshold = model.startsWith('gpt-') ? LONG_CONTEXT_THRESHOLD_TOKENS : claudeLongContextThreshold(model);
+  const threshold = longContextThreshold(model);
   const promptTokens = counts.inputTokens + counts.cacheReadTokens + counts.cacheCreationTokens;
   const long = threshold !== null && promptTokens > threshold;
   if (fast) return long ? 'fast-long-context' : 'fast';

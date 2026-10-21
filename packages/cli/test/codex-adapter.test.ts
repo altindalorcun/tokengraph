@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { homedir } from 'node:os';
 import { createCodexAdapter } from '../src/adapters/codex/index.js';
 
 const T = new Date().toISOString();
@@ -61,5 +62,28 @@ describe('createCodexAdapter', () => {
     await writeFile(join(home, 'sessions', 'rollout-bad.jsonl'), bad);
     const result = await createCodexAdapter().collect(new Date(Date.now() - 86_400_000));
     expect(result.notes?.some((note) => note.includes('1 usage record'))).toBe(true);
+  });
+
+  it('treats an empty CODEX_HOME as unset and reads ~/.codex', async () => {
+    const real = join(homedir(), '.codex');
+    await mkdir(join(real, 'sessions'), { recursive: true });
+    await writeFile(join(real, 'sessions', 'rollout-home.jsonl'), rolloutLines('r_home', 11));
+    for (const value of ['', '   ']) {
+      process.env['CODEX_HOME'] = value;
+      const adapter = createCodexAdapter({ timeZone: 'UTC' });
+      expect(await adapter.detect()).toBe(true);
+      const result = await adapter.collect(new Date(Date.now() - 86_400_000));
+      expect(result.usage.map((u) => u.counts.outputTokens)).toEqual([11]);
+    }
+  });
+
+  it('reads CODEX_HOME and the default home together', async () => {
+    const real = join(homedir(), '.codex');
+    await mkdir(join(real, 'sessions'), { recursive: true });
+    await mkdir(join(home, 'sessions'), { recursive: true });
+    await writeFile(join(real, 'sessions', 'rollout-home.jsonl'), rolloutLines('r_home', 11));
+    await writeFile(join(home, 'sessions', 'rollout-profile.jsonl'), rolloutLines('r_profile', 22));
+    const result = await createCodexAdapter({ timeZone: 'UTC' }).collect(new Date(Date.now() - 86_400_000));
+    expect(result.usage.map((u) => u.counts.outputTokens)).toEqual([33]);
   });
 });

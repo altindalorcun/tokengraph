@@ -38,7 +38,7 @@ describe('test isolation', () => {
 
   it('clears every environment variable the source reads to locate data', () => {
     // Not locators: HOME-like variables handled by setup-home.ts itself, the test flag, UI toggles, user names.
-    const allowed = new Set(['HOME', 'USERPROFILE', 'TOKENGRAPH_HOME', 'VITEST', 'TOKENGRAPH_NO_MOTION', 'USER', 'USERNAME']);
+    const allowed = new Set(['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TOKENGRAPH_HOME', 'VITEST', 'TOKENGRAPH_NO_MOTION', 'USER', 'USERNAME']);
     const srcDir = join(__dirname, '..', 'src');
     const names = new Set<string>();
     const walk = (dir: string): void => {
@@ -46,10 +46,11 @@ describe('test isolation', () => {
         const path = join(dir, entry.name);
         if (entry.isDirectory()) walk(path);
         else if (entry.name.endsWith('.ts')) {
-          // `process.env['NAME']`, `process.env.NAME` and the OpenCode family's `dbEnvVar: 'NAME'`.
+          // `process.env['NAME']`, `process.env.NAME`, the OpenCode family's `dbEnvVar: 'NAME'`, and the root
+          // resolvers' injected environment: `envPath(ctx, 'NAME')`, `envText(ctx, 'NAME')`, `ctx.env['NAME']`.
           const text = readFileSync(path, 'utf8');
-          for (const m of text.matchAll(/process\.env(?:\['([A-Z0-9_]+)'\]|\.([A-Z0-9_]+))|dbEnvVar:\s*'([A-Z0-9_]+)'/g)) {
-            names.add((m[1] ?? m[2] ?? m[3])!);
+          for (const m of text.matchAll(/process\.env(?:\['([A-Z0-9_]+)'\]|\.([A-Z0-9_]+))|dbEnvVar:\s*'([A-Z0-9_]+)'|env(?:Path|Text)\(\s*ctx,\s*'([A-Z0-9_]+)'|ctx\.env\['([A-Z0-9_]+)'\]/g)) {
+            names.add((m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5])!);
           }
         }
       }

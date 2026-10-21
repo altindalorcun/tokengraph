@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { copyFile, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join, posix } from 'node:path';
 import type { DatabaseSync as DatabaseSyncCtor } from 'node:sqlite';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createGooseAdapter, gooseDbCandidates } from '../src/adapters/goose/index.js';
@@ -85,20 +85,25 @@ describe('gooseDbCandidates', () => {
     }
   });
 
-  it('uses an absolute GOOSE_PATH_ROOT as the only location', () => {
+  it('lists an absolute GOOSE_PATH_ROOT first, then the default locations', () => {
     process.env['GOOSE_PATH_ROOT'] = '/some/root';
-    expect(gooseDbCandidates('linux')).toEqual([join('/some/root', 'data', 'sessions', 'sessions.db')]);
+    // Paths for an injected linux/darwin platform are POSIX paths, whatever the host is.
+    const list = gooseDbCandidates('linux');
+    expect(list[0]).toBe(posix.join('/some/root', 'data', 'sessions', 'sessions.db'));
+    expect(list).toContain(posix.join(homedir(), '.local', 'share', 'goose', 'sessions', 'sessions.db'));
   });
 
   it('ignores a relative GOOSE_PATH_ROOT and uses XDG_DATA_HOME, then the legacy folders', () => {
     process.env['GOOSE_PATH_ROOT'] = 'relative/root';
     process.env['XDG_DATA_HOME'] = '/xdg/data';
     const list = gooseDbCandidates('darwin');
-    expect(list[0]).toBe(join('/xdg/data', 'goose', 'sessions', 'sessions.db'));
-    expect(list).toHaveLength(4);
-    expect(list[1]).toMatch(/Library[\\/]Application Support[\\/]goose[\\/]sessions[\\/]sessions\.db$/);
-    expect(list[2]).toMatch(/Application Support[\\/]Block[\\/]goose[\\/]sessions[\\/]sessions\.db$/);
-    expect(list[3]).toMatch(/\.local[\\/]share[\\/]Block[\\/]goose[\\/]sessions[\\/]sessions\.db$/);
+    expect(list[0]).toBe(posix.join('/xdg/data', 'goose', 'sessions', 'sessions.db'));
+    expect(list.some((path) => path.includes('relative'))).toBe(false);
+    // The default ~/.local/share/goose stays in the union, then the three legacy folders.
+    expect(list).toHaveLength(5);
+    expect(list[2]).toMatch(/Library[\\/]Application Support[\\/]goose[\\/]sessions[\\/]sessions\.db$/);
+    expect(list[3]).toMatch(/Application Support[\\/]Block[\\/]goose[\\/]sessions[\\/]sessions\.db$/);
+    expect(list[4]).toMatch(/\.local[\\/]share[\\/]Block[\\/]goose[\\/]sessions[\\/]sessions\.db$/);
   });
 
   it('falls back to ~/.local/share/goose when XDG_DATA_HOME is unset or relative', () => {
@@ -146,6 +151,8 @@ describe('createGooseAdapter', () => {
     const result = await collect();
     expect(result.source).toBe('goose');
     expect(result.requestCount).toBe(1);
+    // 300 + 200 + 100 + 0.1 * 600, at 18:45 UTC.
+    expect(result.hours).toEqual([{ date: '2026-09-21', hour: 18, weighted: 660 }]);
     // input 1000 includes 600 read and 100 write: 300 fresh.
     expect(result.usage).toEqual([
       {
@@ -341,6 +348,67 @@ describe('createGooseAdapter', () => {
   it('reads only the first existing database and returns nothing when there is none', async () => {
     const result = await collect();
     expect(result.usage).toEqual([]);
+    expect(result.notes).toBeUndefined();
+  });
+});
+
+describe('createGooseAdapter over several roots', () => {
+  let base: string;
+  beforeEach(async () => {
+    base = await mkdtemp(join(tmpdir(), 'goose-roots-'));
+  });
+  afterEach(async () => {
+    await rm(base, { recursive: true, force: true });
+  });
+
+  /** A Goose data dir (`<dir>/sessions/sessions.db`) holding the given session's rows. */
+  async function dataDir(name: string, session: string, rows: Row[]): Promise<string> {
+    const dir = join(base, name);
+    await mkdir(join(dir, 'sessions'), { recursive: true });
+    const db = createDb(join(dir, 'sessions', 'sessions.db'));
+    addSession(db, session, 'anthropic');
+    for (const row of rows) addRow(db, { ...row, session });
+    db.close();
+    return dir;
+  }
+
+  const collectFrom = (remembered: string[]) =>
+    createGooseAdapter({ timeZone: 'UTC', roots: { ctx: { platform: process.platform, env: {}, home: join(base, 'no-home') }, remembered } }).collect(SINCE);
+
+  it('reads every existing database: a profile and the default folder add up', async () => {
+    const first = await dataDir('default', '20260921_1', [{ input: 1000, output: 100 }]);
+    const second = await dataDir('profile', '20260921_2', [{ input: 2000, output: 200 }, { input: 900, output: 50, ts: T0 + 5 }]);
+    const result = await collectFrom([first, second]);
+    expect(result.requestCount).toBe(3);
+    expect(result.usage[0]?.counts.outputTokens).toBe(350);
+  });
+
+  it('counts a copy of a database once, wherever the copy sits', async () => {
+    const original = await dataDir('default', '20260921_1', [{ input: 1000, output: 100 }, { input: 700, output: 70, ts: T0 + 9 }]);
+    const backup = join(base, 'backup');
+    await mkdir(join(backup, 'sessions'), { recursive: true });
+    await copyFile(join(original, 'sessions', 'sessions.db'), join(backup, 'sessions', 'sessions.db'));
+    const result = await collectFrom([original, backup]);
+    expect(result.requestCount).toBe(2);
+    expect(result.usage[0]?.counts.outputTokens).toBe(170);
+  });
+
+  it('reads one database once when two roots reach it (a symlinked profile)', async () => {
+    const original = await dataDir('default', '20260921_1', [{ input: 1000, output: 100 }]);
+    const link = join(base, 'link');
+    try {
+      await symlink(original, link, 'dir');
+    } catch {
+      return; // Symlinks need a privilege on some Windows setups.
+    }
+    const result = await collectFrom([original, link]);
+    expect(result.requestCount).toBe(1);
+  });
+
+  it('skips a remembered root that no longer exists without a note', async () => {
+    const original = await dataDir('default', '20260921_1', [{ input: 1000, output: 100 }]);
+    const result = await collectFrom([original, join(base, 'deleted')]);
+    expect(result.requestCount).toBe(1);
     expect(result.notes).toBeUndefined();
   });
 });

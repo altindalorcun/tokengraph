@@ -1,7 +1,11 @@
+import { clampInstant } from './clamp-instant.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { renameWithRetry } from './fs-retry.js';
 import {
   CLAUDE_CODE_SOURCE,
+  combineMachineUsage,
+  combineMachineHours,
+  CURSOR_SOURCE,
   emptySplitCounts,
   isDateKey,
   isKnownSource,
@@ -9,8 +13,14 @@ import {
   maxSplitCounts,
   PRICING_TIERS,
   type DailyModelUsage,
+  type HourDays,
+  type HourlyUsage,
+  type MachineHours,
+  type SourcedHourly,
   type KnownSource,
+  type MachineUsage,
   type PricingTier,
+  type SourcedUsage,
   type SplitTokenCounts,
 } from '@tokengraph/core';
 
@@ -19,10 +29,32 @@ export const LEDGER_VERSION = 3;
 /** date → model → pricing tier → counts. */
 export type LedgerDays = Record<string, Record<string, Partial<Record<PricingTier, SplitTokenCounts>>>>;
 
+/** One Cursor account as fetched from cursor.com: complete up to `coveredThrough` (an ISO instant). */
+export interface LedgerAccount {
+  coveredThrough: string;
+  days: LedgerDays;
+}
+
+/** Account-level usage, keyed by account key. Additive: ledgers and machine files without it still parse, and older versions ignore it. */
+export interface LedgerAccounts {
+  cursor?: Record<string, LedgerAccount>;
+}
+
 export interface Ledger {
   version: typeof LEDGER_VERSION;
   sources: Partial<Record<KnownSource, LedgerDays>>;
+  accounts?: LedgerAccounts;
+  /**
+   * Weighted tokens per local hour: source → date → hour → tokens. Local only: it is never copied into a
+   * machine file or a gist (hours describe a person's day). Additive; a ledger without it still parses.
+   */
+  hours?: Partial<Record<KnownSource, HourDays>>;
+  /** Cursor account hours (account key → date → hour → tokens), kept apart from the `cursor` source's hook hours. */
+  accountHours?: Record<string, HourDays>;
 }
+
+/** The first 16 hex digits of a SHA-256: what an account key looks like. */
+export const ACCOUNT_KEY = /^[0-9a-f]{16}$/;
 
 export function emptyLedger(): Ledger {
   return { version: LEDGER_VERSION, sources: {} };
@@ -44,7 +76,94 @@ export function mergeUsage(ledger: Ledger, source: KnownSource, usage: readonly 
     models[entry.model] = tiers;
     days[entry.date] = models;
   }
-  return { version: LEDGER_VERSION, sources: { ...ledger.sources, [source]: days } };
+  return { ...ledger, version: LEDGER_VERSION, sources: { ...ledger.sources, [source]: days } };
+}
+
+function maxMergeHourDays(base: HourDays | undefined, rows: readonly HourlyUsage[]): HourDays {
+  const days: HourDays = { ...(base ?? {}) };
+  for (const { date, hour, weighted } of rows) {
+    const hours = { ...(days[date] ?? {}) };
+    hours[String(hour)] = Math.max(hours[String(hour)] ?? 0, weighted);
+    days[date] = hours;
+  }
+  return days;
+}
+
+function hourRows(days: HourDays | undefined): HourlyUsage[] {
+  return Object.entries(days ?? {}).flatMap(([date, hours]) => Object.entries(hours).map(([hour, weighted]) => ({ date, hour: Number(hour), weighted })));
+}
+
+/** Max-merges one source's hour totals (a high-water mark per date and hour, like the daily counts). */
+export function mergeHours(ledger: Ledger, source: KnownSource, rows: readonly HourlyUsage[] | undefined): Ledger {
+  if (!rows || rows.length === 0) return ledger;
+  return { ...ledger, hours: { ...ledger.hours, [source]: maxMergeHourDays(ledger.hours?.[source], rows) } };
+}
+
+export function mergeAccountHours(ledger: Ledger, accountKey: string, rows: readonly HourlyUsage[] | undefined): Ledger {
+  if (!rows || rows.length === 0) return ledger;
+  return { ...ledger, accountHours: { ...ledger.accountHours, [accountKey]: maxMergeHourDays(ledger.accountHours?.[accountKey], rows) } };
+}
+
+/** Max-merges every hour table of `extra` into `ledger` (another copy of this machine's own ledger). */
+export function mergeLedgerHours(ledger: Ledger, extra: Pick<Ledger, 'hours' | 'accountHours'>): Ledger {
+  let merged = ledger;
+  for (const [source, days] of Object.entries(extra.hours ?? {}) as [KnownSource, HourDays][]) merged = mergeHours(merged, source, hourRows(days));
+  for (const [key, days] of Object.entries(extra.accountHours ?? {})) merged = mergeAccountHours(merged, key, hourRows(days));
+  return merged;
+}
+
+/** This machine's hours as the pure combining rule takes them (`combineMachineHours` in core). */
+export function ledgerMachineHours(ledger: Ledger): MachineHours {
+  const accounts: MachineHours['accounts'] = Object.fromEntries(
+    Object.entries(ledger.accountHours ?? {}).flatMap(([key, hours]) => {
+      const covered = ledger.accounts?.cursor?.[key]?.coveredThrough;
+      return covered ? [[key, { coveredThrough: covered, hours }]] : [];
+    }),
+  );
+  return { sources: ledger.hours ?? {}, accounts };
+}
+
+/** Every agent's hour totals on this machine, the Cursor account rule applied. */
+export function allLedgerHours(ledger: Ledger, sinceDate?: string): SourcedHourly[] {
+  return combineMachineHours(ledgerMachineHours(ledger)).filter((row) => !sinceDate || row.date >= sinceDate);
+}
+
+/** Max-merges one Cursor account's days into the ledger and moves its `coveredThrough` forward, never back. */
+export function mergeCursorAccount(ledger: Ledger, accountKey: string, coveredThrough: string, usage: readonly DailyModelUsage[]): Ledger {
+  const accounts = ledger.accounts?.cursor ?? {};
+  const existing = accounts[accountKey];
+  const merged = mergeUsage({ version: LEDGER_VERSION, sources: { [CURSOR_SOURCE]: existing?.days ?? {} } }, CURSOR_SOURCE, usage);
+  const incoming = clampInstant(coveredThrough) ?? coveredThrough;
+  const known = existing ? (clampInstant(existing.coveredThrough) ?? existing.coveredThrough) : undefined;
+  const covered = known && known > incoming ? known : incoming;
+  return {
+    ...ledger,
+    accounts: { ...ledger.accounts, cursor: { ...accounts, [accountKey]: { coveredThrough: covered, days: merged.sources[CURSOR_SOURCE] ?? {} } } },
+  };
+}
+
+/** Max-merges every account in `extra` (another copy of the same ledger, such as this machine's file in the data gist). */
+export function mergeLedgerAccounts(ledger: Ledger, extra: LedgerAccounts | undefined): Ledger {
+  let merged = ledger;
+  for (const [key, account] of Object.entries(extra?.cursor ?? {})) {
+    merged = mergeCursorAccount(merged, key, account.coveredThrough, accountUsage(account));
+  }
+  return merged;
+}
+
+function accountUsage(account: LedgerAccount): DailyModelUsage[] {
+  return ledgerToUsage({ version: LEDGER_VERSION, sources: { [CURSOR_SOURCE]: account.days } }, CURSOR_SOURCE);
+}
+
+/** A ledger as the pure combining rule takes it (`combineMachineUsage` in core). */
+export function ledgerMachineUsage(ledger: Ledger): MachineUsage {
+  const usage: SourcedUsage[] = Object.keys(ledger.sources)
+    .filter(isKnownSource)
+    .flatMap((source) => ledgerToUsage(ledger, source).map((entry) => ({ ...entry, source })));
+  const accounts = Object.fromEntries(
+    Object.entries(ledger.accounts?.cursor ?? {}).map(([key, account]) => [key, { coveredThrough: account.coveredThrough, usage: accountUsage(account) }]),
+  );
+  return { usage, accounts };
 }
 
 function tierOrder(tier: PricingTier): number {
@@ -70,10 +189,14 @@ export function ledgerToUsage(ledger: Ledger, source: KnownSource, sinceDate?: s
   return usage.sort(compareUsage);
 }
 
-/** Every source's usage together — for totals and the preview graph, which do not split by agent. */
-export function allLedgerUsage(ledger: Ledger, sinceDate?: string): DailyModelUsage[] {
-  const sources = Object.keys(ledger.sources).filter(isKnownSource);
-  return sources.flatMap((source) => ledgerToUsage(ledger, source, sinceDate)).sort(compareUsage);
+/**
+ * Every source's usage together — for totals and the preview graph, which do not split by agent. This machine's
+ * Cursor account figures replace its hook and import rows where they overlap (see `combineMachineUsage`).
+ */
+export function allLedgerUsage(ledger: Ledger, sinceDate?: string): SourcedUsage[] {
+  return combineMachineUsage([ledgerMachineUsage(ledger)])
+    .filter((entry) => !sinceDate || entry.date >= sinceDate)
+    .sort(compareUsage);
 }
 
 const BASE_FIELDS = ['inputTokens', 'outputTokens', 'cacheCreationTokens', 'cacheReadTokens'] as const;
@@ -112,6 +235,42 @@ function readSplitCounts(value: unknown): SplitTokenCounts | null {
   const cacheCreation1hTokens = readNullableField(fields['cacheCreation1hTokens']);
   if (cacheCreation5mTokens === undefined || cacheCreation1hTokens === undefined) return null;
   return { ...base, cacheCreation5mTokens, cacheCreation1hTokens };
+}
+
+/** Hour tables are tolerant: a bad date, hour or amount is dropped. */
+function parseHourDays(raw: unknown): HourDays | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const days: HourDays = {};
+  for (const [date, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isDateKey(date) || typeof value !== 'object' || value === null) continue;
+    const hours: Record<string, number> = {};
+    for (const [hour, amount] of Object.entries(value as Record<string, unknown>)) {
+      const h = Number(hour);
+      if (Number.isInteger(h) && h >= 0 && h <= 23 && typeof amount === 'number' && Number.isFinite(amount) && amount > 0) hours[String(h)] = Math.round(amount);
+    }
+    if (Object.keys(hours).length > 0) days[date] = hours;
+  }
+  return Object.keys(days).length > 0 ? days : null;
+}
+
+/** Account entries are tolerant: a bad key, instant or day is dropped, an account with no valid days is kept (it still says how far it is covered). */
+function parseAccounts(raw: unknown): LedgerAccounts | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const rawCursor = (raw as Record<string, unknown>)['cursor'];
+  if (typeof rawCursor !== 'object' || rawCursor === null) return undefined;
+  const cursor: Record<string, LedgerAccount> = {};
+  for (const [key, value] of Object.entries(rawCursor as Record<string, unknown>)) {
+    if (!ACCOUNT_KEY.test(key) || typeof value !== 'object' || value === null) continue;
+    const { coveredThrough, days } = value as Record<string, unknown>;
+    if (typeof coveredThrough !== 'string' || Number.isNaN(Date.parse(coveredThrough))) continue;
+    cursor[key] = { coveredThrough: clampInstant(coveredThrough)!, days: parseDays(days, readTiers) ?? {} };
+  }
+  return Object.keys(cursor).length > 0 ? { cursor } : undefined;
+}
+
+/** For machine files, which carry the same `accounts` field as the ledger. */
+export function parseLedgerAccounts(raw: unknown): LedgerAccounts | undefined {
+  return parseAccounts(raw);
 }
 
 function parseModels(
@@ -191,7 +350,30 @@ export function parseLedger(raw: unknown): Ledger {
     const days = parseDays(rawDays, readTiers);
     if (days) sources[source] = days;
   }
-  return { version: LEDGER_VERSION, sources };
+  const accounts = parseAccounts(fields['accounts']);
+  const rawHours = fields['hours'];
+  const hours: NonNullable<Ledger['hours']> = {};
+  if (typeof rawHours === 'object' && rawHours !== null) {
+    for (const [source, value] of Object.entries(rawHours as Record<string, unknown>)) {
+      const parsed = isKnownSource(source) ? parseHourDays(value) : null;
+      if (parsed) hours[source as KnownSource] = parsed;
+    }
+  }
+  const rawAccountHours = fields['accountHours'];
+  const accountHours: Record<string, HourDays> = {};
+  if (typeof rawAccountHours === 'object' && rawAccountHours !== null) {
+    for (const [key, value] of Object.entries(rawAccountHours as Record<string, unknown>)) {
+      const parsed = ACCOUNT_KEY.test(key) ? parseHourDays(value) : null;
+      if (parsed) accountHours[key] = parsed;
+    }
+  }
+  return {
+    version: LEDGER_VERSION,
+    sources,
+    ...(accounts ? { accounts } : {}),
+    ...(Object.keys(hours).length > 0 ? { hours } : {}),
+    ...(Object.keys(accountHours).length > 0 ? { accountHours } : {}),
+  };
 }
 
 export async function readLedger(path: string): Promise<Ledger> {

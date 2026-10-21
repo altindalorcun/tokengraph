@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { emptyLedger, mergeUsage, type Ledger } from '../src/ledger.js';
+import { emptyLedger, mergeAccountHours, mergeCursorAccount, mergeHours, mergeUsage, type Ledger } from '../src/ledger.js';
 import { GRAPH_MARKER } from '../src/publish/gists.js';
-import { machineFileName, parseMachineFile } from '../src/publish/machines.js';
+import { combinedUsage, machineFileName, parseMachineFile } from '../src/publish/machines.js';
 import { publish, type PublishInput } from '../src/publish/publish.js';
 import { fakeGitHubClient, type FakeGitHub } from './fake-github-client.js';
 
@@ -166,5 +166,58 @@ describe('publish', () => {
     const first = await publish(input(client));
     client.gists.get(first.dataGistId)!.files['machine-zzz.json'] = { filename: 'machine-zzz.json', content: 'garbage' };
     await expect(publish(input(client, { config: first.config }))).resolves.toMatchObject({ others: [] });
+  });
+});
+
+describe('publish with a Cursor account', () => {
+  const KEY = '0123456789abcdef';
+  const withAccount = (ledger: Ledger): Ledger =>
+    mergeCursorAccount(ledger, KEY, '2026-10-12T10:00:00.000Z', [{ date: '2026-10-11', model: 'composer-2', pricingTier: 'standard', counts: counts(500) }]);
+
+  it('carries the account in the machine file, writes it once, and restores it after a reinstall', async () => {
+    const client = fakeGitHubClient();
+    const first = await publish(input(client, { ledger: withAccount(ledgerWith('2026-10-12', 1)) }));
+    const file = parseMachineFile(client.gists.get(first.dataGistId)!.files[machineFileName(A)]!.content!);
+    expect(file?.accounts?.cursor?.[KEY]?.coveredThrough).toBe('2026-10-12T10:00:00.000Z');
+
+    const again = await publish(input(client, { ledger: withAccount(ledgerWith('2026-10-12', 1)), config: first.config }));
+    expect(again.wroteMachineFile).toBe(false);
+
+    const reinstalled = await publish(input(client, { ledger: ledgerWith('2026-10-12', 1), config: first.config }));
+    expect(reinstalled.ledger.accounts?.cursor?.[KEY]).toBeDefined();
+  });
+
+  it('counts an account fetched on two machines once in the graph', async () => {
+    const client = fakeGitHubClient();
+    const a = await publish(input(client, { ledger: withAccount(emptyLedger()) }));
+    const b = await publish(
+      input(client, { ledger: withAccount(emptyLedger()), config: { github: { login: 'octocat', auth: { kind: 'token', token: 't' } }, gists: a.config.gists }, newMachineId: () => B, fingerprint: 'fp-b' }),
+    );
+    expect(b.others).toHaveLength(1);
+    expect(combinedUsage(b.ledger, b.others).reduce((sum, row) => sum + row.counts.inputTokens, 0)).toBe(500);
+  });
+
+  it('an older machine file without accounts is not rewritten', async () => {
+    const client = fakeGitHubClient();
+    const first = await publish(input(client));
+    const again = await publish(input(client, { config: first.config }));
+    expect(again.wroteMachineFile).toBe(false);
+  });
+
+  it('never puts hour data in the machine file or anywhere in the gists', async () => {
+    const client = fakeGitHubClient();
+    let ledger = mergeHours(ledgerWith('2026-10-12', 1000), 'claude-code', [{ date: '2026-10-12', hour: 23, weighted: 987654 }]);
+    ledger = mergeAccountHours(ledger, 'abcdef0123456789', [{ date: '2026-10-12', hour: 3, weighted: 876543 }]);
+    const result = await publish(input(client, { ledger }));
+    for (const id of [result.dataGistId, result.graphGistId]) {
+      const content = JSON.stringify(client.gists.get(id)!.files);
+      expect(content).not.toContain('987654');
+      expect(content).not.toContain('876543');
+      expect(content).not.toMatch(/accountHours|"hours"/);
+    }
+    const file = parseMachineFile(client.gists.get(result.dataGistId)!.files[machineFileName(A)]!.content!)!;
+    expect(Object.keys(file)).not.toContain('hours');
+    // The local ledger keeps its hours through the publish.
+    expect(result.ledger.hours?.['claude-code']).toEqual({ '2026-10-12': { '23': 987654 } });
   });
 });

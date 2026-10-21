@@ -1,9 +1,8 @@
 import { stat, readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { KnownSource } from '@tokengraph/core';
 import { projectsDir } from './adapters/claude-code/index.js';
-import { geminiTmpDirs } from './adapters/gemini-cli/index.js';
+import { geminiHome, geminiTmpDirs } from './adapters/gemini-cli/index.js';
 import { qwenProjectsDirs, qwenSettingsPath } from './adapters/qwen-code/index.js';
 import type { AutoSyncEntry, AutoSyncHealth } from './auto-sync-health.js';
 import { settingsPath as claudeSettingsPath } from './commands/install-hook.js';
@@ -36,7 +35,7 @@ export interface RetentionDeps {
 const DEFAULT_DEPS: RetentionDeps = {
   claudeSettingsPath,
   claudeDataDirs: () => [projectsDir()],
-  geminiSettingsPath: () => join(process.env['GEMINI_CLI_HOME'] ?? homedir(), '.gemini', 'settings.json'),
+  geminiSettingsPath: () => join(geminiHome(), '.gemini', 'settings.json'),
   geminiDataDirs: geminiTmpDirs,
   qwenSettingsPath,
   qwenDataDirs: qwenProjectsDirs,
@@ -163,7 +162,8 @@ export function retentionWarnings(policies: RetentionPolicy[], autoSync: AutoSyn
   const warnings: string[] = [];
   for (const policy of policies) {
     if (policy.state !== 'deletes' || policy.days === null) continue;
-    const covered = policy.source === 'claude-code' ? healthy(autoSync.claudeHook) || healthy(autoSync.schedule) : healthy(autoSync.schedule);
+    const hook = policy.source === 'claude-code' ? autoSync.claudeHook : policy.source === 'gemini-cli' ? autoSync.geminiHook : undefined;
+    const covered = (hook !== undefined && healthy(hook)) || healthy(autoSync.schedule);
     const days = formatDays(policy.days);
     const logs = policy.source === 'qwen-code' ? 'background subagent logs' : 'logs';
     const where = `${policy.setting} in ${policy.configPath}`;

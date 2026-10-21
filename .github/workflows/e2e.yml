@@ -1,0 +1,69 @@
+name: E2E real agents
+# Drives the real, pinned agents against scripts/e2e/fake-llm.mjs and compares what tokengraph counts with what the fake
+# server sent (scripts/e2e/README.md). No secrets: the agents only talk to 127.0.0.1. Not part of CI because it installs
+# a dozen third-party CLIs; run it by hand and weekly to notice when an agent changes its logs.
+on:
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: 'Agents to run, space separated (empty = all). One of claude-code codex-cli gemini-cli cline opencode kilo copilot-cli pi qwen-code goose'
+        required: false
+        default: ''
+  schedule:
+    - cron: '17 5 * * 1'
+  # workflow_dispatch only works once this file is on the default branch; pushing a branch named e2e/<anything>
+  # runs the matrix on that branch's code before then (and for any branch you want checked).
+  push:
+    branches: ['e2e/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - uses: actions/cache@v6
+        with:
+          path: scripts/e2e/.cache/*-[0-9]*
+          key: e2e-agents-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/e2e/versions.json') }}
+      - run: npm ci
+      - run: npx tsc --build
+      - name: Run the real agents
+        shell: bash
+        # The input goes through the environment, not into the script text.
+        run: node scripts/e2e/run.mjs $AGENTS --verbose
+        env:
+          AGENTS: ${{ inputs.agents }}
+          # Claude Code on Windows needs Git Bash (Git for Windows is preinstalled on the runner).
+          CLAUDE_CODE_GIT_BASH_PATH: C:\Program Files\Git\bin\bash.exe
+      - name: Upload the result
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-result-${{ matrix.os }}
+          path: scripts/e2e/.cache/result.json
+          if-no-files-found: warn
+      # run.mjs copies the fake server's request log of every agent that did not pass to scripts/e2e/.cache/logs.
+      - name: Upload agent logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-logs-${{ matrix.os }}
+          path: scripts/e2e/.cache/logs
+          if-no-files-found: ignore

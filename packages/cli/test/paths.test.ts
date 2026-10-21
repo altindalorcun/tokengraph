@@ -45,6 +45,11 @@ describe('migrateLegacyHome', () => {
     expect(h.renames).toEqual([]);
   });
 
+  it('treats a blank TOKENGRAPH_HOME as unset', () => {
+    const h = harness([OLD]);
+    expect(migrateLegacyHome(h.deps, { TOKENGRAPH_HOME: '  ' })).toBe('moved');
+  });
+
   it('reports a failed rename without throwing', () => {
     const h = harness([OLD], () => {
       throw new Error('EACCES');

@@ -1,17 +1,25 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { GEMINI_CLI_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
-import { childDirectories, isDirectory, readLines } from '../jsonl-files.js';
+import { envPath, FileDeduper, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
+import { childDirectories, readLines } from '../jsonl-files.js';
 import { GeminiUsageAggregator, type GeminiAggregatorOptions, type GeminiDiagnostics } from './aggregator.js';
+import { GEMINI_ROOTS } from './roots.js';
 
-function geminiHome(): string {
-  return process.env['GEMINI_CLI_HOME'] ?? homedir();
+/** The Gemini CLI home this process's environment names (`GEMINI_CLI_HOME`), else the user's home. */
+export function geminiHome(): string {
+  const ctx = processRootContext();
+  return envPath(ctx, 'GEMINI_CLI_HOME') ?? ctx.home;
 }
 
-/** Where Gemini CLI keeps chat recordings: its runtime dir, plus the macOS sandbox's copy. */
+/**
+ * Where Gemini CLI keeps chat recordings for this process's environment: its runtime dir, plus the
+ * macOS sandbox's copy (which, like the first, follows `GEMINI_CLI_HOME`). Roots remembered from
+ * other runs are added by the adapter, not here.
+ */
 export function geminiTmpDirs(): string[] {
-  return [join(geminiHome(), '.gemini', 'tmp'), join(homedir(), '.cache', '.gemini', 'tmp')];
+  return GEMINI_ROOTS.targets(geminiHome(), processRootContext()).map((target) => target.path);
 }
 
 /**
@@ -85,22 +93,31 @@ function describeDiagnostics({ malformedMessages, clampedMessages, totalMismatch
  * inside each message's `tokens` object are read — prompt/response text, tool output and
  * directories are never opened or stored.
  */
-export function createGeminiCliAdapter(options: Pick<GeminiAggregatorOptions, 'timeZone'> = {}): Adapter {
+export interface GeminiCliAdapterOptions extends Pick<GeminiAggregatorOptions, 'timeZone'>, RootsOption {}
+
+export function createGeminiCliAdapter(adapterOptions: GeminiCliAdapterOptions = {}): Adapter {
+  const { roots, ...options } = adapterOptions;
+  const tmpDirs = async (): Promise<string[]> => {
+    const { ctx, remembered } = await resolveAdapterRoots(GEMINI_ROOTS, roots);
+    return (await planScan(GEMINI_ROOTS, ctx, remembered)).filter((target) => target.exists).map((target) => target.path);
+  };
+
   return {
     name: GEMINI_CLI_SOURCE,
 
     async detect(): Promise<boolean> {
-      for (const dir of geminiTmpDirs()) if (await isDirectory(dir)) return true;
-      return false;
+      return (await tmpDirs()).length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
       const aggregator = new GeminiUsageAggregator({ ...options, since });
-      for (const tmpDir of geminiTmpDirs()) {
+      const files = new FileDeduper();
+      for (const tmpDir of await tmpDirs()) {
         for (const projectDir of await childDirectories(tmpDir)) {
           for await (const path of sessionFiles(join(projectDir, 'chats'))) {
             const info = await stat(path).catch(() => null);
             if (!info || info.mtime < since) continue;
+            if (!(await files.first(path))) continue;
             if (path.endsWith('.jsonl')) await readJsonlSession(path, aggregator);
             else await readLegacyJsonSession(path, aggregator);
           }

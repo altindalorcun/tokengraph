@@ -1,4 +1,4 @@
-import { GOOSE_SOURCE, dateKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
+import { GOOSE_SOURCE, dateKey, hourKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel } from '../request-buckets.js';
 import type { LedgerRow } from './sqlite.js';
@@ -25,8 +25,6 @@ export const EXCLUDED_PROVIDERS: ReadonlySet<string> = new Set([
 export interface GooseAggregatorOptions {
   since?: Date;
   timeZone?: string;
-  /** Identifies the database the ids belong to. */
-  dbKey?: string;
 }
 
 export interface GooseDiagnostics {
@@ -56,6 +54,16 @@ const MILLISECOND_THRESHOLD = 10_000_000_000;
 function parseTimestamp(value: unknown): Date | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
   return new Date(value > MILLISECOND_THRESHOLD ? value : value * 1000);
+}
+
+/**
+ * A ledger row's identity. The row id alone is only unique within one database, so it is joined with
+ * the session id and the row's timestamp: the same row read from two copies of one database (a backup,
+ * a copied `GOOSE_PATH_ROOT`, a legacy folder) collapses, while two different databases would need the
+ * same session id, the same row id and the same second to collide.
+ */
+function requestKey(row: LedgerRow, id: number): string {
+  return `${String(row.sessionId ?? '')}\0${id}\0${String(row.createdTimestamp ?? '')}`;
 }
 
 /**
@@ -123,7 +131,7 @@ export class GooseUsageAggregator {
       cacheCreation1hTokens: null,
     };
     const model = canonicalModelId(null, rawModel);
-    this.buckets.add(`${this.options.dbKey ?? ''}\0${id}`, { date: dateKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    this.buckets.add(requestKey(row, id), { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
   }
 
   diagnostics(): GooseDiagnostics {
@@ -136,6 +144,6 @@ export class GooseUsageAggregator {
   }
 
   result(): CollectResult {
-    return { source: GOOSE_SOURCE, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
+    return { source: GOOSE_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
   }
 }

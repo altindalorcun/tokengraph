@@ -1,5 +1,7 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { isKnownSource } from '@tokengraph/core';
 import { configPath } from './paths.js';
 
 export type GitHubAuth = { kind: 'token'; token: string } | { kind: 'gh'; ghPath: string };
@@ -18,7 +20,20 @@ export interface CliConfig {
   /** Cached gist ids; found again by marker file when missing or deleted. */
   gists?: { graph?: string; data?: string };
   graph?: { colors?: GraphColors };
+  /**
+   * Agent folders remembered from the environment of an earlier run, per source, so a later run without
+   * that environment (the hourly schedule) still scans them. Additive: older versions ignore the key.
+   */
+  agentRoots?: Record<string, string[]>;
+  /**
+   * `fetch`: whether sync reads the Cursor history from cursor.com with Cursor's own sign-in. Unset means
+   * "on, once a manual sync has announced it"; `tokengraph cursor off` stores false. Never holds a credential.
+   */
+  cursor?: { fetch?: boolean };
 }
+
+/** The most roots remembered for one source; a config file is not a log. */
+export const MAX_REMEMBERED_ROOTS = 32;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GIST_ID = /^[0-9a-f]{20,40}$/i;
@@ -82,6 +97,20 @@ export function parseConfig(raw: unknown): CliConfig {
   const colors = graph?.['colors'];
   if (colors === 'model' || colors === 'single') config.graph = { colors };
 
+  const agentRoots = record(fields['agentRoots']);
+  if (agentRoots) {
+    const parsed: Record<string, string[]> = {};
+    for (const [source, value] of Object.entries(agentRoots)) {
+      if (!isKnownSource(source) || !Array.isArray(value)) continue;
+      const roots = [...new Set(value.filter((root): root is string => typeof root === 'string' && root.trim() !== ''))].slice(0, MAX_REMEMBERED_ROOTS);
+      if (roots.length > 0) parsed[source] = roots;
+    }
+    if (Object.keys(parsed).length > 0) config.agentRoots = parsed;
+  }
+
+  const cursor = record(fields['cursor']);
+  if (cursor && typeof cursor['fetch'] === 'boolean') config.cursor = { fetch: cursor['fetch'] };
+
   return config;
 }
 
@@ -99,4 +128,21 @@ export async function writeConfig(config: CliConfig, path = configPath()): Promi
   // The file can hold a GitHub token, so only its owner may read it.
   await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   await rename(temporary, path);
+}
+
+/** `readConfig` for callers that must not wait (the hook runs under a short deadline). */
+export function readConfigSync(path = configPath()): CliConfig {
+  try {
+    return parseConfig(JSON.parse(readFileSync(path, 'utf8')));
+  } catch {
+    return {};
+  }
+}
+
+/** `writeConfig`, same guarantees: a temporary file renamed over the target, mode 0600. */
+export function writeConfigSync(config: CliConfig, path = configPath()): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  renameSync(temporary, path);
 }

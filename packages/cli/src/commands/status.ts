@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { formatTokens, isKnownSource } from '@tokengraph/core';
+import { readFetchState } from '../adapters/cursor/fetch-state.js';
+import { agentRootsReport, type AgentRootsReport } from '../agent-roots-store.js';
 import { inspectAutoSync, type AutoSyncEntry, type AutoSyncHealth } from '../auto-sync-health.js';
 import { cliVersion } from '../bin-path.js';
 import { readConfig } from '../config.js';
@@ -18,11 +20,14 @@ export interface StatusDeps {
   legacyData: () => string[];
   /** The data-retention policy of each agent that auto-deletes its logs and is installed here. */
   retention: () => Promise<RetentionPolicy[]>;
+  /** The folders each adapter scans, from this process's environment plus the roots remembered in the config. */
+  agentRoots: (remembered: Record<string, string[]>) => Promise<AgentRootsReport[]>;
 }
 
 const DEFAULT_DEPS: StatusDeps = {
   autoSync: () => inspectAutoSync(),
   retention: () => readRetentionPolicies(),
+  agentRoots: (remembered) => agentRootsReport(remembered),
   legacyData: () => {
     const legacy = legacyConfigHome();
     if (legacy === configHome()) return [];
@@ -40,9 +45,24 @@ export interface StatusReport {
   gists: { graph: string | null; data: string | null };
   otherMachines: { label: string; updatedAt: string; activeDays: number }[];
   ledger: { path: string; activeDays: number; sources: Record<string, number>; recentDays: { date: string; weighted: number }[] };
+  /** The Cursor history fetch. Timestamps and account keys (hashes) only; never a credential. */
+  cursorFetch: {
+    /** `default`: on once a manual sync has announced it. */
+    setting: 'on' | 'off' | 'default';
+    lastAttempt: string | null;
+    lastSuccess: string | null;
+    lastError: string | null;
+    /** Nothing is requested before this instant, or null when no back-off is in force. */
+    backoffUntil: string | null;
+    /** The newest instant any fetched account is covered through, or null before the first fetch. */
+    coveredThrough: string | null;
+    accounts: Record<string, string>;
+  };
   backgroundSync: Record<keyof AutoSyncHealth, { installed: boolean | null; detail: string | null; missing: string[] }>;
   lastHookSync: { at: string; error: string | null } | null;
   retention: RetentionPolicy[];
+  /** Per adapter, the folders and files it scans for and whether they exist (`origin`: default, env or remembered). */
+  agentRoots: AgentRootsReport[];
   warnings: string[];
   legacyData: string[];
 }
@@ -66,6 +86,9 @@ async function buildReport(deps: StatusDeps, autoSync: AutoSyncHealth): Promise<
   const login = config.github?.login;
   const gistUrl = (id: string | undefined) => (id && login ? `https://gist.github.com/${login}/${id}` : null);
   const retention = await deps.retention();
+  const fetchState = await readFetchState();
+  const covered = Object.values(fetchState.coveredThrough).sort();
+  const backoffActive = fetchState.backoffUntil !== undefined && Date.parse(fetchState.backoffUntil) > Date.now();
   return {
     schema: 1,
     version: cliVersion(),
@@ -80,11 +103,21 @@ async function buildReport(deps: StatusDeps, autoSync: AutoSyncHealth): Promise<
       sources: Object.fromEntries(Object.keys(ledger.sources).filter(isKnownSource).map((source) => [source, Object.keys(ledger.sources[source] ?? {}).length])),
       recentDays: days.slice(-7).map((day) => ({ date: day.date, weighted: day.weighted })),
     },
+    cursorFetch: {
+      setting: config.cursor?.fetch === undefined ? 'default' : config.cursor.fetch ? 'on' : 'off',
+      lastAttempt: fetchState.lastAttemptAt ?? null,
+      lastSuccess: fetchState.lastSuccessAt ?? null,
+      lastError: fetchState.lastError ?? null,
+      backoffUntil: backoffActive ? (fetchState.backoffUntil ?? null) : null,
+      coveredThrough: covered[covered.length - 1] ?? null,
+      accounts: fetchState.coveredThrough,
+    },
     backgroundSync: Object.fromEntries(
       AUTO_SYNC_ROWS.map(({ key }) => [key, { installed: autoSync[key].installed, detail: autoSync[key].detail ?? null, missing: autoSync[key].missing }]),
     ) as StatusReport['backgroundSync'],
     lastHookSync: await readHookSync(),
     retention,
+    agentRoots: await deps.agentRoots(config.agentRoots ?? {}),
     warnings: retentionWarnings(retention, autoSync),
     legacyData: deps.legacyData(),
   };
@@ -114,7 +147,9 @@ function printReport(report: StatusReport, autoSync: AutoSyncHealth): void {
   console.log(`ledger:  ${report.ledger.activeDays} active days in ${report.ledger.path}`);
   for (const [source, count] of Object.entries(report.ledger.sources)) console.log(`  ${source}: ${count} days`);
   for (const day of report.ledger.recentDays) console.log(`  ${day.date}  ${formatTokens(day.weighted).padStart(8)}`);
+  printCursorFetch(report.cursorFetch);
   printAutoSync(autoSync);
+  printAgentRoots(report.agentRoots);
   printRetention(report.retention, report.warnings);
   if (report.lastHookSync) {
     console.log(`last hook sync: ${report.lastHookSync.at} (${hookSyncLogPath()})`);
@@ -127,10 +162,20 @@ function printReport(report: StatusReport, autoSync: AutoSyncHealth): void {
   }
 }
 
+function printCursorFetch(fetch: StatusReport['cursorFetch']): void {
+  const setting = fetch.setting === 'default' ? 'on when Cursor is signed in (announced by the next sync)' : fetch.setting;
+  console.log(`cursor fetch: ${setting}${fetch.setting === 'off' ? ' (`tokengraph cursor on` to turn on)' : ''}`);
+  if (fetch.lastSuccess) console.log(`  last fetch:    ${new Date(fetch.lastSuccess).toLocaleString()}`);
+  if (fetch.coveredThrough) console.log(`  covered through: ${fetch.coveredThrough.slice(0, 10)} (${Object.keys(fetch.accounts).length} account${Object.keys(fetch.accounts).length === 1 ? '' : 's'})`);
+  if (fetch.backoffUntil) console.log(`  paused until:  ${new Date(fetch.backoffUntil).toLocaleString()}${fetch.lastError ? ` (${fetch.lastError})` : ''}`);
+  else if (fetch.lastError) console.log(`  last problem:  ${fetch.lastError}`);
+}
+
 const AUTO_SYNC_ROWS: { key: keyof AutoSyncHealth; label: string; reinstall: string }[] = [
   { key: 'claudeHook', label: 'claude-code hook', reinstall: 'tokengraph install-hook --agent claude-code' },
   { key: 'cursorHook', label: 'cursor hook', reinstall: 'tokengraph install-hook --agent cursor' },
   { key: 'codexNotify', label: 'codex notify', reinstall: 'tokengraph install-hook --agent codex' },
+  { key: 'geminiHook', label: 'gemini-cli hook', reinstall: 'tokengraph install-hook --agent gemini-cli' },
   { key: 'schedule', label: 'hourly schedule', reinstall: 'tokengraph schedule' },
 ];
 
@@ -166,4 +211,33 @@ function printRetention(policies: RetentionPolicy[], warnings: string[]): void {
   console.log('data retention:');
   for (const policy of policies) console.log(`  ${`${policy.source}:`.padEnd(18)}${retentionLine(policy)}`);
   for (const warning of warnings) console.log(`warning: ${warning}`);
+}
+
+const ORIGIN_LABEL = { default: 'default', env: 'from the environment', remembered: 'remembered' } as const;
+
+/**
+ * Where each adapter looks. Existing places are listed; a root named by the environment or remembered from
+ * an earlier run is listed even when nothing in it exists (so a profile that was moved or deleted shows up);
+ * missing default places are only counted. `--json` carries everything.
+ */
+function printAgentRoots(reports: AgentRootsReport[]): void {
+  console.log('agent folders (what sync and view scan; the schedule adds the remembered ones):');
+  for (const { source, targets } of reports) {
+    // A root that has something (a profile with `projects/` but no `transcripts/`) is shown by what it has;
+    // one with nothing, named by the environment or remembered, is shown whole so its absence is visible.
+    const rootHasData = new Set(targets.filter((target) => target.exists).map((target) => target.root));
+    const shown = targets.filter((target) => target.exists || (target.origin !== 'default' && !rootHasData.has(target.root)));
+    const hidden = targets.length - shown.length;
+    const found = targets.filter((target) => target.exists).length;
+    const note =
+      hidden > 0
+        ? `${shown.length === 0 ? 'nothing found; ' : ''}${hidden} default location${hidden === 1 ? '' : 's'} not present`
+        : found > 0
+          ? `${found} found`
+          : 'nothing found';
+    console.log(`  ${`${source}:`.padEnd(18)}${note}`);
+    for (const target of shown) {
+      console.log(`    ${target.exists ? 'found  ' : 'missing'}  ${target.path}${target.origin === 'default' ? '' : `  (${ORIGIN_LABEL[target.origin]})`}`);
+    }
+  }
 }

@@ -1,4 +1,4 @@
-import { dateKey, PI_SOURCE, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
+import { dateKey, hourKey, PI_SOURCE, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel } from '../request-buckets.js';
 
@@ -149,7 +149,7 @@ export class PiUsageAggregator {
     const key = responseId
       ? `id\0${provider ?? ''}\0${responseId}`
       : [kind, instant.getTime(), provider ?? '', rawModel, counts.inputTokens, counts.outputTokens, counts.cacheReadTokens, counts.cacheCreationTokens].join('\0');
-    this.buckets.add(key, { date: dateKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    this.buckets.add(key, { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
   }
 
   diagnostics(): PiDiagnostics {
@@ -157,6 +157,6 @@ export class PiUsageAggregator {
   }
 
   result(): CollectResult {
-    return { source: PI_SOURCE, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
+    return { source: PI_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
   }
 }

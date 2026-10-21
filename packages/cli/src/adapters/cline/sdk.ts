@@ -1,7 +1,16 @@
-import { dateKey } from '@tokengraph/core';
+import { dateKey, hourKey } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel } from '../request-buckets.js';
-import { asObject, isValidTimestamp, normalizeSdk, readCount, shouldSkipProvider, type ClineDiagnostics } from './normalize.js';
+import {
+  asObject,
+  exclusiveModelKey,
+  isSeededExclusive,
+  isValidTimestamp,
+  normalizeSdk,
+  readCount,
+  shouldSkipProvider,
+  violatesInclusive, type ClineDiagnostics,
+} from './normalize.js';
 
 /** One SDK session's `<id>.messages.json` (main agent or subagent), plus its session manifest. */
 export interface SdkMessagesFile {
@@ -46,6 +55,31 @@ function importedAtCutoff(importedFrom: Record<string, unknown>): number | null 
 }
 
 /**
+ * First pass: adds the (provider, model) key of every row whose cache subtotals exceed its input
+ * to `learned`. Such a model is cache-exclusive for all its rows in this collection, including
+ * rows that do not show it. Looks at counters only; skip rules do not apply (it is evidence).
+ */
+export function learnExclusiveModels(document: unknown, learned: Set<string>): void {
+  const doc = asObject(document);
+  const messages = doc && Array.isArray(doc['messages']) ? doc['messages'] : [];
+  for (const raw of messages) {
+    const entry = asObject(raw);
+    if (!entry || entry['role'] !== 'assistant') continue;
+    const metrics = asObject(entry['metrics']);
+    if (!metrics) continue;
+    const inputTokens = readCount(metrics['inputTokens']);
+    const cacheReadTokens = readCount(metrics['cacheReadTokens']);
+    const cacheWriteTokens = readCount(metrics['cacheWriteTokens']);
+    if (inputTokens === null || cacheReadTokens === null || cacheWriteTokens === null) continue;
+    if (!violatesInclusive({ inputTokens, cacheReadTokens, cacheWriteTokens })) continue;
+    const modelInfo = asObject(entry['modelInfo']);
+    const provider = typeof modelInfo?.['provider'] === 'string' ? (modelInfo['provider'] as string) : null;
+    const modelId = typeof modelInfo?.['id'] === 'string' ? (modelInfo['id'] as string) : null;
+    learned.add(exclusiveModelKey(provider, modelId));
+  }
+}
+
+/**
  * Reads one SDK session file (the main agent's or a subagent's `.messages.json`) and adds its
  * billable assistant turns to `buckets`. See `docs/agents/cline-usage.md`, "B. SDK sessions", for the shape
  * and the imported/legacy-migration edge cases implemented here.
@@ -55,6 +89,7 @@ export function addSdkMessages(
   buckets: RequestBuckets,
   diagnostics: ClineDiagnostics,
   options: { since?: Date; timeZone?: string },
+  learned: ReadonlySet<string> = new Set(),
 ): void {
   const doc = asObject(file.document);
   const messages = doc && Array.isArray(doc['messages']) ? doc['messages'] : [];
@@ -135,10 +170,12 @@ export function addSdkMessages(
     }
 
     const model = canonicalModelId(provider, modelId);
-    const counts = normalizeSdk({ inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }, diagnostics);
-    const date = dateKey(new Date(ts), options.timeZone);
+    const exclusive = isSeededExclusive(provider, modelId) || learned.has(exclusiveModelKey(provider, modelId));
+    const counts = normalizeSdk({ inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }, diagnostics, exclusive);
+    const instant = new Date(ts);
+    const date = dateKey(instant, options.timeZone);
     // Session-independent: a forked session copies earlier messages with the same id, and this key
     // lets them merge into one request instead of being double-counted.
-    buckets.add(`sdk:${id}`, { date, model, pricingTier: tierForModel(model, counts), counts });
+    buckets.add(`sdk:${id}`, { date, hour: hourKey(instant, options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
   }
 }

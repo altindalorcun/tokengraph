@@ -28,6 +28,8 @@ function autoSyncFooter(autoSync: AutoSyncStatus, theme: TuiTheme): FooterPart[]
     gap,
     ...status('Codex notify', autoSync.codexNotify, theme),
     gap,
+    ...status('Gemini hook', autoSync.geminiHook, theme),
+    gap,
     ...status('hourly schedule', autoSync.schedule, theme),
   ];
 }

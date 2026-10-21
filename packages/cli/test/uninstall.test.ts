@@ -59,9 +59,9 @@ describe('tokengraph uninstall', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it('removes the three hooks and the schedule, keeps the data, and names the npm command', async () => {
+  it('removes the four hooks and the schedule, keeps the data, and names the npm command', async () => {
     expect(await runUninstall({ purge: false, yes: false, dryRun: false }, deps())).toBe(0);
-    expect(hooks).toEqual([['claude-code', false], ['cursor', false], ['codex', false]]);
+    expect(hooks).toEqual([['claude-code', false], ['cursor', false], ['codex', false], ['gemini-cli', false]]);
     expect(schedules).toEqual([false]);
     expect(existsSync(data)).toBe(true);
     expect(out).toContain('To remove the program too: npm uninstall -g tokengraph');
@@ -70,7 +70,7 @@ describe('tokengraph uninstall', () => {
   it('dry-run passes dryRun to every remover and deletes nothing, even with --purge', async () => {
     expect(await runUninstall({ purge: true, yes: false, dryRun: true }, deps())).toBe(0);
     expect(hooks.every(([, dry]) => dry)).toBe(true);
-    expect(hooks).toHaveLength(3);
+    expect(hooks).toHaveLength(4);
     expect(schedules).toEqual([true]);
     expect(removeFile).not.toHaveBeenCalled();
     expect(existsSync(data)).toBe(true);
@@ -88,7 +88,7 @@ describe('tokengraph uninstall', () => {
       }),
     );
     expect(code).toBe(1);
-    expect(hooks).toHaveLength(3);
+    expect(hooks).toHaveLength(4);
     expect(schedules).toEqual([false]);
   });
 
@@ -110,6 +110,15 @@ describe('tokengraph uninstall', () => {
     expect(out).toContain(`https://gist.github.com/octo/${'b'.repeat(32)}`);
     expect(out).toContain('https://gist.github.com');
     expect(out).toContain('only copy of your Cursor usage');
+  });
+
+  it('purge deletes the fetched Cursor account files and the fetch state, and keeps look-alikes', async () => {
+    const mine = ['cursor-account-0123456789abcdef.jsonl', 'cursor-fetch.json'];
+    const notMine = ['cursor-account-xyz.jsonl', 'cursor-account-0123456789abcdef.jsonl.bak', 'notes.txt'];
+    for (const name of [...mine, ...notMine]) await writeFile(join(data, name), '');
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps())).toBe(0);
+    for (const name of mine) expect(existsSync(join(data, name)), name).toBe(false);
+    for (const name of notMine) expect(existsSync(join(data, name)), name).toBe(true);
   });
 
   it('in a terminal, a "no" keeps the data', async () => {

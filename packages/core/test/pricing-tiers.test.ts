@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  claudeLongContextThreshold,
   DEFAULT_PRICING_TIER,
   isPricingTier,
   LONG_CONTEXT_THRESHOLD_TOKENS,
   PRICING_TIERS,
   pricingTierFor,
 } from '../src/pricing-tiers.js';
+import { longContextThreshold } from '../src/pricing.js';
 
 describe('pricingTierFor', () => {
   it('is standard for a normal request', () => {
@@ -33,15 +33,37 @@ describe('isPricingTier', () => {
   });
 });
 
-describe('claudeLongContextThreshold', () => {
+describe('longContextThreshold', () => {
   it('is 100K prompt tokens for Haiku 5.5, dated snapshot or not', () => {
-    expect(claudeLongContextThreshold('claude-haiku-5-5')).toBe(100_000);
-    expect(claudeLongContextThreshold('claude-haiku-5-5-20261001')).toBe(100_000);
+    expect(longContextThreshold('claude-haiku-5-5')).toBe(100_000);
+    expect(longContextThreshold('claude-haiku-5-5-20261001')).toBe(100_000);
   });
 
-  it('is null for every Claude model that bills its whole context window at one rate', () => {
-    expect(claudeLongContextThreshold('claude-opus-5-5')).toBeNull();
-    expect(claudeLongContextThreshold('claude-haiku-4-5-20251001')).toBeNull();
-    expect(claudeLongContextThreshold('gpt-6-sol')).toBeNull();
+  it('is 200K for Gemini and xAI models that publish a long-context rate, 272K for OpenAI', () => {
+    expect(longContextThreshold('gemini-2.5-pro')).toBe(200_000);
+    expect(longContextThreshold('gemini-3.1-pro-preview-customtools')).toBe(200_000);
+    expect(longContextThreshold('grok-4.7')).toBe(200_000);
+    expect(longContextThreshold('gpt-5.4')).toBe(272_000);
+    expect(longContextThreshold('gpt-6-sol')).toBe(272_000);
+  });
+
+  it('is null for every model that bills its whole context window at one rate', () => {
+    expect(longContextThreshold('claude-opus-5-5')).toBeNull();
+    expect(longContextThreshold('claude-haiku-4-5-20251001')).toBeNull();
+    expect(longContextThreshold('gemini-2.5-flash')).toBeNull();
+    expect(longContextThreshold('composer-2.5')).toBeNull();
+  });
+
+  it('keeps the OpenAI threshold for a gpt- id without long-context rates, known or not, so its long requests stay apart', () => {
+    expect(longContextThreshold('gpt-5.4-mini')).toBe(272_000);
+    expect(longContextThreshold('gpt-9-future')).toBe(272_000);
+  });
+});
+
+describe('pricingTierFor with a given threshold', () => {
+  it('uses the threshold it is given', () => {
+    expect(pricingTierFor({ fast: false, inputTokens: 200_001, thresholdTokens: 200_000 })).toBe('long-context');
+    expect(pricingTierFor({ fast: false, inputTokens: 200_000, thresholdTokens: 200_000 })).toBe('standard');
+    expect(pricingTierFor({ fast: true, inputTokens: 200_001, thresholdTokens: 200_000 })).toBe('fast-long-context');
   });
 });

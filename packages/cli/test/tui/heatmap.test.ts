@@ -1,3 +1,4 @@
+import { FAMILY_LABELS, MODEL_FAMILIES, buildGraphGrid } from '@tokengraph/core';
 import { describe, expect, it } from 'vitest';
 import { emptyLedger, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
@@ -19,6 +20,31 @@ function vm() {
   ledger = mergeUsage(ledger, 'codex-cli', [{ date: TODAY, model: 'gpt-5', pricingTier: 'standard', counts: c(500) }]);
   return buildViewModel(ledger, TODAY);
 }
+
+describe('heatmap family legend', () => {
+  const all = MODEL_FAMILIES.map((family, i) => ({ date: shiftDate(TODAY, -i), weighted: 100 + i, topFamily: family }));
+  const draw = (width: number) => {
+    const buf = new ScreenBuffer(width, HEATMAP_HEIGHT);
+    drawHeatmap(buf, { x: 0, y: 0, width, height: HEATMAP_HEIGHT }, {
+      grid: buildGraphGrid(all, TODAY), theme, colorMode: 'per-model', cursor: null, today: TODAY, motion: STILL,
+    });
+    return toPlainText(buf).split('\n')[HEATMAP_HEIGHT - 1]!;
+  };
+
+  it('collapses families that do not fit into "+N more", never cutting a name', () => {
+    const line = draw(HEATMAP_FULL_WIDTH).trimEnd();
+    expect(line).toMatch(/\+\d+ more$/);
+    expect(line).toContain('Claude');
+    const shown = MODEL_FAMILIES.filter((family) => line.includes(FAMILY_LABELS[family])).length;
+    expect(line).toContain(`+${MODEL_FAMILIES.length - shown} more`);
+  });
+
+  it('lists every family when there is room', () => {
+    const line = draw(250);
+    for (const family of MODEL_FAMILIES) expect(line).toContain(FAMILY_LABELS[family]);
+    expect(line).not.toContain('more');
+  });
+});
 
 describe('heatmap', () => {
   it('draws 52 weeks with labels at full width', () => {

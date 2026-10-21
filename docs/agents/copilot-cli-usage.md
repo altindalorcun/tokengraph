@@ -180,7 +180,7 @@ release the third-party parsers cite for `assistant_usage_events`; the latest ch
 
 ## Checked against a real store
 
-Copilot CLI 1.0.98 (`@github/copilot`), in BYOK offline mode (`COPILOT_OFFLINE=true`,
+Copilot CLI 1.0.98 (`@github/copilot`), and again on 20 October 2026 with `scripts/e2e/run.mjs` on 1.0.100 (macOS; counters matched exactly on the chat, responses and anthropic protocols; see `scripts/e2e/README.md`), in BYOK offline mode (`COPILOT_OFFLINE=true`,
 `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_TYPE` `openai` and `anthropic`), so no GitHub account was used.
 Method: the real agent was installed into a throwaway folder and run with a throwaway `HOME` against a local fake LLM endpoint (OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, streaming). The endpoint gave every request distinct fresh-input, cache-read, cache-write and output counts and logged them; that log is the independent count. `tokengraph sync --local` then read the agent's own files in that home, and its totals were compared field by field with the log.
 
@@ -195,6 +195,13 @@ Method: the real agent was installed into a throwaway folder and run with a thro
 - Still unverified: whether `output_tokens` includes reasoning (the fake endpoint sent none); what
   `copilot_usage_model` holds with a GitHub account (it was null in BYOK); whether Copilot Chat's CLI-type sessions
   reach `session-store.db`; and forking a session.
+
+## Roots tokengraph scans
+
+Every root below is read together with the default one and the ones remembered in `config.json` (`agentRoots`); roots that reach the same real path are read once, and a missing root is skipped silently. Environment values are trimmed, an empty one is unset, a leading `~` is expanded, and a relative one is ignored. The resolver is `adapters/copilot-cli/roots.ts`.
+
+- Roots: `~/.copilot` and `$COPILOT_HOME` (trimmed, `~` expanded, absolute only); the database is `session-store.db` in each. The same on every OS. Copilot CLI is closed source, so whether it trims or expands `COPILOT_HOME` is unconfirmed; a `--config-dir` flag given to one run cannot be seen later.
+- Every existing store is read. Rows are keyed by session id plus row id: another profile's database has other session ids, and a copy of one database collapses.
 
 ## Sources
 

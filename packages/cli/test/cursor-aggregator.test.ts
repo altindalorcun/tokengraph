@@ -224,3 +224,27 @@ describe('cursorModelIdentity', () => {
     ]);
   });
 });
+
+describe('CursorUsageAggregator hours', () => {
+  it('buckets hook turns by local hour, a repeated generation once', () => {
+    const { result } = collect([
+      event({ receivedAt: '2026-09-24T09:15:00.000Z' }),
+      event({ receivedAt: '2026-09-24T09:16:00.000Z' }),
+      event({ generationId: 'gen-2', receivedAt: '2026-09-24T22:30:00.000Z' }),
+    ]);
+    // fresh 300 + output 50 + write 100 + 0.1 * 600 = 510 per turn.
+    expect(result.hours).toEqual([
+      { date: '2026-09-24', hour: 9, weighted: 510 },
+      { date: '2026-09-24', hour: 22, weighted: 510 },
+    ]);
+  });
+
+  it('buckets imported rows by the hour they happened', () => {
+    const aggregator = new CursorUsageAggregator({ timeZone: 'UTC' });
+    aggregator.addImported({
+      id: 'row-1', at: '2026-09-20T03:30:00.000Z', model: 'composer-2.5',
+      inputTokens: 100, outputTokens: 10, cacheWriteTokens: 5, cacheReadTokens: 50,
+    } as never);
+    expect(aggregator.result().hours).toEqual([{ date: '2026-09-20', hour: 3, weighted: 120 }]);
+  });
+});

@@ -1,64 +1,20 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { CLINE_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
+import { envPath, pathFor, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
+import { resolveAdapterRoots } from '../../agent-roots-store.js';
 import { RequestBuckets } from '../request-buckets.js';
 import { addClassicTask, type ClassicTask } from './classic.js';
 import { emptyClineDiagnostics, type ClineDiagnostics } from './normalize.js';
-import { addSdkMessages } from './sdk.js';
+import { CLINE_ROOTS, clineSdkHome } from './roots.js';
+import { addSdkMessages, learnExclusiveModels } from './sdk.js';
 
-const CLINE_EXTENSION_ID = 'saoudrizwan.claude-dev';
-/** VS Code-family hosts Cline's extension ships in, in the order the task brief lists them. */
-const HOSTS = ['Code', 'Code - Insiders', 'Cursor', 'VSCodium', 'Windsurf'];
-
-function clineDir(): string {
-  return process.env['CLINE_DIR'] ?? join(homedir(), '.cline');
-}
-
-function clineDataDir(): string {
-  return process.env['CLINE_DATA_DIR'] ?? join(clineDir(), 'data');
-}
-
-/** `~/.cline/data/sessions` by default, overridable the same way Cline's own SDK resolves it. */
+/** Where this process's environment puts Cline's SDK sessions: `CLINE_SESSION_DATA_DIR`, else `<data dir>/sessions` (`~/.cline/data/sessions` by default). */
 export function clineSessionsDir(): string {
-  return process.env['CLINE_SESSION_DATA_DIR'] ?? join(clineDataDir(), 'sessions');
-}
-
-function tasksDirUnder(userDataDir: string): string {
-  return join(userDataDir, 'User', 'globalStorage', CLINE_EXTENSION_ID, 'tasks');
-}
-
-/**
- * Every candidate classic-format `tasks` directory: each VS Code-family host on macOS and Linux,
- * that host on Windows (only when running on Windows, since `%APPDATA%` means nothing elsewhere),
- * the three known remote-server variants, and the legacy CLI/JetBrains/standalone data dir. A
- * directory that does not exist on this machine costs nothing to list, so every platform's shape is
- * always included rather than branched on `process.platform`.
- */
-export function clineClassicTaskDirs(): string[] {
-  const home = homedir();
-  const dirs: string[] = [];
-  for (const host of HOSTS) {
-    dirs.push(tasksDirUnder(join(home, 'Library', 'Application Support', host))); // macOS
-    dirs.push(tasksDirUnder(join(home, '.config', host))); // Linux
-  }
-  const appData = process.env['APPDATA'];
-  if (process.platform === 'win32' && appData) {
-    for (const host of HOSTS) dirs.push(tasksDirUnder(join(appData, host)));
-  }
-  dirs.push(tasksDirUnder(join(home, '.vscode-server', 'data')));
-  dirs.push(tasksDirUnder(join(home, '.vscode-server-insiders', 'data')));
-  dirs.push(tasksDirUnder(join(home, '.cursor-server', 'data')));
-  dirs.push(join(clineDataDir(), 'tasks'));
-  return dirs;
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
-  } catch {
-    return false;
-  }
+  const ctx = processRootContext();
+  const path = pathFor(ctx.platform);
+  const dataDir = envPath(ctx, 'CLINE_DATA_DIR') ?? path.join(envPath(ctx, 'CLINE_DIR') ?? path.join(clineSdkHome(ctx) ?? ctx.home, '.cline'), 'data');
+  return envPath(ctx, 'CLINE_SESSION_DATA_DIR') ?? path.join(dataDir, 'sessions');
 }
 
 async function subdirectoryNames(dir: string): Promise<string[]> {
@@ -122,6 +78,26 @@ async function sessionMessageFiles(sessionDir: string): Promise<string[]> {
     .map((entry) => join(sessionDir, entry.name));
 }
 
+/** Parsed `.messages.json` files of one session that are new enough, one at a time (never all held at once). */
+async function* sdkSessionDocuments(sessionDir: string, since: Date, diagnostics: ClineDiagnostics): AsyncGenerator<unknown> {
+  for (const path of await sessionMessageFiles(sessionDir)) {
+    const info = await stat(path).catch(() => null);
+    if (!info || info.mtime < since) continue;
+    try {
+      yield JSON.parse(await readFile(path, 'utf8'));
+    } catch {
+      diagnostics.unreadableFiles += 1;
+    }
+  }
+}
+
+/** First pass over one session: learn which models report cache-exclusive input. Unreadable files are counted in the second pass only. */
+async function learnSdkSession(sessionDir: string, since: Date, learned: Set<string>): Promise<void> {
+  for await (const document of sdkSessionDocuments(sessionDir, since, emptyClineDiagnostics())) {
+    learnExclusiveModels(document, learned);
+  }
+}
+
 async function readSdkSession(
   sessionDir: string,
   sessionId: string,
@@ -129,19 +105,11 @@ async function readSdkSession(
   buckets: RequestBuckets,
   diagnostics: ClineDiagnostics,
   options: { since?: Date; timeZone?: string },
+  learned: ReadonlySet<string>,
 ): Promise<void> {
   const manifest = await readJsonFileOrNull(join(sessionDir, `${sessionId}.json`));
-  for (const path of await sessionMessageFiles(sessionDir)) {
-    const info = await stat(path).catch(() => null);
-    if (!info || info.mtime < since) continue;
-    let document: unknown;
-    try {
-      document = JSON.parse(await readFile(path, 'utf8'));
-    } catch {
-      diagnostics.unreadableFiles += 1;
-      continue;
-    }
-    addSdkMessages({ document, manifest }, buckets, diagnostics, options);
+  for await (const document of sdkSessionDocuments(sessionDir, since, diagnostics)) {
+    addSdkMessages({ document, manifest }, buckets, diagnostics, options, learned);
   }
 }
 
@@ -153,6 +121,9 @@ function describeDiagnostics(d: ClineDiagnostics): string[] {
   if (d.skippedEstimated > 0) notes.push(`skipped ${d.skippedEstimated} Bedrock request(s) whose counts Cline estimates`);
   if (d.skippedImported > 0) notes.push(`skipped ${d.skippedImported} message(s) imported from another tool`);
   if (d.skippedLegacyCopies > 0) notes.push(`skipped ${d.skippedLegacyCopies} message(s) copied from an older Cline task`);
+  if (d.exclusiveDetected > 0) {
+    notes.push(`${d.exclusiveDetected} request(s) report input excluding cache; counted as fresh input`);
+  }
   if (d.clamped > 0) notes.push(`${d.clamped} request(s) reported more cached than total input; counted as 0 fresh input`);
   if (d.unreadableFiles > 0) notes.push(`${d.unreadableFiles} Cline file(s) could not be read`);
   if (d.malformedEntries > 0) notes.push(`skipped ${d.malformedEntries} malformed Cline usage record(s)`);
@@ -167,13 +138,28 @@ function describeDiagnostics(d: ClineDiagnostics): string[] {
  * API keys — are never opened, and prompt/response text is never kept even when it is right next to
  * a counter we do read.
  */
-export function createClineAdapter(options: { timeZone?: string } = {}): Adapter {
+export interface ClineAdapterOptions extends RootsOption {
+  timeZone?: string;
+}
+
+export function createClineAdapter(adapterOptions: ClineAdapterOptions = {}): Adapter {
+  const { roots, ...options } = adapterOptions;
+  /** The folders that exist: classic `tasks` folders and SDK `sessions` folders, each real folder once. */
+  const plan = async (): Promise<{ tasks: string[]; sessions: string[] }> => {
+    const { ctx, remembered } = await resolveAdapterRoots(CLINE_ROOTS, roots);
+    const existing = (await planScan(CLINE_ROOTS, ctx, remembered)).filter((target) => target.exists);
+    return {
+      tasks: existing.filter((target) => target.kind === 'tasks').map((target) => target.path),
+      sessions: existing.filter((target) => target.kind === 'sessions').map((target) => target.path),
+    };
+  };
+
   return {
     name: CLINE_SOURCE,
 
     async detect(): Promise<boolean> {
-      for (const dir of clineClassicTaskDirs()) if (await isDirectory(dir)) return true;
-      return isDirectory(clineSessionsDir());
+      const { tasks, sessions } = await plan();
+      return tasks.length + sessions.length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {
@@ -181,22 +167,29 @@ export function createClineAdapter(options: { timeZone?: string } = {}): Adapter
       const diagnostics = emptyClineDiagnostics();
       const taskOptions = { since, timeZone: options.timeZone };
 
-      for (const tasksDir of clineClassicTaskDirs()) {
+      const { tasks, sessions } = await plan();
+
+      for (const tasksDir of tasks) {
         for (const taskId of await subdirectoryNames(tasksDir)) {
           const task = await readClassicTask(join(tasksDir, taskId), taskId, since, diagnostics);
           if (task) addClassicTask(task, buckets, diagnostics, taskOptions);
         }
       }
 
-      const sessionsDir = clineSessionsDir();
-      for (const sessionId of await subdirectoryNames(sessionsDir)) {
-        await readSdkSession(join(sessionsDir, sessionId), sessionId, since, buckets, diagnostics, taskOptions);
+      const sessionFolders: { dir: string; id: string }[] = [];
+      for (const sessionsDir of sessions) {
+        for (const id of await subdirectoryNames(sessionsDir)) sessionFolders.push({ dir: join(sessionsDir, id), id });
       }
+      // Pass 1: a model that reports cache-exclusive input on any row is exclusive on all its rows.
+      const learned = new Set<string>();
+      for (const { dir } of sessionFolders) await learnSdkSession(dir, since, learned);
+      for (const { dir, id } of sessionFolders) await readSdkSession(dir, id, since, buckets, diagnostics, taskOptions, learned);
 
       const notes = describeDiagnostics(diagnostics);
       return {
         source: CLINE_SOURCE,
         usage: buckets.toUsage(),
+        hours: buckets.toHours(),
         requestCount: buckets.size,
         ...(notes.length > 0 ? { notes } : {}),
       };

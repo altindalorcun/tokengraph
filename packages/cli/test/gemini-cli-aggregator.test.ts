@@ -162,3 +162,18 @@ describe('GeminiUsageAggregator diagnostics', () => {
     expect(aggregator.diagnostics().unreadableFiles).toBe(2);
   });
 });
+
+describe('GeminiUsageAggregator hours', () => {
+  it('buckets messages by local hour', () => {
+    const aggregator = new GeminiUsageAggregator({ timeZone: 'UTC' });
+    const tokens = { input: 100, output: 20, cached: 50, thoughts: 0, tool: 0, total: 120 };
+    aggregator.addRecord(gemini('a', tokens, { timestamp: '2026-09-27T10:05:00.000Z' }));
+    aggregator.addRecord(gemini('b', tokens, { timestamp: '2026-09-27T10:55:00.000Z' }));
+    aggregator.addRecord(gemini('c', tokens, { timestamp: '2026-09-27T23:00:00.000Z' }));
+    // fresh 50 + output 20 + 0.1 * 50 = 75 per message.
+    expect(aggregator.result().hours).toEqual([
+      { date: '2026-09-27', hour: 10, weighted: 150 },
+      { date: '2026-09-27', hour: 23, weighted: 75 },
+    ]);
+  });
+});

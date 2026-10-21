@@ -10,7 +10,7 @@ import { createKiloAdapter, kiloDataDir } from './adapters/kilo/index.js';
 import { createOpenCodeAdapter, openCodeDataDir } from './adapters/opencode/index.js';
 import { createPiAdapter, piSessionDirs } from './adapters/pi/index.js';
 import { createQwenCodeAdapter, qwenProjectsDirs } from './adapters/qwen-code/index.js';
-import { mergeUsage, type Ledger } from './ledger.js';
+import { mergeHours, mergeUsage, type Ledger } from './ledger.js';
 
 export interface CollectProgress {
   adapter: string;
@@ -62,7 +62,7 @@ export async function collectLocal(
     onProgress({ adapter: adapter.name, state: 'scanning' });
     try {
       const result = await adapter.collect(since);
-      ledger = mergeUsage(ledger, result.source, result.usage);
+      ledger = mergeHours(mergeUsage(ledger, result.source, result.usage), result.source, result.hours);
       results.push(result);
       onProgress({ adapter: adapter.name, state: 'done' });
     } catch (error) {

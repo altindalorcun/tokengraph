@@ -1,6 +1,7 @@
 import { stat } from 'node:fs/promises';
 import { CURSOR_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
 import { readLines } from '../jsonl-files.js';
+import { listAccountKeys } from './accounts.js';
 import { CursorUsageAggregator, type CursorAggregatorOptions, type CursorDiagnostics } from './aggregator.js';
 import { cursorEventsPath, parseCursorEvent } from './events.js';
 import { cursorImportPath, readImportedRows } from './imports.js';
@@ -27,14 +28,16 @@ async function isFile(path: string): Promise<boolean> {
 /**
  * Reads the events the `cursor-hook` command recorded, plus the rows `tokengraph import cursor` stored
  * from a dashboard CSV (they count only before the hook's first turn). Cursor itself keeps no usable
- * token counters on disk, so nothing under Cursor's own directories is read.
+ * token counters on disk, so none are read from its directories. The account history fetched from
+ * cursor.com (`cursor-account-*.jsonl`) is not read here: it goes into the ledger's `accounts` section
+ * and is combined with these rows by core's `combineMachineUsage`.
  */
 export function createCursorAdapter(options: Pick<CursorAggregatorOptions, 'timeZone'> = {}): Adapter {
   return {
     name: CURSOR_SOURCE,
 
     async detect(): Promise<boolean> {
-      return (await isFile(cursorEventsPath())) || (await isFile(cursorImportPath()));
+      return (await isFile(cursorEventsPath())) || (await isFile(cursorImportPath())) || (await listAccountKeys()).length > 0;
     },
 
     async collect(since: Date): Promise<CollectResult> {

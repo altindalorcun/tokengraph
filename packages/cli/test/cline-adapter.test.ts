@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createClineAdapter } from '../src/adapters/cline/index.js';
+import { kindedRoot } from '../src/agent-roots.js';
 
 const ENV_KEYS = ['HOME', 'USERPROFILE', 'CLINE_DIR', 'CLINE_DATA_DIR', 'CLINE_SESSION_DATA_DIR', 'APPDATA'] as const;
 
@@ -60,8 +61,11 @@ describe('createClineAdapter', () => {
 
   it('dedupes the same classic task copied under two hosts, and falls back to task_metadata.json for a row without modelInfo', async () => {
     const taskId = '1758900000000';
-    const macTaskDir = join(home, 'Library', 'Application Support', 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks', taskId);
-    const linuxTaskDir = join(home, '.config', 'Cursor', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks', taskId);
+    // Each OS keeps editor user data in one place; two editors on this one hold copies of the same task.
+    const editors =
+      process.platform === 'darwin' ? join(home, 'Library', 'Application Support') : process.platform === 'win32' ? join(home, 'AppData', 'Roaming') : join(home, '.config');
+    const macTaskDir = join(editors, 'Code', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks', taskId);
+    const linuxTaskDir = join(editors, 'Cursor', 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks', taskId);
     await mkdir(macTaskDir, { recursive: true });
     await mkdir(linuxTaskDir, { recursive: true });
 
@@ -78,6 +82,8 @@ describe('createClineAdapter', () => {
     expect(await adapter.detect()).toBe(true);
     const result = await adapter.collect(new Date(Date.now() - 86_400_000));
     expect(result.requestCount).toBe(1);
+    const at = new Date(ts);
+    expect(result.hours).toEqual([{ date: at.toISOString().slice(0, 10), hour: at.getUTCHours(), weighted: 120 }]);
     expect(result.usage).toEqual([
       expect.objectContaining({ model: 'claude-sonnet-4-5-20250929', counts: expect.objectContaining({ inputTokens: 100, outputTokens: 20 }) }),
     ]);
@@ -110,6 +116,8 @@ describe('createClineAdapter', () => {
     const adapter = createClineAdapter({ timeZone: 'UTC' });
     expect(await adapter.detect()).toBe(true);
     const result = await adapter.collect(new Date(Date.now() - 86_400_000));
+    const at = new Date(ts);
+    expect(result.hours).toEqual([{ date: at.toISOString().slice(0, 10), hour: at.getUTCHours(), weighted: 1650 }]);
     expect(result.requestCount).toBe(2);
     expect(result.usage).toEqual([
       expect.objectContaining({ model: 'claude-sonnet-4-6', counts: expect.objectContaining({ inputTokens: 1500, outputTokens: 150 }) }),
@@ -134,5 +142,43 @@ describe('createClineAdapter', () => {
     expect(result.requestCount).toBe(1);
     expect(result.usage[0]).toMatchObject({ counts: { inputTokens: 50, outputTokens: 5 } });
     expect(result.notes?.some((note) => note.includes('could not be read'))).toBe(true);
+  });
+
+  describe('extra editor and server locations', () => {
+    const SINCE = new Date(Date.now() - 86_400_000);
+    const taskIn = async (userData: string, taskId: string, tokensIn: number) => {
+      const dir = join(userData, 'User', 'globalStorage', 'saoudrizwan.claude-dev', 'tasks', taskId);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'ui_messages.json'), JSON.stringify([apiReq(Date.now() - 3_600_000, { tokensIn, tokensOut: 1, cacheWrites: 0, cacheReads: 0 }, { modelId: 'claude-sonnet-4-5', providerId: 'anthropic' })]));
+    };
+    const collectFrom = (remembered: string[], env: Record<string, string> = {}) =>
+      createClineAdapter({ timeZone: 'UTC', roots: { ctx: { platform: process.platform, env, home }, remembered } }).collect(SINCE);
+
+    it('reads a remembered editor folder (Windsurf Next, Trae) and a remembered remote server', async () => {
+      const editors = join(home, 'custom-editors');
+      await taskIn(join(editors, 'Windsurf - Next'), '1758900000001', 100);
+      await taskIn(join(editors, 'Trae'), '1758900000002', 200);
+      const server = join(home, '.windsurf-server');
+      await taskIn(join(server, 'data'), '1758900000003', 400);
+      const result = await collectFrom([kindedRoot('editors', editors)]);
+      expect(result.requestCount).toBe(3);
+      expect(result.usage.reduce((sum, row) => sum + row.counts.inputTokens, 0)).toBe(700);
+    });
+
+    it('reads the remote server folders by default, and ~/.cline/data/tasks of the standalone build', async () => {
+      await taskIn(join(home, '.vscodium-server', 'data'), '1758900000004', 10);
+      const standalone = join(home, '.cline', 'data', 'tasks', '1758900000005');
+      await mkdir(standalone, { recursive: true });
+      await writeFile(join(standalone, 'ui_messages.json'), JSON.stringify([apiReq(Date.now() - 3_600_000, { tokensIn: 20, tokensOut: 1, cacheWrites: 0, cacheReads: 0 }, { modelId: 'claude-sonnet-4-5', providerId: 'anthropic' })]));
+      const result = await collectFrom([]);
+      expect(result.usage.reduce((sum, row) => sum + row.counts.inputTokens, 0)).toBe(30);
+    });
+
+    it('reads XDG_CONFIG_HOME on Linux only', async () => {
+      const xdg = join(home, 'xdg-config');
+      await taskIn(join(xdg, 'Code'), '1758900000006', 5);
+      const result = await collectFrom([], { XDG_CONFIG_HOME: xdg });
+      expect(result.requestCount).toBe(process.platform === 'linux' ? 1 : 0);
+    });
   });
 });

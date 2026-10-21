@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { access, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { eventsWithHook, isTokenGraphHookCommand, type Settings } from '../hook-settings.js';
+import { eventsWithHook, isTokenGraphGeminiHookCommand, isTokenGraphHookCommand, matchingCommands, type Settings } from '../hook-settings.js';
 import { isTokenGraphCursorHookCommand, matchingCursorCommands, type CursorHooksFile } from '../cursor-hooks-json.js';
 import { SCHEDULE_LABEL, hasCronEntry } from '../schedule-entries.js';
 
@@ -11,6 +11,7 @@ export interface AutoSyncStatus {
   claudeHook: boolean | null;
   cursorHook: boolean | null;
   codexNotify: boolean | null;
+  geminiHook: boolean | null;
   schedule: boolean | null;
 }
 
@@ -104,7 +105,7 @@ async function guarded(check: () => Promise<boolean | null>): Promise<boolean | 
 /** Best-effort look at which auto-sync mechanisms are installed. Never throws. */
 export async function detectAutoSync(overrides: Partial<AutoSyncDeps> = {}): Promise<AutoSyncStatus> {
   const deps: AutoSyncDeps = { ...DEFAULT_AUTO_SYNC_DEPS, ...overrides };
-  const [claudeHook, cursorHook, codexNotify, schedule] = await Promise.all([
+  const [claudeHook, cursorHook, codexNotify, geminiHook, schedule] = await Promise.all([
     guarded(() =>
       checkJsonFile(deps, join(deps.env['CLAUDE_CONFIG_DIR'] || join(deps.home(), '.claude'), 'settings.json'), (json) =>
         eventsWithHook(json as Settings, isTokenGraphHookCommand).length > 0),
@@ -117,7 +118,11 @@ export async function detectAutoSync(overrides: Partial<AutoSyncDeps> = {}): Pro
       const toml = await deps.readText(join(deps.env['CODEX_HOME'] ?? join(deps.home(), '.codex'), 'config.toml'));
       return toml === null ? false : hasTokenGraphNotify(toml);
     }),
+    guarded(() =>
+      checkJsonFile(deps, join(deps.env['GEMINI_CLI_HOME'] || deps.home(), '.gemini', 'settings.json'), (json) =>
+        matchingCommands(json as Settings, 'SessionEnd', isTokenGraphGeminiHookCommand).length > 0),
+    ),
     guarded(() => scheduleInstalled(deps)),
   ]);
-  return { claudeHook, cursorHook, codexNotify, schedule };
+  return { claudeHook, cursorHook, codexNotify, geminiHook, schedule };
 }

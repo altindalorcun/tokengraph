@@ -49,3 +49,16 @@ export async function childDirectories(dir: string): Promise<string[]> {
   }
   return entries.filter((entry) => entry.isDirectory()).map((entry) => join(dir, entry.name));
 }
+
+/** `*.jsonl` files directly in a directory, not below it and never through a symlink; a missing directory yields nothing. */
+export async function* flatJsonlFiles(dir: string): AsyncGenerator<string> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith('.jsonl')) yield join(dir, entry.name);
+  }
+}

@@ -57,8 +57,10 @@ export const CACHE_EXCLUSIVE_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 
 export interface ClineDiagnostics {
-  /** Fresh input (tokensIn/inputTokens minus cache subtotals) would have gone negative; clamped to 0. */
+  /** Fresh input (tokensIn/inputTokens minus cache subtotals) would have gone negative; clamped to 0. Should no longer happen. */
   clamped: number;
+  /** Rows read as cache-exclusive (reported input taken as fresh): cache > input, a learned model, or the gateway seed. */
+  exclusiveDetected: number;
   /** `claude-code` provider: that usage is Claude Code itself, already counted by our Claude Code adapter. */
   skippedClaudeCode: number;
   /** `bedrock` with a non-Claude model: Cline estimates usage from text length there, never a real count. */
@@ -76,6 +78,7 @@ export interface ClineDiagnostics {
 export function emptyClineDiagnostics(): ClineDiagnostics {
   return {
     clamped: 0,
+    exclusiveDetected: 0,
     skippedClaudeCode: 0,
     skippedEstimated: 0,
     skippedImported: 0,
@@ -100,9 +103,14 @@ export function normalizeClassic(
   const exclusive = providerId !== null && CACHE_EXCLUSIVE_PROVIDERS.has(providerId);
   let inputTokens = usage.tokensIn;
   if (!exclusive) {
-    const fresh = usage.tokensIn - usage.cacheReads - usage.cacheWrites;
-    if (fresh < 0) diagnostics.clamped += 1;
-    inputTokens = Math.max(0, fresh);
+    const cache = usage.cacheReads + usage.cacheWrites;
+    if (cache > usage.tokensIn) {
+      // Cache exceeding the whole input cannot be a subset of it: this upstream reports input
+      // exclusive of cache, so tokensIn is already the fresh input.
+      diagnostics.exclusiveDetected += 1;
+    } else {
+      inputTokens = usage.tokensIn - cache;
+    }
   }
   return {
     inputTokens,
@@ -115,19 +123,47 @@ export function normalizeClassic(
   };
 }
 
+/** Key of a (provider, model) pair exactly as recorded, for the learned-exclusive set. */
+export function exclusiveModelKey(provider: string | null, modelId: string | null): string {
+  return `${provider ?? ''}\u0000${modelId ?? ''}`;
+}
+
+/** True when cache subtotals exceed the reported input, which an inclusive count can never do. */
+export function violatesInclusive(m: { inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }): boolean {
+  return m.cacheReadTokens + m.cacheWriteTokens > m.inputTokens;
+}
+
 /**
- * SDK-format (`<sessionId>.messages.json`) metrics → our counters. `inputTokens` there always
- * includes both cache subtotals (the AI SDK's `inputTokens.total`), regardless of provider, so the
- * subtraction is unconditional.
+ * Gateway models proven (by recorded cost) to report SDK `inputTokens` exclusive of cache even
+ * when a row does not show it: provider `cline`/`cline-pass` with a `minimax/` model id. Not
+ * `cline-free/`, `cline-pass/` model prefixes or `:free` models: no evidence for those.
+ */
+export function isSeededExclusive(provider: string | null, modelId: string | null): boolean {
+  return (provider === 'cline' || provider === 'cline-pass') && modelId !== null && modelId.startsWith('minimax/');
+}
+
+/**
+ * SDK-format (`<sessionId>.messages.json`) metrics → our counters. `inputTokens` is whatever the
+ * upstream/gateway put in the usage event's `prompt_tokens`: the AI SDK passes it through
+ * unchecked for OpenAI-compatible providers, so it is cache-inclusive for most models but
+ * exclusive for some (e.g. `minimax/minimax-m2.5` behind the `cline` provider). A row is read as
+ * exclusive when `exclusive` is set (model learned or seeded by the caller) or when cache read +
+ * write exceeds the reported input (strictly; equality is a legitimate inclusive row with 0 fresh).
+ * An exclusive row's reported input is the fresh input. See docs/agents/cline-usage.md.
  */
 export function normalizeSdk(
   metrics: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number },
   diagnostics: ClineDiagnostics,
+  exclusive = false,
 ): SplitTokenCounts {
-  const fresh = metrics.inputTokens - metrics.cacheReadTokens - metrics.cacheWriteTokens;
-  if (fresh < 0) diagnostics.clamped += 1;
+  let inputTokens = metrics.inputTokens;
+  if (exclusive || violatesInclusive(metrics)) {
+    diagnostics.exclusiveDetected += 1;
+  } else {
+    inputTokens = metrics.inputTokens - metrics.cacheReadTokens - metrics.cacheWriteTokens;
+  }
   return {
-    inputTokens: Math.max(0, fresh),
+    inputTokens,
     outputTokens: metrics.outputTokens,
     cacheCreationTokens: metrics.cacheWriteTokens,
     cacheReadTokens: metrics.cacheReadTokens,

@@ -1,6 +1,6 @@
 import { formatTokens } from '@tokengraph/core';
 import { mix } from '../color.js';
-import { insights, monthlyTotals } from '../model.js';
+import { busiestHourText, hourProfile, hourRange, insights, monthlyTotals, type HourProfile } from '../model.js';
 import { ScreenBuffer, type Rect } from '../screen.js';
 import { familyColor, type TuiTheme } from '../theme.js';
 import { bigTextWidth, drawBigText } from '../widgets/big-digits.js';
@@ -15,6 +15,10 @@ const MIN_BIG_CARD_HEIGHT = 5;
 const MIN_CARD_HEIGHT = 3;
 const WEEKDAY_MIN_HEIGHT = 5;
 const WIDE_WIDTH = 140; // cards in one row of four
+const HOURS_WITH_GRID_WIDTH = 103; // inner room for the profile (48) and the weekday × hour grid (52) side by side
+const HOURS_GRID_HEIGHT = 11;
+const HOURS_PROFILE_HEIGHT = 8;
+const CARD_COUNT = 5;
 const SIDE_BY_SIDE_WIDTH = 120; // weekday and months boxes next to each other
 const WEEKDAY_SHARE = 0.45;
 const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -106,6 +110,49 @@ function drawWeekdays(view: ScreenBuffer, rect: Rect, weekdays: readonly number[
   }
 }
 
+const HOUR_LABEL_WIDTH = 4; // "Mon "
+
+/**
+ * The 24-hour profile (one column per local hour, the busiest in the accent colour) and, when the width allows,
+ * the weekday × hour grid beside it. The last row says from which day hour data exists.
+ */
+function drawHours(view: ScreenBuffer, rect: Rect, profile: HourProfile, theme: TuiTheme): void {
+  const inner = drawBox(view, rect, theme, 'Hour of day');
+  const room = inner.width - 2;
+  if (inner.height < 4 || room < 24 || profile.busiest === null) return;
+  const x = inner.x + 1;
+  const cell = room >= 48 ? 2 : 1;
+  const withGrid = room >= HOURS_WITH_GRID_WIDTH && inner.height >= 9;
+  const faded = mix(theme.accent, theme.bg, MONTH_FADE);
+  const chartHeight = inner.height - 2; // labels and footer
+  const colors = profile.byHour.map((_, hour) => (hour === profile.busiest!.hour ? theme.accent : faded));
+  drawColumns(view, { x, y: inner.y, width: 24 * cell, height: chartHeight }, profile.byHour, colors, cell - 1);
+  const labelEvery = cell === 2 ? 3 : 6;
+  for (let hour = 0; hour < 24; hour += labelEvery) {
+    view.text(x + hour * cell, inner.y + chartHeight, String(hour).padStart(2, '0'), { fg: theme.muted });
+  }
+  const best = profile.busiest.hour;
+  view.text(x + best * cell, inner.y + chartHeight, String(best).padStart(2, '0'), { fg: theme.accent, bold: true });
+
+  if (withGrid) {
+    const gx = x + 24 * cell + 3;
+    const max = Math.max(0, ...profile.grid.flat());
+    profile.grid.forEach((row, weekday) => {
+      const y = inner.y + weekday;
+      view.text(gx, y, WEEKDAY_SHORT[weekday]!, { fg: theme.muted });
+      row.forEach((value, hour) => {
+        const cx = gx + HOUR_LABEL_WIDTH + hour * 2;
+        if (cx + 1 >= inner.x + inner.width) return;
+        if (!(value > 0) || max <= 0) view.set(cx, y, '·', { fg: theme.faint });
+        else view.set(cx, y, '■', { fg: mix(theme.bg, theme.accent, 0.25 + 0.75 * (value / max)) });
+      });
+    });
+    for (let hour = 0; hour < 24; hour += 3) view.text(gx + HOUR_LABEL_WIDTH + hour * 2, inner.y + 7, String(hour).padStart(2, '0'), { fg: theme.muted });
+  }
+  const note = `hour data from ${profile.firstDate ? longDate(profile.firstDate) : '—'} · busiest ${hourRange(best)}`;
+  view.text(x, inner.y + inner.height - 1, truncate(note, room), { fg: theme.faint }, room);
+}
+
 /** "» You've had AI write ≈ 37 novels of output." / "≈ 42% of a novel."; null without any output. */
 function novelsLine(novels: number): string | null {
   if (!(novels > 0)) return null;
@@ -119,6 +166,7 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
   const { vm, theme } = props;
   const view = new ScreenBuffer(rect.width, rect.height);
   const data = insights(vm);
+  const profile = hourProfile(vm);
 
   const cards: Card[] = [
     {
@@ -140,6 +188,12 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
       detail: data.favourite ? `${formatTokens(data.favourite.weighted)} weighted tokens` : undefined,
     },
     {
+      title: 'Busiest hour',
+      value: busiestHourText(profile) ?? '—',
+      big: profile.busiest ? hourRange(profile.busiest.hour) : '—',
+      detail: profile.busiest ? `${Math.round(profile.busiest.share * 100)}% of your tokens` : 'no hour data yet',
+    },
+    {
       title: 'Active days',
       value: String(data.activeDays),
       detail: data.firstDay ? `since ${longDate(data.firstDay)}` : undefined,
@@ -149,24 +203,32 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
   const novels = novelsLine(data.novels);
   const novelsHeight = novels !== null && view.height >= 10 ? 1 : 0;
   const remaining = view.height - novelsHeight;
-  const perRow = view.width >= WIDE_WIDTH ? 4 : 2;
-  const cardRows = 4 / perRow;
+  const perRow = view.width >= WIDE_WIDTH ? CARD_COUNT : 3;
+  const cardRows = Math.ceil(CARD_COUNT / perRow);
   let cardHeight = Math.min(CARD_HEIGHT, Math.floor((remaining - WEEKDAY_MIN_HEIGHT) / cardRows));
   if (cardHeight < MIN_CARD_HEIGHT) cardHeight = Math.min(MIN_CARD_HEIGHT, Math.floor(remaining / cardRows));
   const showCards = cardHeight >= MIN_CARD_HEIGHT;
   if (showCards) {
-    const base = Math.floor(view.width / perRow);
-    const extra = view.width - base * perRow;
-    cards.forEach((card, i) => {
-      const column = i % perRow;
-      const x = column * base + Math.min(column, extra);
-      drawCard(view, { x, y: Math.floor(i / perRow) * cardHeight, width: base + (column < extra ? 1 : 0), height: cardHeight }, card, theme);
-    });
+    for (let row = 0; row < cardRows; row++) {
+      const items = cards.slice(row * perRow, (row + 1) * perRow);
+      // The cards of a row share its width, so a short last row stretches instead of leaving a gap.
+      const base = Math.floor(view.width / items.length);
+      const extra = view.width - base * items.length;
+      items.forEach((card, column) => {
+        const x = column * base + Math.min(column, extra);
+        drawCard(view, { x, y: row * cardHeight, width: base + (column < extra ? 1 : 0), height: cardHeight }, card, theme);
+      });
+    }
   }
 
   // Everything under the cards: the weekday and months boxes, next to each other on wide screens.
   const boxesY = showCards ? cardHeight * cardRows : 0;
-  const boxesHeight = remaining - boxesY;
+  const availableHeight = remaining - boxesY;
+  // The hour box sits under the weekday and months boxes; it is left out when they would get less than their minimum.
+  const hoursRoom = view.width - 4;
+  let hoursHeight = profile.busiest === null ? 0 : hoursRoom >= HOURS_WITH_GRID_WIDTH ? HOURS_GRID_HEIGHT : HOURS_PROFILE_HEIGHT;
+  if (hoursHeight > 0 && availableHeight - hoursHeight < WEEKDAY_MIN_HEIGHT) hoursHeight = hoursRoom >= HOURS_WITH_GRID_WIDTH && availableHeight - HOURS_PROFILE_HEIGHT >= WEEKDAY_MIN_HEIGHT ? HOURS_PROFILE_HEIGHT : 0;
+  const boxesHeight = availableHeight - hoursHeight;
   const monthsFit = (height: number) => height >= CHART_MIN_HEIGHT;
   // The 12-month chart: one accent column per month, the current month at full strength.
   const drawMonths = (area: Rect) => {
@@ -192,6 +254,8 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
   } else if (boxesHeight >= WEEKDAY_MIN_HEIGHT) {
     drawWeekdays(view, { x: 0, y: boxesY, width: view.width, height: boxesHeight }, data.weekdays, theme);
   }
+
+  if (hoursHeight > 0) drawHours(view, { x: 0, y: boxesY + boxesHeight, width: view.width, height: hoursHeight }, profile, theme);
 
   if (novelsHeight > 0 && novels !== null) {
     const y = view.height - 1;
