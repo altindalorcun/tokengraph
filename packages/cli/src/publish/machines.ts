@@ -71,7 +71,8 @@ export function parseMachineFile(content: string): MachineFile | null {
 }
 
 export function serializeMachineFile(file: MachineFile): string {
-  return `${JSON.stringify(file, null, 2)}\n`;
+  // Compact: a few years of Cursor account days are over a megabyte pretty-printed. Readers accept both.
+  return `${JSON.stringify(file)}\n`;
 }
 
 function stable(value: unknown): unknown {
@@ -93,7 +94,11 @@ export function sourcesDigest(sources: Ledger['sources']): string {
  */
 export function usageDigest(content: { sources: Ledger['sources']; accounts?: LedgerAccounts | undefined }): string {
   if (!content.accounts) return sourcesDigest(content.sources);
-  return createHash('sha256').update(JSON.stringify(stable({ sources: content.sources, accounts: content.accounts }))).digest('hex');
+  // coveredThrough enters as its UTC day: it moves with every fetch, and the file must not be rewritten each hour without new usage.
+  const cursor = Object.fromEntries(
+    Object.entries(content.accounts.cursor ?? {}).map(([key, account]) => [key, { ...account, coveredThrough: account.coveredThrough.slice(0, 10) }]),
+  );
+  return createHash('sha256').update(JSON.stringify(stable({ sources: content.sources, accounts: { ...content.accounts, cursor } }))).digest('hex');
 }
 
 /** Within one machine totals only grow: the gist copy can restore days the local ledger lost, never shrink any. */

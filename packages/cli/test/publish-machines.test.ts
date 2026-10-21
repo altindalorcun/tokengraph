@@ -150,6 +150,22 @@ describe('Cursor accounts in machine files', () => {
     expect(usageDigest(withAccount(base, 3))).not.toBe(usageDigest(withAccount(base, 4)));
   });
 
+  it('usageDigest ignores the time of coveredThrough but not its day, so an hourly fetch does not rewrite the file', () => {
+    const base = ledgerWith('2026-10-01', 5);
+    const morning = withAccount(base, 3, '2026-10-10T08:00:00.000Z');
+    expect(usageDigest(withAccount(base, 3, '2026-10-10T20:00:00.000Z'))).toBe(usageDigest(morning));
+    expect(usageDigest(withAccount(base, 3, '2026-10-11T00:00:01.000Z'))).not.toBe(usageDigest(morning));
+  });
+
+  it('writes machine files as compact JSON and still reads pretty-printed ones', () => {
+    const ledger = withAccount(ledgerWith('2026-10-01', 5), 77);
+    const original: MachineFile = { ...file(A, ledger), accounts: ledger.accounts };
+    const text = serializeMachineFile(original);
+    expect(text.trim().split('\n')).toHaveLength(1);
+    expect(parseMachineFile(JSON.stringify(original, null, 2))).toEqual(original);
+    expect(parseMachineFile(text)).toEqual(original);
+  });
+
   it('maxMergeLedgers restores accounts from the gist copy', () => {
     const gist = withAccount(emptyLedger(), 90);
     const merged = maxMergeLedgers(withAccount(emptyLedger(), 10, '2026-10-11T00:00:00.000Z'), gist.sources, gist.accounts);
