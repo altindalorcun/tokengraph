@@ -150,7 +150,12 @@ that run. Nothing retries in a loop. `status` shows the state (on or off, last f
 back-off).
 
 **Windows.** The first fetch asks for the whole history (from 2023-01-01). Later fetches ask from two UTC days
-before the last covered day to now. Both ends are whole UTC days, so rows that share a timestamp are always in
+before the last covered day to now. A span longer than 31 days is split into consecutive windows of at most 31
+UTC days, fetched one after another (`fetchWindows`), so the first fetch is a few dozen small requests, never one
+response of three years. A window that fails (or a pause the server asks for) stops the run: the windows already
+fetched stay stored, `coveredThrough` moves only to the end of the last complete window, and the next run
+resumes from there instead of starting over. An account with no usage still gets its (empty) file, so it counts as
+fetched. Every window starts and ends on a whole UTC day, so rows that share a timestamp are always in
 the same response: the row id is the import scheme's SHA-256 (fields plus the occurrence among identical rows
 of one response), so fetching an overlapping window again adds nothing, while two real identical requests stay
 two rows. If a row's counters change on Cursor's side after it was stored, the changed row is stored as a new
@@ -250,13 +255,34 @@ Cursor adds up with its usage in other tools:
 - A Claude id whose family or version cannot be resolved, or that carries an unexpected character
   (for example an `@20251101` date suffix), is left **as it is, without guessing**, because a
   wrong mapping can merge two different models under one name.
-- Non-Claude ids (`gpt-*`, `gemini-*`, `composer-2.5`, `default`, ...) pass **untouched**.
+- **Every slug is lowercased and trimmed, and a `cursor-` prefix is dropped** (`cursor-grok-4.5-medium` →
+  `grok-4.5`).
+- **OpenAI and xAI ids lose a trailing reasoning-effort word** (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`,
+  `extra-high`) on `gpt-*`, `grok-*` and o-series (`o3`, `o4-mini`) ids: `gpt-5.5-extra-high` → `gpt-5.5`,
+  `gpt-5.1-codex-high` → `gpt-5.1-codex`, `o3-mini-high` → `o3-mini`. Effort changes how many tokens are
+  produced, not the price. `max`, `codex`, `mini`, `nano` and `pro` are models, not efforts, and stay
+  (`gpt-5.1-codex-max`, `gpt-5.1-codex-mini`). A trailing `-fast` on these ids is dropped too and read as the
+  `fast` tier (below).
+- Other ids (`gemini-*`, `composer-*`, `grok-3-beta`, ...) are lowercased only. `auto`, `agent_review` and
+  display labels such as `Premium (Codex 5.3)` are kept **exactly as sent** and stay unpriced: `auto` is a
+  router with no per-token price, and the others do not name a model.
 - **Composer Fast keeps its own model name** (`composer-2.5-fast`): the Fast variant of Composer
   has its own published price, so it stays a separate model (see "Pricing" below).
 - **For any other model, Fast is modelled not as a separate model name but as the `fast` pricing
   tier under the same model**, so that the model's tokens are added up on the same row as
   Cursor's normal (standard) usage; only the cost stays unknown unless a fast rate exists (see
-  the "Pricing tier" item above).
+  the "Pricing tier" item above). Only OpenAI's Fast is the vendor's own 2x price; Cursor's Fast rows for
+  other vendors are Cursor's prices, so those models carry `fastMultiplier: null` in `pricing.ts` and
+  their fast tier stays unpriced.
+
+Which Cursor slugs are priced is a property of the stored id, not of Cursor: an id is priced when its vendor
+publishes a list price (Anthropic, OpenAI, Google, xAI, and Cursor's own Composer 2.5). Not priced, on purpose:
+`composer-2`, `composer-2-fast` (no published cache-read price), `composer-1`, `composer-1.5`, `cursor-small`,
+`grok-3-beta` and `claude-3.5-sonnet` (retired, no price published any more), preview ids such as
+`gemini-3-pro-preview` and `gemini-2.5-pro-preview-05-06` (a preview is never priced as its successor), and
+`auto`, `agent_review`, `Premium (Codex 5.3)`. Claude ids stay unpriced through Cursor for the cache-split
+reason under "Pricing". `packages/cli/test/cursor-model-slugs.test.ts` runs every sampled slug through this
+table.
 
 ## Local data location
 
@@ -839,8 +865,8 @@ field is only the sum of input + output, cache not included.
 - No local source was found for Tab completion tokens; the adapter does not count Tab at all.
 - On this machine the model columns of `ai-code-tracking.db` are empty; on other installs they may
   be filled in (the adapter does not read this file).
-- Mapping third-party Cursor slugs to API-equivalent prices, and Max mode's +20% surcharge, are
-  not yet modelled in `pricing.ts` (see "Pricing" above).
+- Max mode's +20% surcharge and the Teams/Enterprise Cursor Token Rate (+$0.25 per million third-party tokens)
+  are not modelled; the estimate is the vendor list price (see "Pricing" above).
 
 ## Sources
 

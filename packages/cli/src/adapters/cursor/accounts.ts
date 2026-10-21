@@ -40,6 +40,12 @@ export async function readAccountRows(accountKey: string): Promise<ImportedRow[]
   return rows;
 }
 
+/** Creates the account's file when no row has been stored yet, so a fetch that found no usage still counts as made. */
+export async function ensureAccountFile(accountKey: string): Promise<void> {
+  await mkdir(configHome(), { recursive: true, mode: 0o700 });
+  await appendFile(cursorAccountPath(accountKey), '', { encoding: 'utf8', mode: 0o600 });
+}
+
 /**
  * Appends the rows of one response that are not stored yet. The id counts identical rows within the
  * response, which is why windows are whole UTC days: rows that share a timestamp share a day, so they are

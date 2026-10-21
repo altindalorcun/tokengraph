@@ -10,6 +10,8 @@ import {
   EXPIRED_LINE,
   FIRST_START_MS,
   fetchWindow,
+  fetchWindows,
+  MAX_WINDOW_DAYS,
   runCursorFetch,
   THROTTLE_MS,
   type CursorFetchDeps,
@@ -18,7 +20,7 @@ import { readFetchState } from '../src/adapters/cursor/fetch-state.js';
 import type { RootContext } from '../src/agent-roots.js';
 import { readConfig, writeConfig } from '../src/config.js';
 import { emptyLedger } from '../src/ledger.js';
-import { csvRow, fakeJwt, startFakeCursor, writeStateDb, type FakeCursor } from './fake-cursor.js';
+import { CSV_HEADER, csvRow, fakeJwt, startFakeCursor, writeStateDb, type FakeCursor } from './fake-cursor.js';
 
 const USER = 'user_01FETCHTEST';
 const TOKEN = fakeJwt({ sub: `auth0|${USER}`, exp: 4_102_444_800 });
@@ -31,6 +33,32 @@ describe('fetchWindow', () => {
     expect(fetchWindow(undefined, now)).toEqual({ startMs: FIRST_START_MS, endMs: Date.parse('2026-10-22T00:00:00.000Z') - 1 });
     expect(fetchWindow('2026-10-20T08:15:00.000Z', now)).toEqual({ startMs: Date.parse('2026-10-18T00:00:00.000Z'), endMs: Date.parse('2026-10-22T00:00:00.000Z') - 1 });
     expect(fetchWindow('2020-01-01T00:00:00.000Z', now).startMs).toBe(FIRST_START_MS);
+  });
+});
+
+describe('fetchWindows', () => {
+  const now = Date.parse('2026-10-21T15:30:00.000Z');
+
+  it('splits the first fetch into consecutive UTC-day windows of at most 31 days that tile the whole span', () => {
+    const windows = fetchWindows(undefined, now);
+    const whole = fetchWindow(undefined, now);
+    expect(windows.length).toBeGreaterThan(40);
+    expect(windows[0]!.startMs).toBe(FIRST_START_MS);
+    expect(windows.at(-1)!.endMs).toBe(whole.endMs);
+    windows.forEach((window, index) => {
+      expect(window.startMs % DAY).toBe(0);
+      expect((window.endMs + 1) % DAY).toBe(0);
+      expect(window.endMs - window.startMs + 1).toBeLessThanOrEqual(MAX_WINDOW_DAYS * DAY);
+      if (index > 0) expect(window.startMs).toBe(windows[index - 1]!.endMs + 1);
+    });
+  });
+
+  it('is one window when the span is 31 days or less, and two when it is a day more', () => {
+    expect(fetchWindows('2026-10-20T08:15:00.000Z', now)).toEqual([fetchWindow('2026-10-20T08:15:00.000Z', now)]);
+    // 2026-09-18 minus the two-day overlap is 2026-09-16: exactly 36 days to the end of 2026-10-21 -> two windows.
+    const two = fetchWindows('2026-09-18T00:00:00.000Z', now);
+    expect(two).toHaveLength(2);
+    expect(two[0]!.endMs - two[0]!.startMs + 1).toBe(MAX_WINDOW_DAYS * DAY);
   });
 });
 
@@ -73,15 +101,22 @@ describe('runCursorFetch', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it('the first manual run announces the feature once, switches it on and fetches the whole history', async () => {
+  const firstRequests = () => fetchWindows(undefined, now.getTime()).length;
+
+  it('the first manual run announces the feature once, switches it on and fetches the whole history in windows', async () => {
     const first = await run();
     expect(first.status).toBe('fetched');
     expect(first.lines[0]).toBe(ANNOUNCEMENT);
     expect(first.lines.at(-1)).toContain('2 new usage rows');
     expect((await readConfig()).cursor).toEqual({ fetch: true });
-    const url = cursor.requests[0]!.url;
-    expect(Number(url.searchParams.get('startDate'))).toBe(FIRST_START_MS);
-    expect(Number(url.searchParams.get('endDate'))).toBe(Date.parse('2026-10-22T00:00:00.000Z') - 1);
+    expect(cursor.requests).toHaveLength(firstRequests());
+    const asked = cursor.requests.map(({ url }) => [Number(url.searchParams.get('startDate')), Number(url.searchParams.get('endDate'))]);
+    expect(asked[0]![0]).toBe(FIRST_START_MS);
+    expect(asked.at(-1)![1]).toBe(Date.parse('2026-10-22T00:00:00.000Z') - 1);
+    asked.forEach(([start, end], index) => {
+      expect(end! - start! + 1).toBeLessThanOrEqual(MAX_WINDOW_DAYS * DAY);
+      if (index > 0) expect(start).toBe(asked[index - 1]![1]! + 1);
+    });
     expect(await readAccountRows(KEY)).toHaveLength(2);
     expect((await readFetchState()).coveredThrough).toEqual({ [KEY]: now.toISOString() });
 
@@ -139,15 +174,66 @@ describe('runCursorFetch', () => {
     expect((await run('manual', true)).status).toBe('fetched');
     advance(THROTTLE_MS + 1000);
     expect((await run('schedule')).status).toBe('fetched');
-    expect(cursor.requests).toHaveLength(3);
+    // The first run fetched every window; the later ones only the last two days' window.
+    expect(cursor.requests).toHaveLength(firstRequests() + 2);
   });
 
   it('later fetches start two whole UTC days before the last covered day', async () => {
     await run();
     advance(5 * DAY);
     await run();
-    const url = cursor.requests[1]!.url;
+    const url = cursor.requests[firstRequests()]!.url;
     expect(new Date(Number(url.searchParams.get('startDate'))).toISOString()).toBe('2026-10-19T00:00:00.000Z');
+  });
+
+  it('a failure part-way keeps the windows already stored, covers only up to the last complete one, and the next run resumes there', async () => {
+    const total = firstRequests();
+    const failAt = 10;
+    cursor.respond = (request, res) => {
+      if (cursor.requests.length === failAt) {
+        res.writeHead(500);
+        res.end();
+        return;
+      }
+      const start = Number(request.url.searchParams.get('startDate'));
+      const end = Number(request.url.searchParams.get('endDate'));
+      const body = cursor.rows.filter((line) => Date.parse(line.split(',')[0]!) >= start && Date.parse(line.split(',')[0]!) <= end);
+      res.writeHead(200, { 'content-type': 'text/csv' });
+      res.end([CSV_HEADER, ...body].join('\n') + '\n');
+    };
+    // A row in the 3rd window (2023-04), stored before the failure; and the two default rows (2026), not yet reached.
+    const early = csvRow('2023-04-10T10:00:00.000Z', 'composer-2', { input: 5 });
+    cursor.rows.push(early);
+    const report = await run();
+    expect(report.status).toBe('failed');
+    expect(cursor.requests).toHaveLength(failAt);
+    expect(report.lines.join('\n')).toContain('stored so far');
+    expect(await readAccountRows(KEY)).toHaveLength(1);
+    const lastDone = fetchWindows(undefined, now.getTime())[failAt - 2]!;
+    const state = await readFetchState();
+    expect(state.coveredThrough[KEY]).toBe(new Date(lastDone.endMs).toISOString());
+    expect(state.lastSuccessAt).toBeUndefined();
+
+    // Next run (after the throttle) resumes two days before the covered day, not from 2023.
+    cursor.respond = null;
+    advance(2 * THROTTLE_MS);
+    cursor.requests.length = 0;
+    const resumed = await run();
+    expect(resumed.status).toBe('fetched');
+    const firstAsked = Number(cursor.requests[0]!.url.searchParams.get('startDate'));
+    expect(firstAsked).toBe(Math.floor(lastDone.endMs / DAY) * DAY - 2 * DAY);
+    expect(cursor.requests.length).toBeLessThan(total - failAt + 3);
+    expect(await readAccountRows(KEY)).toHaveLength(3);
+    expect((await readFetchState()).coveredThrough[KEY]).toBe(now.toISOString());
+  });
+
+  it('an account with no usage at all still counts as fetched, so the next run does not start over', async () => {
+    cursor.rows = [];
+    await run();
+    advance(2 * THROTTLE_MS);
+    cursor.requests.length = 0;
+    await run();
+    expect(cursor.requests).toHaveLength(1);
   });
 
   it('fetching an overlapping window again adds nothing twice, and equal rows within one response all count', async () => {

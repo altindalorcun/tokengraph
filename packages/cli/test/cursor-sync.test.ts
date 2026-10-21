@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cursorAccountPath } from '../src/adapters/cursor/accounts.js';
 import { accountKeyFor } from '../src/adapters/cursor/credentials.js';
 import { readFetchState } from '../src/adapters/cursor/fetch-state.js';
-import type { CursorFetchDeps } from '../src/adapters/cursor/fetch.js';
+import { fetchWindows, type CursorFetchDeps } from '../src/adapters/cursor/fetch.js';
 import type { RootContext } from '../src/agent-roots.js';
 import { parseCursorArgs, runCursor } from '../src/commands/cursor.js';
 import { runStatus } from '../src/commands/status.js';
@@ -62,7 +62,7 @@ describe('sync, cursor and status with the Cursor fetch', () => {
   it('sync fetches first, announces it once, and puts the account into the ledger the graph is drawn from', async () => {
     expect(await runSync({ ...OPTIONS, deps: deps() })).toBe(0);
     expect(logged.join('\n')).toContain('tokengraph cursor off');
-    expect(cursor.requests).toHaveLength(1);
+    expect(cursor.requests).toHaveLength(fetchWindows(undefined, now.getTime()).length);
     const ledger = await readLedger(ledgerPath());
     expect(ledger.accounts?.cursor?.[KEY]?.coveredThrough).toBe(now.toISOString());
     expect(allLedgerUsage(ledger).map((row) => [row.source, row.model, row.counts.inputTokens])).toEqual([['cursor', 'composer-2', 1000]]);
@@ -83,9 +83,10 @@ describe('sync, cursor and status with the Cursor fetch', () => {
     await runSync({ ...OPTIONS, trigger: 'hook', deps: deps() });
     expect(cursor.requests).toHaveLength(0);
     await runSync({ ...OPTIONS, deps: deps() });
-    expect(cursor.requests).toHaveLength(1);
+    const first = fetchWindows(undefined, now.getTime()).length;
+    expect(cursor.requests).toHaveLength(first);
     await runSync({ ...OPTIONS, trigger: 'hook', deps: deps() });
-    expect(cursor.requests).toHaveLength(1);
+    expect(cursor.requests).toHaveLength(first);
   });
 
   it('a failing fetch does not fail the sync and leaves the ledger as it was', async () => {

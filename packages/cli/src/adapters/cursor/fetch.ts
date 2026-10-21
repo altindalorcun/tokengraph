@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises';
 import { dateKey } from '@tokengraph/core';
 import { processRootContext, type RootContext } from '../../agent-roots.js';
 import { readConfig, writeConfig } from '../../config.js';
-import { appendAccountRows, cursorAccountPath } from './accounts.js';
+import { appendAccountRows, cursorAccountPath, ensureAccountFile } from './accounts.js';
 import { readCursorSignIn, type CursorSignIn } from './credentials.js';
 import { fetchCursorUsageCsv, type FetchClientOptions } from './fetch-client.js';
 import { readFetchState, writeFetchState, type CursorFetchState } from './fetch-state.js';
@@ -20,6 +20,8 @@ const MAX_RATE_LIMIT_WAIT_S = 86_400;
 /** Cursor's first public release; the first fetch asks for everything since. */
 export const FIRST_START_MS = Date.UTC(2023, 0, 1);
 const DAY_MS = 86_400_000;
+/** One request covers at most this many UTC days, so a first fetch of years of history is never one huge response. */
+export const MAX_WINDOW_DAYS = 31;
 /** Cursor can lag a little: every later fetch starts this many whole UTC days before the last covered day. */
 export const OVERLAP_DAYS = 2;
 
@@ -77,6 +79,20 @@ export function fetchWindow(coveredThrough: string | undefined, nowMs: number): 
   return { startMs: Math.max(FIRST_START_MS, start), endMs: utcDayStart(nowMs) + DAY_MS - 1 };
 }
 
+/**
+ * The request windows, oldest first: consecutive, UTC-day-aligned and at most {@link MAX_WINDOW_DAYS} days
+ * each, together exactly the span of {@link fetchWindow}. Each is fetched on its own so a failure part-way
+ * keeps what was stored and the next run resumes after the last complete one.
+ */
+export function fetchWindows(coveredThrough: string | undefined, nowMs: number): { startMs: number; endMs: number }[] {
+  const { startMs, endMs } = fetchWindow(coveredThrough, nowMs);
+  const windows: { startMs: number; endMs: number }[] = [];
+  for (let start = startMs; start <= endMs; start += MAX_WINDOW_DAYS * DAY_MS) {
+    windows.push({ startMs: start, endMs: Math.min(endMs, start + MAX_WINDOW_DAYS * DAY_MS - 1) });
+  }
+  return windows;
+}
+
 async function fileExists(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isFile();
@@ -128,8 +144,10 @@ export async function runCursorFetch(options: CursorFetchOptions): Promise<Curso
     await writeConfig({ ...(await readConfig()), cursor: { fetch: true } });
   }
 
+  // How far each account is covered now: moves forward window by window, so a failure part-way keeps its progress.
+  const coveredThrough = { ...state.coveredThrough };
   const save = async (change: Partial<CursorFetchState>): Promise<void> => {
-    await writeFetchState({ ...state, ...change, coveredThrough: change.coveredThrough ?? state.coveredThrough });
+    await writeFetchState({ ...state, ...change, coveredThrough });
   };
 
   if (signIn.expiresAt !== null && signIn.expiresAt * 1000 <= now.getTime()) {
@@ -140,33 +158,53 @@ export async function runCursorFetch(options: CursorFetchOptions): Promise<Curso
 
   const covered = state.coveredThrough[signIn.accountKey];
   const hasFile = await fileExists(cursorAccountPath(signIn.accountKey));
-  const window = fetchWindow(covered && hasFile ? covered : undefined, now.getTime());
-  const outcome = await fetchCursorUsageCsv(
-    { token: signIn.token, userId: signIn.userId, startMs: window.startMs, endMs: window.endMs },
-    deps.client,
-  );
+  const windows = fetchWindows(covered && hasFile ? covered : undefined, now.getTime());
+  let added = 0;
+  let stored = 0;
+  let outcome: Awaited<ReturnType<typeof fetchCursorUsageCsv>> = { kind: 'failed', reason: 'nothing to fetch' };
+  for (const [index, window] of windows.entries()) {
+    outcome = await fetchCursorUsageCsv(
+      { token: signIn.token, userId: signIn.userId, startMs: window.startMs, endMs: window.endMs },
+      deps.client,
+    );
+    if (outcome.kind !== 'ok') break;
+    added += await appendAccountRows(signIn.accountKey, outcome.parsed.rows);
+    // An empty window still marks the account as fetched: coveredThrough counts only when the file exists.
+    await ensureAccountFile(signIn.accountKey);
+    stored += 1;
+    const last = index === windows.length - 1;
+    coveredThrough[signIn.accountKey] = last ? now.toISOString() : new Date(window.endMs).toISOString();
+    if (last) {
+      const { lastError: _cleared, backoffUntil: _lifted, ...kept } = state;
+      await writeFetchState({ ...kept, lastAttemptAt: now.toISOString(), lastSuccessAt: now.toISOString(), coveredThrough });
+    } else {
+      await save({ lastAttemptAt: now.toISOString() });
+    }
+  }
 
   if (outcome.kind === 'ok') {
-    const added = await appendAccountRows(signIn.accountKey, outcome.parsed.rows);
-    const { lastError: _cleared, backoffUntil: _lifted, ...kept } = state;
-    await writeFetchState({
-      ...kept,
-      lastAttemptAt: now.toISOString(),
-      lastSuccessAt: now.toISOString(),
-      coveredThrough: { ...state.coveredThrough, [signIn.accountKey]: now.toISOString() },
-    });
     return report('fetched', ...lines, `Cursor: ${added} new usage row${added === 1 ? '' : 's'} from cursor.com (history through ${dateKey(now)}).`);
   }
+  // Windows that were stored stay stored; the next run resumes after the last one.
+  const progress =
+    stored > 0
+      ? [`Cursor: ${added} new usage row${added === 1 ? '' : 's'} stored so far (history through ${dateKey(new Date(Date.parse(coveredThrough[signIn.accountKey]!)))}); the rest follows on the next run.`]
+      : [];
   if (outcome.kind === 'expired') {
     await save({ lastAttemptAt: now.toISOString(), lastError: 'sign-in expired', backoffUntil: new Date(now.getTime() + EXPIRED_BACKOFF_MS).toISOString() });
-    return report('expired', ...lines, EXPIRED_LINE);
+    return report('expired', ...lines, ...progress, EXPIRED_LINE);
   }
   if (outcome.kind === 'rate-limited') {
     const wait = Math.min(MAX_RATE_LIMIT_WAIT_S, Math.max(MIN_RATE_LIMIT_WAIT_S, outcome.retryAfterSeconds ?? DEFAULT_RATE_LIMIT_WAIT_S));
     const until = new Date(now.getTime() + wait * 1000);
     await save({ lastAttemptAt: now.toISOString(), lastError: 'rate limited', backoffUntil: until.toISOString() });
-    return report('rate-limited', ...lines, `cursor.com asked for a pause; Cursor history will be fetched again after ${clock(until)}.`);
+    return report('rate-limited', ...lines, ...progress, `cursor.com asked for a pause; Cursor history will be fetched again after ${clock(until)}.`);
   }
   await save({ lastAttemptAt: now.toISOString(), lastError: outcome.reason });
-  return report('failed', ...lines, `Cursor history was not fetched: ${outcome.reason}. Your stored usage is unchanged.`);
+  return report(
+    'failed',
+    ...lines,
+    ...progress,
+    `Cursor history was not fetched${stored > 0 ? ' any further' : ''}: ${outcome.reason}. Your stored usage is ${stored > 0 ? 'kept' : 'unchanged'}.`,
+  );
 }
