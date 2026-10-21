@@ -128,6 +128,8 @@ describe('qwen code adapter', () => {
     const result = await collect();
     expect(result.source).toBe('qwen-code');
     expect(result.requestCount).toBe(1);
+    // 3000 + 300 + 0.1 * 9000, at 10:00 UTC.
+    expect(result.hours).toEqual([{ date: '2026-10-17', hour: 10, weighted: 4200 }]);
     expect(result.usage).toEqual([
       {
         date: '2026-10-17',

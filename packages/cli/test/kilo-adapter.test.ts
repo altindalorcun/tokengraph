@@ -128,6 +128,8 @@ describe('createKiloAdapter', () => {
 
     expect(result.source).toBe('kilo');
     expect(result.requestCount).toBe(2);
+    // (10 + 12 + 20 + 10) + (30 + 20), at 10:00 UTC.
+    expect(result.hours).toEqual([{ date: '2026-09-27', hour: 10, weighted: 102 }]);
     expect(result.usage).toHaveLength(1);
     expect(result.usage[0]).toMatchObject({
       date: '2026-09-27',

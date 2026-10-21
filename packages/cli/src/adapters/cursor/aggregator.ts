@@ -2,6 +2,9 @@ import {
   addSplitCounts,
   CURSOR_SOURCE,
   dateKey,
+  HourSums,
+  hourKey,
+  weightedTokens,
   DEFAULT_PRICING_TIER,
   maxSplitCounts,
   PRICING_TIERS,
@@ -56,6 +59,7 @@ export interface CursorDiagnostics {
 
 interface TurnRecord {
   date: string;
+  hour: number;
   model: string;
   pricingTier: PricingTier;
   counts: SplitTokenCounts;
@@ -136,13 +140,14 @@ export class CursorUsageAggregator {
       cacheCreation1hTokens: null,
     };
     const date = dateKey(instant, this.options.timeZone);
+    const hour = hourKey(instant, this.options.timeZone);
     const { model, pricingTier } = cursorModelIdentity(event);
     const existing = this.turns.get(event.generationId);
     this.turns.set(
       event.generationId,
       existing
-        ? { date: existing.date, model, pricingTier, counts: maxSplitCounts(existing.counts, counts) }
-        : { date, model, pricingTier, counts },
+        ? { date: existing.date, hour: existing.hour, model, pricingTier, counts: maxSplitCounts(existing.counts, counts) }
+        : { date, hour, model, pricingTier, counts },
     );
   }
 
@@ -160,6 +165,7 @@ export class CursorUsageAggregator {
     const { model, pricingTier } = cursorModelIdentity({ model: row.model, modelId: row.model, fast: false });
     this.turns.set(`import\0${row.id}`, {
       date: dateKey(instant, this.options.timeZone),
+      hour: hourKey(instant, this.options.timeZone),
       model,
       pricingTier,
       counts: {
@@ -179,7 +185,9 @@ export class CursorUsageAggregator {
 
   result(): CollectResult {
     const buckets = new Map<string, DailyModelUsage>();
-    for (const { date, model, pricingTier, counts } of this.turns.values()) {
+    const hours = new HourSums();
+    for (const { date, hour, model, pricingTier, counts } of this.turns.values()) {
+      hours.add(date, hour, weightedTokens(counts));
       const key = `${date}\0${model}\0${pricingTier}`;
       const existing = buckets.get(key);
       if (existing) {
@@ -194,6 +202,6 @@ export class CursorUsageAggregator {
       (a, b) =>
         a.date.localeCompare(b.date) || a.model.localeCompare(b.model) || PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
     );
-    return { source: CURSOR_SOURCE, usage, requestCount: this.turns.size };
+    return { source: CURSOR_SOURCE, usage, hours: hours.toList(), requestCount: this.turns.size };
   }
 }

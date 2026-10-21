@@ -2,8 +2,11 @@ import {
   addSplitCounts,
   dateKey,
   emptySplitCounts,
+  HourSums,
+  hourKey,
   maxSplitCounts,
   PRICING_TIERS,
+  weightedTokens,
   type CollectResult,
   type KnownSource,
   type PricingTier,
@@ -30,6 +33,7 @@ export interface Aggregated {
 /** One message.id's resolved usage — merged across every copy seen for that id. */
 interface MessageRecord {
   date: string;
+  hour: number;
   model: string;
   /** usage.speed was "fast" on a copy of this message. */
   fast: boolean;
@@ -128,12 +132,13 @@ export class UsageAggregator {
 
     const fast = usageFields['speed'] === 'fast';
     const date = dateKey(instant, this.options.timeZone);
+    const hour = hourKey(instant, this.options.timeZone);
     const existing = this.records.get(messageId);
     this.records.set(
       messageId,
       existing
-        ? { date, model, fast: existing.fast || fast, counts: maxSplitCounts(existing.counts, counts) }
-        : { date, model, fast, counts },
+        ? { date, hour, model, fast: existing.fast || fast, counts: maxSplitCounts(existing.counts, counts) }
+        : { date, hour, model, fast, counts },
     );
   }
 
@@ -143,7 +148,9 @@ export class UsageAggregator {
     // partial snapshots into the day/model total instead of taking their max. The tier is
     // decided here too, from each message's final prompt length.
     const buckets = new Map<string, Aggregated>();
-    for (const { date, model, fast, counts } of this.records.values()) {
+    const hours = new HourSums();
+    for (const { date, hour, model, fast, counts } of this.records.values()) {
+      hours.add(date, hour, weightedTokens(counts));
       const pricingTier = tierForModel(model, counts, fast);
       const key = `${date}\0${model}\0${pricingTier}`;
       const existing = buckets.get(key);
@@ -165,6 +172,6 @@ export class UsageAggregator {
         a.model.localeCompare(b.model) ||
         PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
     );
-    return { source, usage, requestCount: this.seenMessageIds.size };
+    return { source, usage, hours: hours.toList(), requestCount: this.seenMessageIds.size };
   }
 }

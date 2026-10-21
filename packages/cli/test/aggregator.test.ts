@@ -247,3 +247,27 @@ describe('UsageAggregator pricing tiers', () => {
     expect(result.usage.map((u) => u.pricingTier)).toEqual(['standard', 'fast']);
   });
 });
+
+describe('UsageAggregator hours', () => {
+  it('buckets weighted tokens by local hour, summing requests and following the time zone', () => {
+    const lines = [
+      line({ id: 'a', timestamp: '2026-09-10T23:10:00.000Z' }),
+      line({ id: 'b', timestamp: '2026-09-10T23:50:00.000Z' }),
+      line({ id: 'c', timestamp: '2026-09-11T01:00:00.000Z' }),
+    ];
+    // 10 + 20 + 30 + 0.1 * 40 = 64 per request.
+    expect(aggregate(lines).hours).toEqual([
+      { date: '2026-09-10', hour: 23, weighted: 128 },
+      { date: '2026-09-11', hour: 1, weighted: 64 },
+    ]);
+    expect(aggregate(lines, 'Asia/Tokyo').hours).toEqual([
+      { date: '2026-09-11', hour: 8, weighted: 128 },
+      { date: '2026-09-11', hour: 10, weighted: 64 },
+    ]);
+  });
+
+  it('counts the copies of one message once in its hour', () => {
+    const copies = Array.from({ length: 5 }, () => line({ timestamp: '2026-09-10T07:05:00.000Z' }));
+    expect(aggregate(copies).hours).toEqual([{ date: '2026-09-10', hour: 7, weighted: 64 }]);
+  });
+});

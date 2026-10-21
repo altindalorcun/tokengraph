@@ -1,4 +1,4 @@
-import { dateKey, GEMINI_CLI_SOURCE, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
+import { dateKey, hourKey, GEMINI_CLI_SOURCE, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { asObject, nonEmptyString, readInstant, readOptionalCount, readRequiredCount } from '../usage-fields.js';
 import { CopyDiagnostics } from '../record-diagnostics.js';
@@ -99,7 +99,7 @@ export class GeminiUsageAggregator {
       cacheCreation1hTokens: null,
     };
     const model = canonicalModelId(null, typeof message['model'] === 'string' ? message['model'] : null);
-    const record: RequestRecord = { date: dateKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts };
+    const record: RequestRecord = { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts };
     this.buckets.add(id, record);
   }
 
@@ -113,6 +113,6 @@ export class GeminiUsageAggregator {
   }
 
   result(): CollectResult {
-    return { source: GEMINI_CLI_SOURCE, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
+    return { source: GEMINI_CLI_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
   }
 }

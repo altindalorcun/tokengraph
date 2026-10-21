@@ -4,7 +4,7 @@ import { createCursorAdapter } from '../adapters/cursor/index.js';
 import { parseCursorCsv } from '../adapters/cursor/csv.js';
 import { cursorImportPath, earliestHookEvent, importRowId, readImportedRows, type ImportedRow } from '../adapters/cursor/imports.js';
 import { readConfig } from '../config.js';
-import { mergeUsage, readLedger, writeLedger } from '../ledger.js';
+import { mergeHours, mergeUsage, readLedger, writeLedger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
 import { acquireSyncLock } from '../sync-lock.js';
 
@@ -108,7 +108,7 @@ async function importLocked(file: string, parsed: Extract<ReturnType<typeof pars
     const oldest = eligible.reduce((min, row) => (row.at < min ? row.at : min), eligible[0]!.at);
     const result = await createCursorAdapter().collect(addDays(new Date(oldest), -2));
     await mkdir(configHome(), { recursive: true, mode: 0o700 });
-    await writeLedger(ledgerPath(), mergeUsage(await readLedger(ledgerPath()), result.source, result.usage));
+    await writeLedger(ledgerPath(), mergeHours(mergeUsage(await readLedger(ledgerPath()), result.source, result.usage), result.source, result.hours));
   }
 
   const skipped = parsed.zero + parsed.malformed;

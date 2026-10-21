@@ -1,4 +1,4 @@
-import { dateKey } from '@tokengraph/core';
+import { dateKey, hourKey } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel } from '../request-buckets.js';
 import { asObject, isValidTimestamp, normalizeClassic, readCount, shouldSkipProvider, type ClineDiagnostics } from './normalize.js';
@@ -125,8 +125,9 @@ export function addClassicTask(
 
     const model = canonicalModelId(providerId, modelId);
     const counts = normalizeClassic(providerId, { tokensIn, tokensOut, cacheWrites, cacheReads }, diagnostics);
-    const date = dateKey(new Date(ts), options.timeZone);
+    const instant = new Date(ts);
+    const date = dateKey(instant, options.timeZone);
     const key = `classic:${task.taskId}:${ts}:${say}`;
-    buckets.add(key, { date, model, pricingTier: tierForModel(model, counts), counts });
+    buckets.add(key, { date, hour: hourKey(instant, options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
   }
 }

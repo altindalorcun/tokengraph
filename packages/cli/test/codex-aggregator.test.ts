@@ -390,3 +390,27 @@ describe('CodexUsageAggregator dates', () => {
     expect(result.usage.map((u) => u.date)).toEqual(['2026-09-22']);
   });
 });
+
+describe('CodexUsageAggregator hours', () => {
+  it('sums weighted tokens per local hour in the aggregator time zone', () => {
+    const files = [
+      [
+        turnContext('t1', 'gpt-6-luna'),
+        record('r1', 't1', {}, '2026-09-22T12:10:00.000Z'),
+        record('r2', 't1', {}, '2026-09-22T12:40:00.000Z'),
+        record('r3', 't1', {}, '2026-09-22T20:00:00.000Z'),
+      ],
+    ];
+    // fresh 300 + output 50 + cache write 100 + 0.1 * 600 = 510 per record.
+    expect(collect(files).result.hours).toEqual([
+      { date: '2026-09-22', hour: 12, weighted: 1020 },
+      { date: '2026-09-22', hour: 20, weighted: 510 },
+    ]);
+    expect(collect(files, { timeZone: 'Asia/Kolkata' }).result.hours).toEqual([
+      // A half-hour zone: 12:10Z is 17:40 and 12:40Z is 18:10.
+      { date: '2026-09-22', hour: 17, weighted: 510 },
+      { date: '2026-09-22', hour: 18, weighted: 510 },
+      { date: '2026-09-23', hour: 1, weighted: 510 },
+    ]);
+  });
+});

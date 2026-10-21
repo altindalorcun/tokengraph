@@ -2,6 +2,9 @@ import {
   addSplitCounts,
   CODEX_CLI_SOURCE,
   dateKey,
+  HourSums,
+  hourKey,
+  weightedTokens,
   longContextThreshold,
   PRICING_TIERS,
   pricingTierFor,
@@ -115,6 +118,7 @@ export class CodexUsageAggregator {
   private readonly options: CodexAggregatorOptions;
   private readonly resolvedRecords = new Map<string, ResolvedRecord>();
   private readonly buckets = new Map<string, DailyModelUsage>();
+  private readonly hours = new HourSums();
   private readonly counters: CodexDiagnostics = { fallbackEvents: 0, malformedEvents: 0, clampedEvents: 0 };
   private finalized = false;
   /** Resolved records actually kept by `since` — the only ones a request should be counted for. */
@@ -288,6 +292,7 @@ export class CodexUsageAggregator {
     };
     const pricingTier = pricingTierFor({ fast: event.fast, inputTokens: input, thresholdTokens: longContextThreshold(model) ?? undefined });
     const date = dateKey(event.instant, this.options.timeZone);
+    this.hours.add(date, hourKey(event.instant, this.options.timeZone), weightedTokens(counts));
     const key = `${date}\0${model}\0${pricingTier}`;
     const existing = this.buckets.get(key);
     if (existing) {
@@ -329,6 +334,7 @@ export class CodexUsageAggregator {
     return {
       source: CODEX_CLI_SOURCE,
       usage,
+      hours: this.hours.toList(),
       requestCount: this.acceptedRecordCount + this.counters.fallbackEvents,
     };
   }

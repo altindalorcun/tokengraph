@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, dateKey, isDateKey } from '../src/dates.js';
+import { addDays, dateKey, hourKey, isDateKey } from '../src/dates.js';
 
 describe('dateKey', () => {
   it('formats an instant as YYYY-MM-DD', () => {
@@ -39,5 +39,30 @@ describe('isDateKey', () => {
     expect(isDateKey('not-a-date')).toBe(false);
     expect(isDateKey('2026-02-30')).toBe(false);
     expect(isDateKey('2026-13-01')).toBe(false);
+  });
+});
+
+describe('hourKey', () => {
+  it('is the local hour in the given zone, the same rule dateKey uses', () => {
+    const instant = new Date('2026-09-10T23:00:00Z');
+    expect(hourKey(instant, 'UTC')).toBe(23);
+    expect(hourKey(instant, 'Europe/Istanbul')).toBe(2);
+    expect(dateKey(instant, 'Europe/Istanbul')).toBe('2026-09-11');
+  });
+
+  it('floors a half-hour zone and gives 0 (never 24) at local midnight', () => {
+    expect(hourKey(new Date('2026-09-10T12:40:00Z'), 'Asia/Kolkata')).toBe(18);
+    expect(hourKey(new Date('2026-09-10T21:00:00Z'), 'Europe/Istanbul')).toBe(0);
+    expect(hourKey(new Date('2026-09-10T00:00:00Z'), 'UTC')).toBe(0);
+  });
+
+  it('follows daylight saving: spring has no hour 2, autumn has hour 1 twice', () => {
+    const tz = 'America/New_York';
+    // 2026-03-08: clocks jump from 02:00 to 03:00.
+    const spring = ['2026-03-08T05:30:00Z', '2026-03-08T06:30:00Z', '2026-03-08T07:30:00Z'].map((t) => [dateKey(new Date(t), tz), hourKey(new Date(t), tz)]);
+    expect(spring).toEqual([['2026-03-08', 0], ['2026-03-08', 1], ['2026-03-08', 3]]);
+    // 2026-11-01: 01:30 happens twice (EDT, then EST).
+    const autumn = ['2026-11-01T04:30:00Z', '2026-11-01T05:30:00Z', '2026-11-01T06:30:00Z', '2026-11-01T07:30:00Z'].map((t) => [dateKey(new Date(t), tz), hourKey(new Date(t), tz)]);
+    expect(autumn).toEqual([['2026-11-01', 0], ['2026-11-01', 1], ['2026-11-01', 1], ['2026-11-01', 2]]);
   });
 });

@@ -82,6 +82,8 @@ describe('createClineAdapter', () => {
     expect(await adapter.detect()).toBe(true);
     const result = await adapter.collect(new Date(Date.now() - 86_400_000));
     expect(result.requestCount).toBe(1);
+    const at = new Date(ts);
+    expect(result.hours).toEqual([{ date: at.toISOString().slice(0, 10), hour: at.getUTCHours(), weighted: 120 }]);
     expect(result.usage).toEqual([
       expect.objectContaining({ model: 'claude-sonnet-4-5-20250929', counts: expect.objectContaining({ inputTokens: 100, outputTokens: 20 }) }),
     ]);
@@ -114,6 +116,8 @@ describe('createClineAdapter', () => {
     const adapter = createClineAdapter({ timeZone: 'UTC' });
     expect(await adapter.detect()).toBe(true);
     const result = await adapter.collect(new Date(Date.now() - 86_400_000));
+    const at = new Date(ts);
+    expect(result.hours).toEqual([{ date: at.toISOString().slice(0, 10), hour: at.getUTCHours(), weighted: 1650 }]);
     expect(result.requestCount).toBe(2);
     expect(result.usage).toEqual([
       expect.objectContaining({ model: 'claude-sonnet-4-6', counts: expect.objectContaining({ inputTokens: 1500, outputTokens: 150 }) }),

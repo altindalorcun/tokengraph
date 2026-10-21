@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyLedger, mergeCursorAccount, mergeUsage, type Ledger } from '../src/ledger.js';
+import { emptyLedger, mergeAccountHours, mergeCursorAccount, mergeHours, mergeUsage, type Ledger } from '../src/ledger.js';
 import { GRAPH_MARKER } from '../src/publish/gists.js';
 import { combinedUsage, machineFileName, parseMachineFile } from '../src/publish/machines.js';
 import { publish, type PublishInput } from '../src/publish/publish.js';
@@ -202,5 +202,22 @@ describe('publish with a Cursor account', () => {
     const first = await publish(input(client));
     const again = await publish(input(client, { config: first.config }));
     expect(again.wroteMachineFile).toBe(false);
+  });
+
+  it('never puts hour data in the machine file or anywhere in the gists', async () => {
+    const client = fakeGitHubClient();
+    let ledger = mergeHours(ledgerWith('2026-10-12', 1000), 'claude-code', [{ date: '2026-10-12', hour: 23, weighted: 987654 }]);
+    ledger = mergeAccountHours(ledger, 'abcdef0123456789', [{ date: '2026-10-12', hour: 3, weighted: 876543 }]);
+    const result = await publish(input(client, { ledger }));
+    for (const id of [result.dataGistId, result.graphGistId]) {
+      const content = JSON.stringify(client.gists.get(id)!.files);
+      expect(content).not.toContain('987654');
+      expect(content).not.toContain('876543');
+      expect(content).not.toMatch(/accountHours|"hours"/);
+    }
+    const file = parseMachineFile(client.gists.get(result.dataGistId)!.files[machineFileName(A)]!.content!)!;
+    expect(Object.keys(file)).not.toContain('hours');
+    // The local ledger keeps its hours through the publish.
+    expect(result.ledger.hours?.['claude-code']).toEqual({ '2026-10-12': { '23': 987654 } });
   });
 });

@@ -76,4 +76,17 @@ describe('noAgentsMessage', () => {
     expect(lines.slice(1)).toEqual(searchedPaths().map((line) => `  ${line}`));
     expect(searchedPaths()).toHaveLength(11);
   });
+
+  it('max-merges the hours an adapter reports into the ledger', async () => {
+    const adapter: Adapter = {
+      name: 'codex',
+      detect: async () => true,
+      collect: async () => ({ source: 'codex-cli', requestCount: 1, usage: [], hours: [{ date: '2026-10-01', hour: 21, weighted: 50 }] }),
+    };
+    const first = await collectLocal(emptyLedger(), new Date('2026-09-01'), { adapters: [adapter] });
+    expect(first.ledger.hours).toEqual({ 'codex-cli': { '2026-10-01': { '21': 50 } } });
+    const smaller: Adapter = { ...adapter, collect: async () => ({ source: 'codex-cli', requestCount: 1, usage: [], hours: [{ date: '2026-10-01', hour: 21, weighted: 10 }] }) };
+    const second = await collectLocal(first.ledger, new Date('2026-09-01'), { adapters: [smaller] });
+    expect(second.ledger.hours).toEqual({ 'codex-cli': { '2026-10-01': { '21': 50 } } });
+  });
 });

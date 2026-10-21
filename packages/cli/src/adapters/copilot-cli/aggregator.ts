@@ -1,4 +1,4 @@
-import { COPILOT_CLI_SOURCE, dateKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
+import { COPILOT_CLI_SOURCE, dateKey, hourKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel } from '../request-buckets.js';
 import type { UsageEventRow } from './sqlite.js';
@@ -97,7 +97,7 @@ export class CopilotUsageAggregator {
     };
     // `copilot_usage_model` (newer stores) is the model the request was attributed to; `auto` is what the upstream parsers show when neither is set.
     const model = canonicalModelId(null, nonEmptyString(row.usageModel) ?? nonEmptyString(row.model) ?? 'auto');
-    this.buckets.add(`${sessionId}\0${id}`, { date: dateKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    this.buckets.add(`${sessionId}\0${id}`, { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
   }
 
   diagnostics(): CopilotDiagnostics {
@@ -105,6 +105,6 @@ export class CopilotUsageAggregator {
   }
 
   result(): CollectResult {
-    return { source: COPILOT_CLI_SOURCE, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
+    return { source: COPILOT_CLI_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
   }
 }

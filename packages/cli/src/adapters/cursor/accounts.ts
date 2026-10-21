@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { mergeCursorAccount, type Ledger } from '../../ledger.js';
+import { mergeAccountHours, mergeCursorAccount, type Ledger } from '../../ledger.js';
 import { configHome } from '../../paths.js';
 import { CursorUsageAggregator } from './aggregator.js';
 import type { CursorCsvRow } from './csv.js';
@@ -82,7 +82,8 @@ export async function foldCursorAccounts(ledger: Ledger, state: CursorFetchState
     if (!coveredThrough) continue;
     const aggregator = new CursorUsageAggregator(timeZone ? { timeZone } : {});
     for (const row of await readAccountRows(accountKey)) aggregator.addImported(row);
-    merged = mergeCursorAccount(merged, accountKey, coveredThrough, aggregator.result().usage);
+    const result = aggregator.result();
+    merged = mergeAccountHours(mergeCursorAccount(merged, accountKey, coveredThrough, result.usage), accountKey, result.hours);
   }
   return merged;
 }

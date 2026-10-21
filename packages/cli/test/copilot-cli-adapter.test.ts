@@ -136,6 +136,8 @@ describe('createCopilotCliAdapter', () => {
     const result = await collect();
     expect(result.source).toBe('copilot-cli');
     expect(result.requestCount).toBe(1);
+    // 300 + 300 + 100 + 0.1 * 800, at 18:45 UTC.
+    expect(result.hours).toEqual([{ date: '2026-09-21', hour: 18, weighted: 780 }]);
     expect(result.usage).toHaveLength(1);
     // input 1200 includes 800 read and 100 write: 300 fresh. reasoning_tokens (120) is never added to the 300 output.
     expect(result.usage[0]).toMatchObject({

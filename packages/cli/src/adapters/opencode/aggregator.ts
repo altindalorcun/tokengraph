@@ -1,4 +1,4 @@
-import { dateKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
+import { dateKey, hourKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel, type RequestRecord } from '../request-buckets.js';
 import { OPENCODE_FLAVOUR, type OpenCodeFlavour } from './flavour.js';
@@ -189,7 +189,7 @@ export class OpenCodeAggregator {
     this.pendingSkips.clear();
     this.resolveV1();
     this.resolveV2();
-    return { source: this.flavour.source, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
+    return { source: this.flavour.source, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
   }
 
   private resolveV1(): void {
@@ -319,6 +319,7 @@ export class OpenCodeAggregator {
     const model = canonicalModelId(providerId, modelId);
     const record: RequestRecord = {
       date: dateKey(new Date(createdMs), this.options.timeZone),
+      hour: hourKey(new Date(createdMs), this.options.timeZone),
       model,
       pricingTier: tierForModel(model, counts),
       counts,

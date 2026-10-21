@@ -88,6 +88,8 @@ describe('pi adapter', () => {
     const result = await collect();
     expect(result.source).toBe('pi');
     expect(result.requestCount).toBe(1);
+    // 12 + 340 + 800 + 0.1 * 50000, at 14:00 UTC.
+    expect(result.hours).toEqual([{ date: '2026-10-03', hour: 14, weighted: 6152 }]);
     expect(result.usage).toEqual([
       {
         date: '2026-10-03',

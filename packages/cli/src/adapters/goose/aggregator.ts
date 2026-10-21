@@ -1,4 +1,4 @@
-import { GOOSE_SOURCE, dateKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
+import { GOOSE_SOURCE, dateKey, hourKey, type CollectResult, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel } from '../request-buckets.js';
 import type { LedgerRow } from './sqlite.js';
@@ -131,7 +131,7 @@ export class GooseUsageAggregator {
       cacheCreation1hTokens: null,
     };
     const model = canonicalModelId(null, rawModel);
-    this.buckets.add(requestKey(row, id), { date: dateKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    this.buckets.add(requestKey(row, id), { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
   }
 
   diagnostics(): GooseDiagnostics {
@@ -144,6 +144,6 @@ export class GooseUsageAggregator {
   }
 
   result(): CollectResult {
-    return { source: GOOSE_SOURCE, usage: this.buckets.toUsage(), requestCount: this.buckets.size };
+    return { source: GOOSE_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
   }
 }

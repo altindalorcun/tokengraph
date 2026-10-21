@@ -1,4 +1,4 @@
-import { dateKey } from '@tokengraph/core';
+import { dateKey, hourKey } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { RequestBuckets, tierForModel } from '../request-buckets.js';
 import {
@@ -172,9 +172,10 @@ export function addSdkMessages(
     const model = canonicalModelId(provider, modelId);
     const exclusive = isSeededExclusive(provider, modelId) || learned.has(exclusiveModelKey(provider, modelId));
     const counts = normalizeSdk({ inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }, diagnostics, exclusive);
-    const date = dateKey(new Date(ts), options.timeZone);
+    const instant = new Date(ts);
+    const date = dateKey(instant, options.timeZone);
     // Session-independent: a forked session copies earlier messages with the same id, and this key
     // lets them merge into one request instead of being double-counted.
-    buckets.add(`sdk:${id}`, { date, model, pricingTier: tierForModel(model, counts), counts });
+    buckets.add(`sdk:${id}`, { date, hour: hourKey(instant, options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
   }
 }

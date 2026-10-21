@@ -189,6 +189,7 @@ export function createClineAdapter(adapterOptions: ClineAdapterOptions = {}): Ad
       return {
         source: CLINE_SOURCE,
         usage: buckets.toUsage(),
+        hours: buckets.toHours(),
         requestCount: buckets.size,
         ...(notes.length > 0 ? { notes } : {}),
       };

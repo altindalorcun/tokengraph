@@ -150,6 +150,8 @@ describe('createGooseAdapter', () => {
     const result = await collect();
     expect(result.source).toBe('goose');
     expect(result.requestCount).toBe(1);
+    // 300 + 200 + 100 + 0.1 * 600, at 18:45 UTC.
+    expect(result.hours).toEqual([{ date: '2026-09-21', hour: 18, weighted: 660 }]);
     // input 1000 includes 600 read and 100 write: 300 fresh.
     expect(result.usage).toEqual([
       {
