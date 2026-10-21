@@ -343,7 +343,7 @@ describe('the alive README graph', () => {
 
   it('shows the stats strip with the five figures, led days instead of a percentage', () => {
     const svg = full();
-    for (const label of ['CURRENT STREAK', 'LONGEST STREAK', 'BEST DAY', 'ACTIVE DAYS', 'TOP FAMILY']) {
+    for (const label of ['TODAY', 'STREAK', 'BEST DAY', 'ACTIVE DAYS', 'TOP FAMILY']) {
       expect(svg).toContain(`>${label}</text>`);
     }
     expect(svg).toMatch(/>led \d+ days<\/text>/);
@@ -367,6 +367,30 @@ describe('the alive README graph', () => {
     expect(Number(led[2])).toBe(WEEKS * 7 - OMITTED_AFTER_END);
     // 12 glyphs at ~0.55em each, ending inside the strip.
     expect(Number(led[1]) + 12 * 12.5 * 0.55).toBeLessThan(900 - 20);
+  });
+
+  it('merges the current and longest streak into one figure, best streak in the caption', () => {
+    const svg = renderGraphSvg(
+      [...daysEndingAt(END, 3, () => 100), ...daysEndingAt('2026-08-01', 9, () => 100)],
+      { endDate: END },
+    );
+    expect(svg).toMatch(/>3<\/text><text[^>]*>days · best 9<\/text>/);
+    expect(svg).not.toContain('LONGEST STREAK');
+    expect(svg).not.toContain('CURRENT STREAK');
+  });
+
+  it("shows today's tokens first in the strip", () => {
+    const svg = renderGraphSvg(daysEndingAt(END, 5, (i) => (i === 4 ? 1_250_000 : 100)), { endDate: END });
+    expect(svg).toMatch(/>TODAY<\/text><text[^>]*>1\.3M<\/text><text[^>]*>tokens<\/text>/);
+  });
+
+  it('keeps a full-year streak and its best inside the streak column', () => {
+    const svg = renderGraphSvg(daysEndingAt(END, 400, () => 100), { endDate: END });
+    const sub = /<text x="([\d.]+)"[^>]*font-size="12.5"[^>]*>days · best (\d+)<\/text>/.exec(svg)!;
+    expect(Number(sub[2])).toBe(WEEKS * 7 - OMITTED_AFTER_END);
+    // 15 glyphs, narrow ones among them, at ~0.5em each (Plex lays this out at 86px), ending
+    // before the next column's divider.
+    expect(Number(sub[1]) + 15 * 12.5 * 0.5).toBeLessThan(20 + 136 + 160 - 8);
   });
 
   it('keeps the glow neutral: not tinted by the leading family', () => {
@@ -436,7 +460,7 @@ describe('the compact README graph', () => {
     expect(svg).toContain('stroke="rgb(31 35 40 / 0.14)"');
     expect(svg).toContain('class="halo"');
     expect((svg.match(/<g class="c d\d+">/g) ?? []).length).toBe(WEEKS);
-    for (const gone of ['CURRENT STREAK', '>Less<', '>Mon<', '>Oct<', '>GPT<', '>tokengraph<']) expect(svg).not.toContain(gone);
+    for (const gone of ['>STREAK<', '>Less<', '>Mon<', '>Oct<', '>GPT<', '>tokengraph<']) expect(svg).not.toContain(gone);
   });
 
   it('stays small', () => {
