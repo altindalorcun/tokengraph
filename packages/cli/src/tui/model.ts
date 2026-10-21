@@ -1,4 +1,4 @@
-import { ledgerToUsage, type Ledger } from '../ledger.js';
+import { allLedgerUsage, type Ledger } from '../ledger.js';
 import { shortDate } from './dates.js';
 import {
   addCounts,
@@ -222,8 +222,10 @@ export function buildViewModel(ledger: Ledger, today: string): ViewModel {
   // The family of a label comes from the first raw model id seen for it.
   const families = new Map<string, ModelFamily>();
 
+  // Cursor's account figures replace its hook and import rows where they overlap (core's combining rule).
+  const combined = allLedgerUsage(ledger);
   for (const source of KNOWN_SOURCES) {
-    const usage = ledgerToUsage(ledger, source);
+    const usage = combined.filter((entry) => entry.source === source);
     if (usage.length === 0) continue;
     sources.push(source);
     for (const entry of usage) {

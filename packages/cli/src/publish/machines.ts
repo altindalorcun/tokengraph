@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto';
-import { isKnownSource, type DailyModelUsage } from '@tokengraph/core';
-import { allLedgerUsage, emptyLedger, LEDGER_VERSION, ledgerToUsage, mergeUsage, parseLedger, type Ledger } from '../ledger.js';
+import { combineMachineUsage, isKnownSource, type SourcedUsage } from '@tokengraph/core';
+import {
+  ledgerMachineUsage,
+  LEDGER_VERSION,
+  ledgerToUsage,
+  mergeLedgerAccounts,
+  mergeUsage,
+  parseLedger,
+  parseLedgerAccounts,
+  type Ledger,
+  type LedgerAccounts,
+} from '../ledger.js';
 
 export interface MachineFile {
   schema: 1;
@@ -12,6 +22,8 @@ export interface MachineFile {
   cliVersion: string;
   updatedAt: string;
   sources: Ledger['sources'];
+  /** Cursor accounts this machine fetched from cursor.com. Additive: older versions ignore it. */
+  accounts?: LedgerAccounts;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -45,6 +57,7 @@ export function parseMachineFile(content: string): MachineFile | null {
   const strings = ['label', 'fingerprint', 'cliVersion', 'updatedAt'] as const;
   for (const key of strings) if (typeof f[key] !== 'string') return null;
   const ledger = parseLedger({ version: LEDGER_VERSION, sources: f['sources'] });
+  const accounts = parseLedgerAccounts(f['accounts']);
   return {
     schema: 1,
     machineId: machineId.toLowerCase(),
@@ -53,6 +66,7 @@ export function parseMachineFile(content: string): MachineFile | null {
     cliVersion: f['cliVersion'] as string,
     updatedAt: f['updatedAt'] as string,
     sources: ledger.sources,
+    ...(accounts ? { accounts } : {}),
   };
 }
 
@@ -73,9 +87,18 @@ export function sourcesDigest(sources: Ledger['sources']): string {
   return createHash('sha256').update(JSON.stringify(stable(sources))).digest('hex');
 }
 
+/**
+ * Content identity of what a machine file carries. Without accounts it is exactly `sourcesDigest`, so a
+ * machine file written before accounts existed is not rewritten for nothing.
+ */
+export function usageDigest(content: { sources: Ledger['sources']; accounts?: LedgerAccounts | undefined }): string {
+  if (!content.accounts) return sourcesDigest(content.sources);
+  return createHash('sha256').update(JSON.stringify(stable({ sources: content.sources, accounts: content.accounts }))).digest('hex');
+}
+
 /** Within one machine totals only grow: the gist copy can restore days the local ledger lost, never shrink any. */
-export function maxMergeLedgers(base: Ledger, extra: Ledger['sources']): Ledger {
-  let merged = base;
+export function maxMergeLedgers(base: Ledger, extra: Ledger['sources'], extraAccounts?: LedgerAccounts): Ledger {
+  let merged = mergeLedgerAccounts(base, extraAccounts);
   const extraLedger: Ledger = { version: LEDGER_VERSION, sources: extra };
   for (const source of Object.keys(extra).filter(isKnownSource)) {
     merged = mergeUsage(merged, source, ledgerToUsage(extraLedger, source));
@@ -89,12 +112,15 @@ export function activeDayCount(sources: Ledger['sources']): number {
   return dates.size;
 }
 
-/** This machine's usage plus every other machine's: different machines are different usage, so they add up. */
-export function combinedUsage(local: Ledger, others: readonly MachineFile[], sinceDate?: string): DailyModelUsage[] {
-  return [
-    ...allLedgerUsage(local, sinceDate),
-    ...others.flatMap((other) => allLedgerUsage({ ...emptyLedger(), sources: other.sources }, sinceDate)),
-  ];
+/**
+ * This machine's usage plus every other machine's: different machines are different usage, so they add up,
+ * except a Cursor account fetched on several machines, which counts once (`combineMachineUsage` in core).
+ */
+export function combinedUsage(local: Ledger, others: readonly MachineFile[], sinceDate?: string): SourcedUsage[] {
+  return combineMachineUsage([
+    ledgerMachineUsage(local),
+    ...others.map((other) => ledgerMachineUsage({ version: LEDGER_VERSION, sources: other.sources, ...(other.accounts ? { accounts: other.accounts } : {}) })),
+  ]).filter((entry) => !sinceDate || entry.date >= sinceDate);
 }
 
 export function resolveMachineId(input: {

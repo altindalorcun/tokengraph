@@ -1,4 +1,5 @@
 export * from './agent-logos.js';
+export * from './combine-usage.js';
 export * from './dates.js';
 export * from './embed-font.js';
 export * from './font-metrics.js';

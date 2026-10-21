@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { emptyLedger, mergeUsage, type Ledger } from '../src/ledger.js';
+import { emptyLedger, mergeCursorAccount, mergeUsage, type Ledger } from '../src/ledger.js';
 import {
   activeDayCount,
   combinedUsage,
@@ -14,6 +14,7 @@ import {
   resolveMachineId,
   serializeMachineFile,
   sourcesDigest,
+  usageDigest,
   type MachineFile,
 } from '../src/publish/machines.js';
 import { readLastPublish, readMachinesCache, writeMachinesCache } from '../src/publish/machines-cache.js';
@@ -117,5 +118,52 @@ describe('machines cache', () => {
     expect(await readMachinesCache(path)).toEqual(files);
     await writeFile(path, JSON.stringify({ schema: 1, files: [] }));
     expect(await readLastPublish(path)).toBeNull();
+  });
+});
+
+describe('Cursor accounts in machine files', () => {
+  const KEY = '0123456789abcdef';
+  const withAccount = (ledger: Ledger, input: number, coveredThrough = '2026-10-10T10:00:00.000Z'): Ledger =>
+    mergeCursorAccount(ledger, KEY, coveredThrough, [{ date: '2026-10-09', model: 'composer-2', pricingTier: 'standard', counts: counts(input) }]);
+
+  it('round-trips the accounts field and tolerates its absence', () => {
+    const ledger = withAccount(ledgerWith('2026-10-01', 5), 77);
+    const original: MachineFile = { ...file(A, ledger), accounts: ledger.accounts };
+    expect(parseMachineFile(serializeMachineFile(original))).toEqual(original);
+    const plain = file(A, ledgerWith('2026-10-01', 5));
+    expect(parseMachineFile(serializeMachineFile(plain))).toEqual(plain);
+    expect(serializeMachineFile(plain)).not.toContain('accounts');
+  });
+
+  it('an older reader that only knows sources and schema 1 still reads the file', () => {
+    const ledger = withAccount(emptyLedger(), 1);
+    const text = serializeMachineFile({ ...file(A, ledger), accounts: ledger.accounts });
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    expect(raw['schema']).toBe(1);
+    expect(raw['sources']).toBeDefined();
+  });
+
+  it('usageDigest equals sourcesDigest without accounts and changes with them', () => {
+    const base = ledgerWith('2026-10-01', 5);
+    expect(usageDigest(base)).toBe(sourcesDigest(base.sources));
+    expect(usageDigest(withAccount(base, 3))).not.toBe(usageDigest(base));
+    expect(usageDigest(withAccount(base, 3))).not.toBe(usageDigest(withAccount(base, 4)));
+  });
+
+  it('maxMergeLedgers restores accounts from the gist copy', () => {
+    const gist = withAccount(emptyLedger(), 90);
+    const merged = maxMergeLedgers(withAccount(emptyLedger(), 10, '2026-10-11T00:00:00.000Z'), gist.sources, gist.accounts);
+    const account = merged.accounts?.cursor?.[KEY];
+    expect(account?.coveredThrough).toBe('2026-10-11T00:00:00.000Z');
+    expect(account?.days['2026-10-09']?.['composer-2']?.standard?.inputTokens).toBe(90);
+  });
+
+  it('combinedUsage counts one account on two machines once and two machines of an agent twice', () => {
+    const mine = withAccount(ledgerWith('2026-10-01', 5), 100);
+    const other = { ...file(B, withAccount(ledgerWith('2026-10-01', 7), 100)), accounts: withAccount(emptyLedger(), 100).accounts };
+    const rows = combinedUsage(mine, [other]);
+    const sum = (source: string) => rows.filter((row) => row.source === source).reduce((total, row) => total + row.counts.inputTokens, 0);
+    expect(sum('claude-code')).toBe(12);
+    expect(sum('cursor')).toBe(100);
   });
 });

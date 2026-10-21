@@ -70,21 +70,17 @@ export function parseExportArgs(values: Record<string, string | boolean | undefi
 }
 
 /**
- * Rows come from `combinedUsage`, one source at a time because it does not carry the agent. Machines
- * add up, so rows that share a key are summed (an unknown cache split stays unknown), and the cost
+ * Rows come from `combinedUsage`, which carries the agent. Machines add up (a Cursor account fetched on
+ * several machines counts once), so rows that share a key are summed (an unknown cache split stays unknown), and the cost
  * is the one the view and the story compute for the same counts.
  */
 export function buildRows(ledger: Ledger, others: readonly MachineFile[], since?: string): ExportRow[] {
   const rows: ExportRow[] = [];
+  const everything = combinedUsage(ledger, others, since);
   for (const source of KNOWN_SOURCES) {
-    const only = (sources: Ledger['sources']): Ledger['sources'] => (sources[source] ? { [source]: sources[source] } : {});
     const merged = new Map<string, { date: string; model: string; tier: PricingTier; counts: SplitTokenCounts }>();
-    const usage = combinedUsage(
-      { ...ledger, sources: only(ledger.sources) },
-      others.map((other) => ({ ...other, sources: only(other.sources) })),
-      since,
-    );
-    for (const entry of usage) {
+    for (const entry of everything) {
+      if (entry.source !== source) continue;
       const key = JSON.stringify([entry.date, entry.model, entry.pricingTier]);
       const existing = merged.get(key);
       if (existing) existing.counts = addSplitCounts(existing.counts, entry.counts);

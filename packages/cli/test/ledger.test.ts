@@ -7,6 +7,7 @@ import {
   allLedgerUsage,
   emptyLedger,
   ledgerToUsage,
+  mergeCursorAccount,
   mergeUsage,
   parseLedger,
   readLedger,
@@ -278,5 +279,49 @@ describe('ledger v3', () => {
     let ledger = mergeUsage(emptyLedger(), 'claude-code', [usage('2026-09-01', 'a'), usage('2026-09-10', 'a')]);
     ledger = mergeUsage(ledger, 'codex-cli', [usage('2026-09-10', 'b')]);
     expect(allLedgerUsage(ledger, '2026-09-05').map((u) => u.date)).toEqual(['2026-09-10', '2026-09-10']);
+  });
+});
+
+describe('Cursor accounts in the ledger', () => {
+  const KEY = '0123456789abcdef';
+  const day = (date: string, input: number) => usage(date, 'composer-2', { inputTokens: input });
+
+  it('max-merges an account and never moves coveredThrough back', () => {
+    let ledger = mergeCursorAccount(emptyLedger(), KEY, '2026-10-10T10:00:00.000Z', [day('2026-10-09', 50)]);
+    ledger = mergeCursorAccount(ledger, KEY, '2026-10-09T10:00:00.000Z', [day('2026-10-09', 30), day('2026-10-08', 5)]);
+    const account = ledger.accounts?.cursor?.[KEY];
+    expect(account?.coveredThrough).toBe('2026-10-10T10:00:00.000Z');
+    expect(account?.days['2026-10-09']?.['composer-2']?.standard?.inputTokens).toBe(50);
+    expect(account?.days['2026-10-08']).toBeDefined();
+  });
+
+  it('survives mergeUsage, a write and a read', async () => {
+    let ledger = mergeCursorAccount(emptyLedger(), KEY, '2026-10-10T10:00:00.000Z', [day('2026-10-09', 50)]);
+    ledger = mergeUsage(ledger, 'claude-code', [usage('2026-10-09', 'claude-opus-5-5', { inputTokens: 1 })]);
+    expect(ledger.accounts?.cursor?.[KEY]).toBeDefined();
+    const path = join(await mkdtemp(join(tmpdir(), 'tg-ledger-')), 'state.json');
+    await writeLedger(path, ledger);
+    expect(await readLedger(path)).toEqual(ledger);
+  });
+
+  it('parses a ledger without accounts and drops malformed ones', () => {
+    expect(parseLedger({ version: 3, sources: {} }).accounts).toBeUndefined();
+    const parsed = parseLedger({
+      version: 3,
+      sources: {},
+      accounts: { cursor: { 'not-a-key': { coveredThrough: '2026-10-10T00:00:00Z', days: {} }, [KEY]: { coveredThrough: 'yesterday', days: {} } } },
+    });
+    expect(parsed.accounts).toBeUndefined();
+  });
+
+  it('keeps an account whose history is empty: it still says how far it is covered', () => {
+    const parsed = parseLedger({ version: 3, sources: {}, accounts: { cursor: { [KEY]: { coveredThrough: '2026-10-10T00:00:00Z', days: {} } } } });
+    expect(parsed.accounts?.cursor?.[KEY]).toEqual({ coveredThrough: '2026-10-10T00:00:00.000Z', days: {} });
+  });
+
+  it('allLedgerUsage replaces cursor hook rows with the account figure on covered days', () => {
+    let ledger = mergeUsage(emptyLedger(), 'cursor', [usage('2026-10-08', 'composer-2', { inputTokens: 999 })]);
+    ledger = mergeCursorAccount(ledger, KEY, '2036-01-01T00:00:00.000Z', [day('2026-10-08', 40)]);
+    expect(allLedgerUsage(ledger).map((entry) => [entry.source, entry.counts.inputTokens])).toEqual([['cursor', 40]]);
   });
 });

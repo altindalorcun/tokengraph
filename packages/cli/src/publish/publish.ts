@@ -13,7 +13,7 @@ import {
   parseMachineFile,
   resolveMachineId,
   serializeMachineFile,
-  sourcesDigest,
+  usageDigest,
   type MachineFile,
 } from './machines.js';
 
@@ -85,12 +85,12 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
   const others = files.filter((file) => file.machineId !== machineId);
 
   // 2. Within one machine totals only grow: take back anything the local ledger lost.
-  const ledger = own ? maxMergeLedgers(input.ledger, own.sources) : input.ledger;
+  const ledger = own ? maxMergeLedgers(input.ledger, own.sources, own.accounts) : input.ledger;
   const restoredDays = activeDayCount(ledger.sources) - activeDayCount(input.ledger.sources);
 
   // 3. Write this machine's file only when its usage changed; never touch another machine's file.
   let wroteMachineFile = false;
-  if (!ownFileUnreadable && (!own || sourcesDigest(own.sources) !== sourcesDigest(ledger.sources))) {
+  if (!ownFileUnreadable && (!own || usageDigest(own) !== usageDigest(ledger))) {
     const file: MachineFile = {
       schema: 1,
       machineId,
@@ -99,6 +99,7 @@ export async function publish(input: PublishInput): Promise<PublishResult> {
       cliVersion: input.cliVersion,
       updatedAt: input.nowIso,
       sources: ledger.sources,
+      ...(ledger.accounts ? { accounts: ledger.accounts } : {}),
     };
     await client.updateGist(data.gist.id, { [machineFileName(machineId)]: serializeMachineFile(file) });
     wroteMachineFile = true;
