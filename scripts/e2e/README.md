@@ -163,3 +163,6 @@ server calls it with schema-valid arguments instead of answering in plain text. 
 the request offered) and `reasoning` (the reasoning tokens inside `normalized.output`; 0 for Anthropic).
 
 Tests: `npx vitest run scripts/e2e`.
+
+To run the workflow on a branch that is not on `main` yet, push it as `e2e/<name>`
+(`git push origin HEAD:e2e/<name>`): a push to any `e2e/**` branch runs the full matrix.

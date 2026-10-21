@@ -11,6 +11,10 @@ on:
         default: ''
   schedule:
     - cron: '17 5 * * 1'
+  # workflow_dispatch only works once this file is on the default branch; pushing a branch named e2e/<anything>
+  # runs the matrix on that branch's code before then (and for any branch you want checked).
+  push:
+    branches: ['e2e/**']
 
 permissions:
   contents: read
