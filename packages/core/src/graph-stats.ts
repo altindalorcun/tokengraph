@@ -14,6 +14,8 @@ export interface GraphStats {
   /** First and last drawn day, null for a grid with no cells. */
   firstDate: string | null;
   lastDate: string | null;
+  /** Tokens on the last drawn day, the grid's end date: today when the graph was drawn. */
+  today: number;
   /**
    * Consecutive active days ending today. A today without tokens yet does not break the run:
    * the count then ends yesterday.
@@ -68,6 +70,7 @@ export function computeGraphStats(grid: GraphGrid): GraphStats {
     total,
     firstDate: cells[0]?.date ?? null,
     lastDate: cells[cells.length - 1]?.date ?? null,
+    today: Math.max(cells[cells.length - 1]?.weighted ?? 0, 0),
     currentStreak,
     longestStreak,
     bestDay,

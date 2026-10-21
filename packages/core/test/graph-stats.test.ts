@@ -35,6 +35,11 @@ describe('computeGraphStats', () => {
     expect(s.activeDays).toBe(8);
   });
 
+  it("takes today's tokens from the last drawn day, zero when today has none yet", () => {
+    expect(stats([day(0, 42), day(1, 5)]).today).toBe(42);
+    expect(stats([day(1, 5)]).today).toBe(0);
+  });
+
   it('names the busiest day and takes the earliest on a tie', () => {
     const s = stats([day(0, 10), day(5, 99), day(9, 99), day(12, 3)]);
     expect(s.bestDay).toEqual({ date: day(9, 0).date, weighted: 99 });
@@ -62,7 +67,7 @@ describe('computeGraphStats', () => {
 
   it('is all zeros and nulls for an empty window, never NaN', () => {
     const s = stats([]);
-    expect(s).toMatchObject({ activeDays: 0, total: 0, currentStreak: 0, longestStreak: 0, bestDay: null, topFamily: null });
+    expect(s).toMatchObject({ activeDays: 0, total: 0, today: 0, currentStreak: 0, longestStreak: 0, bestDay: null, topFamily: null });
     expect(s.windowDays).toBe(52 * 7 - 2);
     expect(s.firstDate).toBe('2025-09-14');
     expect(s.lastDate).toBe(END);

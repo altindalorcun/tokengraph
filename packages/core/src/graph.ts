@@ -538,8 +538,11 @@ function rangeLabel(stats: GraphStats): string {
 }
 
 const STRIP_HEIGHT = 60;
-/** Widths of the strip's first four columns; the fifth (family name and day count) takes the rest. */
-const STRIP_COLUMN = 148;
+/**
+ * Widths of the strip's first four columns; the fifth (family name and day count) takes the rest.
+ * Today's figure is short, so the streak beside it gets the room for "362 days · best 362".
+ */
+const STRIP_COLUMNS = [136, 160, 148, 148];
 const STRIP_INSET = 18;
 
 interface StripItem {
@@ -566,8 +569,11 @@ function stripItems(stats: GraphStats, colorMode: ColorMode, theme: Theme): Stri
         : { label: 'TOP FAMILY', value: '—', sub: '' }
       : { label: 'AVG ACTIVE DAY', ...dash(formatTokens(stats.total / Math.max(stats.activeDays, 1)), 'tokens') };
   return [
-    { label: 'CURRENT STREAK', ...dash(String(stats.currentStreak), stats.currentStreak === 1 ? 'day' : 'days') },
-    { label: 'LONGEST STREAK', ...dash(String(stats.longestStreak), stats.longestStreak === 1 ? 'day' : 'days') },
+    { label: 'TODAY', ...dash(formatTokens(stats.today), 'tokens') },
+    {
+      label: 'STREAK',
+      ...dash(String(stats.currentStreak), `${stats.currentStreak === 1 ? 'day' : 'days'} · best ${stats.longestStreak}`),
+    },
     {
       label: 'BEST DAY',
       ...(stats.bestDay ? { value: formatTokens(stats.bestDay.weighted), sub: monthDay(stats.bestDay.date) } : { value: '—', sub: '' }),
@@ -593,8 +599,9 @@ function statsStrip(
     `<rect x="${pad}" y="${n(y)}" width="${innerWidth}" height="${STRIP_HEIGHT}" rx="10" fill="${chrome.soft}"/>`,
     `<rect x="${pad + 0.5}" y="${n(y + 0.5)}" width="${innerWidth - 1}" height="${STRIP_HEIGHT - 1}" rx="9.5" fill="none" stroke="${chrome.hair}"/>`,
   ];
+  let left = pad;
   stripItems(stats, colorMode, theme).forEach((item, index) => {
-    const left = pad + index * STRIP_COLUMN;
+    if (index > 0) left += STRIP_COLUMNS[index - 1]!;
     const x = left + STRIP_INSET;
     if (index > 0) parts.push(`<path d="M${left} ${n(y + 14)}V${n(y + STRIP_HEIGHT - 14)}" stroke="${chrome.hair}"/>`);
     parts.push(text(item.label, x, y + 22, { size: 10, fill: surface.muted, weight: 500, tracking: 0.9 }));

@@ -16,6 +16,8 @@ import { buildLanding } from './samples-landing.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REFERENCE = new Date('2026-10-11T12:00:00Z');
 const REFERENCE_DATE = '2026-10-11';
+// The README graph ends on a weekday the demo account coded on, so its TODAY figure is not zero.
+const GRAPH_DATE = '2026-10-06';
 const REPO_URL = 'https://github.com/altindalorcun/tokengraph';
 const out = resolve(process.argv.slice(2).find((arg) => !arg.startsWith('--')) ?? 'samples');
 const readme = process.argv.includes('--readme');
@@ -23,13 +25,13 @@ mkdirSync(out, { recursive: true });
 
 // 1. README graphs, exactly as `tokengraph sync` publishes them.
 const { modelRows } = core.demoUsage(REFERENCE);
-const usage = modelRows.map((row) => ({
+const usage = modelRows.filter((row) => row.date <= GRAPH_DATE).map((row) => ({
   date: row.date,
   model: row.model,
   pricingTier: 'standard',
   counts: { ...row, cacheCreation5mTokens: null, cacheCreation1hTokens: null },
 }));
-const graphs = core.renderPublishedGraphs(usage, { today: REFERENCE_DATE, colors: 'model' });
+const graphs = core.renderPublishedGraphs(usage, { today: GRAPH_DATE, colors: 'model' });
 const graphFiles = {
   'graph-dark.svg': graphs['tokengraph-dark.svg'],
   'graph-light.svg': graphs['tokengraph-light.svg'],
