@@ -112,6 +112,15 @@ describe('tokengraph uninstall', () => {
     expect(out).toContain('only copy of your Cursor usage');
   });
 
+  it('purge deletes the fetched Cursor account files and the fetch state, and keeps look-alikes', async () => {
+    const mine = ['cursor-account-0123456789abcdef.jsonl', 'cursor-fetch.json'];
+    const notMine = ['cursor-account-xyz.jsonl', 'cursor-account-0123456789abcdef.jsonl.bak', 'notes.txt'];
+    for (const name of [...mine, ...notMine]) await writeFile(join(data, name), '');
+    expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps())).toBe(0);
+    for (const name of mine) expect(existsSync(join(data, name)), name).toBe(false);
+    for (const name of notMine) expect(existsSync(join(data, name)), name).toBe(true);
+  });
+
   it('in a terminal, a "no" keeps the data', async () => {
     const confirm = vi.fn(async () => false);
     expect(await runUninstall({ purge: true, yes: false, dryRun: false }, deps({ isTty: () => true, confirm }))).toBe(0);

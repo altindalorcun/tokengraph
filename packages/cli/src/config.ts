@@ -25,6 +25,11 @@ export interface CliConfig {
    * that environment (the hourly schedule) still scans them. Additive: older versions ignore the key.
    */
   agentRoots?: Record<string, string[]>;
+  /**
+   * `fetch`: whether sync reads the Cursor history from cursor.com with Cursor's own sign-in. Unset means
+   * "on, once a manual sync has announced it"; `tokengraph cursor off` stores false. Never holds a credential.
+   */
+  cursor?: { fetch?: boolean };
 }
 
 /** The most roots remembered for one source; a config file is not a log. */
@@ -102,6 +107,9 @@ export function parseConfig(raw: unknown): CliConfig {
     }
     if (Object.keys(parsed).length > 0) config.agentRoots = parsed;
   }
+
+  const cursor = record(fields['cursor']);
+  if (cursor && typeof cursor['fetch'] === 'boolean') config.cursor = { fetch: cursor['fetch'] };
 
   return config;
 }

@@ -53,16 +53,19 @@ const OWN_FILES = [
   'machines.json',
   'cursor-events.jsonl',
   'cursor-import.jsonl',
+  'cursor-fetch.json',
   'hook-sync.log',
   'hook-sync.last',
   'sync.lock',
   'schedule.log',
 ];
 /** Temp files the atomic writers (ledger.ts, config.ts, publish/machines-cache.ts) leave if interrupted. */
-const OWN_TEMP = /^(?:state|config|machines)\.json\.[\d.]+\.tmp$/;
+const OWN_TEMP = /^(?:state|config|machines|cursor-fetch)\.json\.[\d.]+\.tmp$/;
+/** Usage fetched from cursor.com, one file per account key (adapters/cursor/accounts.ts). It can be fetched again. */
+const CURSOR_ACCOUNT_FILE = /^cursor-account-[0-9a-f]{16}\.jsonl$/;
 const CURSOR_FILES = ['cursor-events.jsonl', 'cursor-import.jsonl'];
 
-const isOwn = (name: string): boolean => OWN_FILES.includes(name) || OWN_TEMP.test(name);
+const isOwn = (name: string): boolean => OWN_FILES.includes(name) || OWN_TEMP.test(name) || CURSOR_ACCOUNT_FILE.test(name);
 
 interface PurgePlan {
   path: string;

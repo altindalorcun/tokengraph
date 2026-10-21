@@ -74,3 +74,8 @@ export function syncLockPath(): string {
 export function machinesCachePath(): string {
   return join(configHome(), 'machines.json');
 }
+
+/** What the Cursor history fetch remembers between runs: last attempt, back-off, how far each account is covered. No secrets. */
+export function cursorFetchStatePath(): string {
+  return join(configHome(), 'cursor-fetch.json');
+}

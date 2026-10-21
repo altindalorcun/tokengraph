@@ -2,6 +2,7 @@
 import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { rememberRootsForCommand } from './agent-roots-store.js';
 import { cliVersion } from './bin-path.js';
+import { parseCursorArgs, runCursor, runCursorFetchNow } from './commands/cursor.js';
 import { runCursorHook } from './commands/cursor-hook.js';
 import { parseExportArgs, runExport } from './commands/export.js';
 import { runHookSync } from './commands/hook-sync.js';
@@ -34,6 +35,7 @@ Commands:
   schedule             Sync every hour in the background
   story                Turn your usage into story cards and send them to your phone
   export               Write your daily usage as CSV or JSON
+  cursor               Fetch your Cursor usage from cursor.com, or turn that off
   import               Add history from another source, such as a Cursor usage CSV
   uninstall            Remove the hooks and the schedule (and, with --purge, your data)
 
@@ -100,6 +102,9 @@ const COMMANDS: Record<string, Command> = {
 Reads every supported agent's local data into the ledger (~/.tokengraph/state.json), then, when you
 are logged in, publishes your graph to your gist. \`--local\` never touches the network. Background
 syncs (hooks, schedule) do the same.
+
+When Cursor is signed in on this machine, sync also fetches your Cursor usage from cursor.com, at most once
+an hour (turn it off with \`tokengraph cursor off\`; \`--local\` never fetches).
 
 Options:
   --since <days>       How far back to read, 1-400 (default: 90)
@@ -200,7 +205,7 @@ and your gists stay on GitHub.
   status: {
     help: `Usage: tokengraph status [options]
 
-Shows the account, the local ledger, which background syncs are installed on this machine, and how long
+Shows the account, the local ledger, the state of the Cursor history fetch, which background syncs are installed on this machine, and how long
 Claude Code, Gemini CLI and Qwen Code keep their logs (with a warning when history is at risk).
 
 Note: --json includes the secret data-gist URL and local paths, so don't paste it publicly.
@@ -281,7 +286,7 @@ Options:
     help: `Usage: tokengraph schedule [options]
 
 Runs a sync every hour in the background (launchd on macOS, cron on Linux, Task Scheduler on Windows).
-Use it for agents without a hook (Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose) or to pick up Cursor's recorded turns.
+Use it for agents without a hook (Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose) or to pick up Cursor's recorded turns and, when Cursor fetching is on, your Cursor history from cursor.com.
 
 Options:
   --remove             Remove the hourly sync
@@ -331,20 +336,58 @@ Options:
     },
   },
 
+  cursor: {
+    help: `Usage: tokengraph cursor <fetch|on|off>
+
+Cursor keeps no token counts on your machine, so tokengraph can fetch your own usage history from
+cursor.com: it reads Cursor's sign-in from Cursor's local database (read-only, never stored or printed),
+asks cursor.com for the same usage CSV the dashboard exports, and keeps the rows in ~/.tokengraph. It is
+on by default when Cursor is signed in; \`tokengraph sync\` fetches at most once an hour.
+
+  fetch                Fetch now (ignores the hourly pause, not a back-off after a failed sign-in or a rate limit)
+  on                   Let \`sync\` fetch (the default)
+  off                  Never read Cursor's sign-in or call cursor.com. Already fetched usage stays;
+                       hook events and \`tokengraph import cursor <file.csv>\` keep working
+
+If Cursor's sign-in has expired, open Cursor once and run \`tokengraph cursor fetch\`.
+\`tokengraph import cursor --fetch\` does the same as \`cursor fetch\`.
+`,
+    options: {},
+    run: (_values, positionals) => {
+      const action = parseCursorArgs(positionals);
+      if (action !== 'fetch' && action !== 'on' && action !== 'off') {
+        console.error(action);
+        return 1;
+      }
+      return runCursor(action);
+    },
+  },
+
   import: {
     help: `Usage: tokengraph import cursor <file.csv>
+       tokengraph import cursor --fetch
 
-Adds your Cursor history from before the hook was installed. Download the usage CSV yourself from the
-Cursor dashboard (Usage, then export CSV); tokengraph reads no Cursor login and calls no Cursor API.
+Adds your Cursor history from a usage CSV you download yourself from the Cursor dashboard (Usage, then
+export CSV). Use it when automatic fetching is off (\`tokengraph cursor off\`) or unavailable. With
+--fetch it does not read a file: it fetches your history from cursor.com, exactly like
+\`tokengraph cursor fetch\`.
 
 Importing the same or an overlapping file again adds nothing twice. Rows from the moment the Cursor hook
-first ran are skipped, because the hook already counts them. The ledger is updated; nothing is published.
+first ran are skipped, because the hook already counts them; once an account has been fetched, its history
+replaces imported rows on the days it covers. The ledger is updated; nothing is published.
 
 Import on one machine only: machines are added together, so importing the same file on two machines
 counts it twice.
 `,
-    options: {},
-    run: (_values, positionals) => {
+    options: { fetch: { type: 'boolean', default: false } },
+    run: (values, positionals) => {
+      if (values['fetch'] === true) {
+        if (positionals.length > 1 || (positionals[0] !== undefined && positionals[0] !== 'cursor')) {
+          console.error('Usage: tokengraph import cursor --fetch');
+          return 1;
+        }
+        return runCursorFetchNow();
+      }
       const args = parseImportArgs(positionals);
       if (typeof args === 'string') {
         console.error(args);
@@ -362,7 +405,7 @@ hourly schedule. Your gists and your agents' own data are never touched.
 
 Options:
   --purge              Also delete tokengraph's own files in ~/.tokengraph (or $TOKENGRAPH_HOME): ledger,
-                       login, logs, Cursor event and import files; anything else in that folder is kept
+                       login, logs, the Cursor event, import and fetched-account files; anything else in that folder is kept
   --yes                Don't ask before deleting (needed for --purge outside a terminal)
   --dry-run            Show what would change and change nothing
 `,

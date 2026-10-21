@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { emptyLedger, mergeUsage, type Ledger } from '../src/ledger.js';
+import { emptyLedger, mergeCursorAccount, mergeUsage, type Ledger } from '../src/ledger.js';
 import { GRAPH_MARKER } from '../src/publish/gists.js';
-import { machineFileName, parseMachineFile } from '../src/publish/machines.js';
+import { combinedUsage, machineFileName, parseMachineFile } from '../src/publish/machines.js';
 import { publish, type PublishInput } from '../src/publish/publish.js';
 import { fakeGitHubClient, type FakeGitHub } from './fake-github-client.js';
 
@@ -166,5 +166,41 @@ describe('publish', () => {
     const first = await publish(input(client));
     client.gists.get(first.dataGistId)!.files['machine-zzz.json'] = { filename: 'machine-zzz.json', content: 'garbage' };
     await expect(publish(input(client, { config: first.config }))).resolves.toMatchObject({ others: [] });
+  });
+});
+
+describe('publish with a Cursor account', () => {
+  const KEY = '0123456789abcdef';
+  const withAccount = (ledger: Ledger): Ledger =>
+    mergeCursorAccount(ledger, KEY, '2026-10-12T10:00:00.000Z', [{ date: '2026-10-11', model: 'composer-2', pricingTier: 'standard', counts: counts(500) }]);
+
+  it('carries the account in the machine file, writes it once, and restores it after a reinstall', async () => {
+    const client = fakeGitHubClient();
+    const first = await publish(input(client, { ledger: withAccount(ledgerWith('2026-10-12', 1)) }));
+    const file = parseMachineFile(client.gists.get(first.dataGistId)!.files[machineFileName(A)]!.content!);
+    expect(file?.accounts?.cursor?.[KEY]?.coveredThrough).toBe('2026-10-12T10:00:00.000Z');
+
+    const again = await publish(input(client, { ledger: withAccount(ledgerWith('2026-10-12', 1)), config: first.config }));
+    expect(again.wroteMachineFile).toBe(false);
+
+    const reinstalled = await publish(input(client, { ledger: ledgerWith('2026-10-12', 1), config: first.config }));
+    expect(reinstalled.ledger.accounts?.cursor?.[KEY]).toBeDefined();
+  });
+
+  it('counts an account fetched on two machines once in the graph', async () => {
+    const client = fakeGitHubClient();
+    const a = await publish(input(client, { ledger: withAccount(emptyLedger()) }));
+    const b = await publish(
+      input(client, { ledger: withAccount(emptyLedger()), config: { github: { login: 'octocat', auth: { kind: 'token', token: 't' } }, gists: a.config.gists }, newMachineId: () => B, fingerprint: 'fp-b' }),
+    );
+    expect(b.others).toHaveLength(1);
+    expect(combinedUsage(b.ledger, b.others).reduce((sum, row) => sum + row.counts.inputTokens, 0)).toBe(500);
+  });
+
+  it('an older machine file without accounts is not rewritten', async () => {
+    const client = fakeGitHubClient();
+    const first = await publish(input(client));
+    const again = await publish(input(client, { config: first.config }));
+    expect(again.wroteMachineFile).toBe(false);
   });
 });

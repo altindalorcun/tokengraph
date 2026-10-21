@@ -12,6 +12,9 @@ import {
   type Theme,
   type TokenCounts,
 } from '@tokengraph/core';
+import { foldCursorAccounts } from '../adapters/cursor/accounts.js';
+import { runCursorFetch, type CursorFetchDeps } from '../adapters/cursor/fetch.js';
+import { readFetchState } from '../adapters/cursor/fetch-state.js';
 import { cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
 import { readConfig, writeConfig, type CliConfig, type GitHubAccount, type GitHubAuth } from '../config.js';
@@ -42,6 +45,8 @@ export interface SyncPublishDeps {
   fingerprint: () => Promise<string>;
   newMachineId: () => string;
   now: () => Date;
+  /** Replaces the parts of the Cursor fetch that touch Cursor's files and the network. */
+  cursor?: Partial<CursorFetchDeps>;
 }
 
 export interface SyncOptions {
@@ -95,7 +100,11 @@ async function runSyncLocked(options: SyncOptions): Promise<number> {
   const since = addDays(new Date(), -options.sinceDays);
   const sinceKey = dateKey(since);
 
-  const before = await readLedger(ledgerPath());
+  const say = (line: string): void => {
+    if (!options.quiet) console.log(line);
+  };
+  let before = await readLedger(ledgerPath());
+  before = await cursorStep(before, options, say);
   // The order each adapter finished in, so failures print between the successes exactly where they happened.
   const outcomes: ('done' | 'failed')[] = [];
   const { ledger, results: collected, failures, detected } = await collectLocal(before, since, {
@@ -110,9 +119,6 @@ async function runSyncLocked(options: SyncOptions): Promise<number> {
     return 1;
   }
 
-  const say = (line: string): void => {
-    if (!options.quiet) console.log(line);
-  };
   let nextResult = 0;
   let nextFailure = 0;
   for (const outcome of outcomes) {
@@ -166,6 +172,23 @@ async function runSyncLocked(options: SyncOptions): Promise<number> {
     return 0;
   }
   return publishFromSync(ledger, config, config.github, options);
+}
+
+/**
+ * Fetches the signed-in Cursor user's history from cursor.com (unless `--local`), then folds every stored
+ * account file into the ledger. Cursor trouble never fails a sync: it is one line and the run goes on.
+ */
+async function cursorStep(ledger: Ledger, options: SyncOptions, say: (line: string) => void): Promise<Ledger> {
+  try {
+    if (!options.local) {
+      const report = await runCursorFetch({ trigger: options.trigger ?? 'manual', deps: options.deps?.cursor });
+      for (const line of report.lines) say(line);
+    }
+    return await foldCursorAccounts(ledger, await readFetchState());
+  } catch (error) {
+    say(`Cursor history was skipped: ${error instanceof Error ? error.message : String(error)}`);
+    return ledger;
+  }
 }
 
 const DEFAULT_PUBLISH_DEPS: SyncPublishDeps = {
