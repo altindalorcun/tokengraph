@@ -1,10 +1,21 @@
 version: 2
+# Monthly and grouped: one PR per ecosystem a month, because every PR runs the full CI matrix.
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    groups:
+      npm:
+        patterns: ['*']
+    ignore:
+      # The types follow the oldest supported Node (engines: >=22), not the newest release.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
