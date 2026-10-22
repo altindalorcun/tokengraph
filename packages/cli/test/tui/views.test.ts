@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
-import { MODEL_FAMILIES } from '@tokengraph/core';
-import { buildViewModel, shiftDate } from '../../src/tui/model.js';
+import { MODEL_FAMILIES, formatTokens } from '@tokengraph/core';
+import { buildViewModel, modelBreakdown, shiftDate } from '../../src/tui/model.js';
+import { shortDate } from '../../src/tui/views/dates.js';
 import { ScreenBuffer, toPlainText } from '../../src/tui/screen.js';
 import { familyColor, tuiTheme } from '../../src/tui/theme.js';
 import { drawAgents } from '../../src/tui/views/agents.js';
@@ -56,6 +57,37 @@ describe('views', () => {
       expect(top.slice(weekAt, streakAt)).toMatch(/[▲▼]/);
       expect(top.slice(0, weekAt)).not.toMatch(/[▲▼]/);
     }
+  });
+
+  it('overview keeps the selected day visible at 100×30 and names it in the chart title without the day panel', () => {
+    const cursor = shiftDate(TODAY, -1);
+    const vm = model();
+    const day = vm.byDate.get(cursor)!;
+    for (const [w, h, title] of [[100, 30, false], [80, 24, true], [80, 18, true]] as const) {
+      const buf = new ScreenBuffer(w, h);
+      drawOverview(buf, { x: 0, y: 0, width: w, height: h }, { ...base(), vm, state: { cursor, yearEnd: TODAY } });
+      const text = toPlainText(buf);
+      expect(text.toLowerCase()).toContain(shortDate(cursor).toLowerCase());
+      expect(text).toContain(formatTokens(day.weighted));
+      if (title) expect(text.toLowerCase()).toContain(`${shortDate(cursor)} ${formatTokens(day.weighted)}`.toLowerCase());
+    }
+  });
+
+  it('agents keep full names and models keep their headers and names on narrow terminals', () => {
+    const agents = new ScreenBuffer(100, 30);
+    drawAgents(agents, { x: 0, y: 0, width: 100, height: 30 }, { ...base(), state: table, detected: [], autoSync: null });
+    expect(toPlainText(agents)).toContain('Claude Code');
+    expect(toPlainText(agents)).not.toContain('Claude Co…');
+
+    const wide = new ScreenBuffer(160, 48);
+    drawModels(wide, { x: 0, y: 0, width: 160, height: 48 }, { ...base(), state: table });
+    expect(toPlainText(wide)).toContain('LAST ACTIVE');
+    expect(toPlainText(wide)).toContain('30 DAYS');
+
+    const narrow = new ScreenBuffer(100, 30);
+    drawModels(narrow, { x: 0, y: 0, width: 100, height: 30 }, { ...base(), state: table });
+    const text = toPlainText(narrow);
+    for (const row of modelBreakdown(base().vm, '30d')) expect(text).toContain(row.name);
   });
 
   it('overview uses large heatmap cells in a real 160-column terminal (158-wide content)', () => {

@@ -2,6 +2,7 @@ import { formatTokens } from '@tokengraph/core';
 import {
   dailySeries,
   familySeries,
+  formatCost,
   modelBreakdown,
   rangeTotals,
   shiftDate,
@@ -139,10 +140,18 @@ function bigTilesFit(width: number, tiles: readonly BigTile[]): boolean {
   return tiles.every((tile, i) => tile.value === '—' || bigTextWidth(tile.value) + 2 <= base + (i < extra ? 1 : 0) - 2);
 }
 
+/** The selected day in one line for places without the day panel: `3 Oct 1.2M · $4.10`, or `3 Oct no usage`. */
+function selectedDayText(vm: ViewModel, date: string): string {
+  const day = vm.byDate.get(date);
+  if (!day || day.weighted <= 0) return `${shortDate(date)} no usage`;
+  return `${shortDate(date)} ${formatTokens(day.weighted)} · ${formatCost(day.cost)}`;
+}
+
 /** The LAST 30 DAYS box: one stacked column per day, coloured by model family. */
-function drawChart(view: ScreenBuffer, rect: Rect, props: ViewProps & { state: OverviewState }): void {
+function drawChart(view: ScreenBuffer, rect: Rect, props: ViewProps & { state: OverviewState }, showDay: boolean): void {
   const { vm, theme, state } = props;
-  const inner = drawBox(view, rect, theme, 'Last 30 days');
+  const title = showDay ? `Last 30 days · ${selectedDayText(vm, state.cursor)}` : 'Last 30 days';
+  const inner = drawBox(view, rect, theme, truncate(title, Math.max(0, rect.width - 4)));
   const colsWidth = inner.width - 2;
   const colsHeight = inner.height - 2; // a label row above, a date row below
   if (colsWidth < 1 || colsHeight < 1) return;
@@ -247,7 +256,7 @@ export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
     const column = view.width >= CHART_PANEL_MIN_WIDTH;
     if (column) {
       const chartWidth = view.width - DAY_PANEL_WIDTH - 1;
-      drawChart(view, { x: 0, y: chartY, width: chartWidth, height: chartHeight }, props);
+      drawChart(view, { x: 0, y: chartY, width: chartWidth, height: chartHeight }, props, false);
       const panelHeight = Math.min(chartHeight, DAY_PANEL_MAX_HEIGHT);
       const panelX = view.width - DAY_PANEL_WIDTH;
       drawDayPanel(view, { x: panelX, y: chartY, width: DAY_PANEL_WIDTH, height: panelHeight }, panelProps);
@@ -259,7 +268,7 @@ export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
       const panelHeight = Math.min(HEATMAP_HEIGHT, chartHeight - CHART_MIN_HEIGHT - 1);
       const withPanel = panelHeight >= MIN_PANEL_HEIGHT;
       const height = withPanel ? chartHeight - panelHeight - 1 : chartHeight;
-      drawChart(view, { x: 0, y: chartY, width: view.width, height }, props);
+      drawChart(view, { x: 0, y: chartY, width: view.width, height }, props, !withPanel);
       if (withPanel) {
         drawDayPanel(view, { x: 0, y: chartY + height + 1, width: Math.min(DAY_PANEL_WIDTH, view.width), height: panelHeight }, panelProps);
       }
@@ -273,13 +282,17 @@ export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
     const sparkX = label.length + 2;
     drawSparkline(view, sparkX, seriesY, Math.max(0, Math.min(SERIES_DAYS, heatmapWidth - sparkX)), series, theme.accent, theme);
     const peak = Math.max(...series);
+    const below = view.height - (seriesY + 1);
+    const withPanel = below >= MIN_PANEL_HEIGHT;
+    let textX = sparkX + SERIES_DAYS + 2;
     if (peak > 0) {
       const peakDate = shiftDate(vm.today, series.indexOf(peak) - (SERIES_DAYS - 1));
-      view.text(sparkX + SERIES_DAYS + 2, seriesY, `peak ${formatTokens(peak)} on ${shortDate(peakDate)}`, { fg: theme.muted });
+      textX += view.text(textX, seriesY, `peak ${formatTokens(peak)} on ${shortDate(peakDate)}`, { fg: theme.muted }) + 3;
     }
-    const below = view.height - (seriesY + 1);
-    if (below >= MIN_PANEL_HEIGHT) {
+    if (withPanel) {
       drawDayPanel(view, { x: 0, y: seriesY + 1, width: Math.min(DAY_PANEL_WIDTH, view.width), height: Math.min(below, HEATMAP_HEIGHT) }, panelProps);
+    } else {
+      view.text(textX, seriesY, selectedDayText(vm, state.cursor), { fg: theme.muted }, Math.max(0, view.width - textX));
     }
   }
 

@@ -13,7 +13,7 @@ export function drawModels(buf: ScreenBuffer, rect: Rect, props: ViewProps & { s
     label: 'MODEL',
     rows: modelBreakdown(vm, state.range),
     color: (row) => familyColor(row.family, theme),
-    extras: false,
+    extras: true,
     chart: (view, area) => {
       const buckets = familyBuckets(vm, rangeBuckets(vm, state.range));
       const present = new Set<ModelFamily>(buckets.flatMap((b) => b.families.map((f) => f.family)));
