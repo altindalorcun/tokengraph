@@ -15,6 +15,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['Enter', 'run the selected action (Setup)'],
   ['c', 'per-family / single-hue colour'],
   ['s', 'rescan now'],
+  [':  Ctrl-K', 'command palette'],
   ['?', 'toggle this help'],
   ['q, Esc, Ctrl-C', 'quit'],
 ];

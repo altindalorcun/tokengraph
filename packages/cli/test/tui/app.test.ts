@@ -202,11 +202,11 @@ describe('renderFrame', () => {
   it('shows key hints for the current tab, with the number keys only on wide screens', () => {
     const bar = (tab: 'overview' | 'models' | 'agents' | 'insights', width: number) =>
       toPlainText(renderFrame({ ...state(), tab }, { theme: 'dark' }, width, 40, STILL).buffer).split('\n').at(-1)!;
-    expect(bar('overview', 160)).toContain('1-5 tabs  ←↑↓→ day  [ ] year  t today  c colour  s rescan  ? help  q quit');
-    expect(bar('models', 160)).toContain('1-5 tabs  ↑↓ select  ←→ range  c colour  s rescan  ? help  q quit');
+    expect(bar('overview', 160)).toContain('1-5 tabs  ←↑↓→ day  [ ] year  t today  c colour  s rescan  : actions  ? help  q quit');
+    expect(bar('models', 160)).toContain('1-5 tabs  ↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit');
     expect(bar('agents', 120)).toContain('↑↓ select  ←→ range');
     expect(bar('agents', 120)).not.toContain('1-5 tabs');
-    expect(bar('insights', 160)).toContain('1-5 tabs  Tab next tab  s rescan  ? help  q quit');
+    expect(bar('insights', 160)).toContain('1-5 tabs  Tab next tab  s rescan  : actions  ? help  q quit');
     expect(bar('insights', 120)).not.toContain('range');
   });
 

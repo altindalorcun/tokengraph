@@ -11,6 +11,7 @@ import { drawConfirm } from './views/confirm.js';
 import { drawEmpty } from './views/empty.js';
 import { drawHelp } from './views/help.js';
 import { drawInsights } from './views/insights.js';
+import { drawPalette, filterEntries, paletteEntries } from './views/palette.js';
 import { drawModels } from './views/models.js';
 import { drawOverview } from './views/overview.js';
 import { drawSetup } from './views/setup.js';
@@ -26,11 +27,11 @@ export interface FrameHits {
 
 const TAB_LABELS = ['Overview', 'Models', 'Agents', 'Insights', 'Setup'];
 const HINTS: Record<AppState['tab'], string> = {
-  overview: '←↑↓→ day  [ ] year  t today  c colour  s rescan  ? help  q quit',
-  models: '↑↓ select  ←→ range  c colour  s rescan  ? help  q quit',
-  agents: '↑↓ select  ←→ range  c colour  h hooks  s rescan  ? help  q quit',
-  insights: 'Tab next tab  s rescan  ? help  q quit',
-  setup: '↑↓ select  enter run  s rescan  ? help  q quit',
+  overview: '←↑↓→ day  [ ] year  t today  c colour  s rescan  : actions  ? help  q quit',
+  models: '↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit',
+  agents: '↑↓ select  ←→ range  c colour  h hooks  s rescan  : actions  ? help  q quit',
+  insights: 'Tab next tab  s rescan  : actions  ? help  q quit',
+  setup: '↑↓ select  enter run  s rescan  : actions  ? help  q quit',
 };
 const WIDE_HINTS_WIDTH = 140; // wide screens also list the number keys
 const LIVE_WINDOW_MS = 60_000;
@@ -162,6 +163,7 @@ export function renderFrame(
   const rect = { x: 1, y: 3, width: buf.width - 2, height: buf.height - 4 };
   const view = drawView(buf, rect, state, theme, motion, items);
   if (state.help) drawHelp(buf, rect, theme);
+  if (state.palette) drawPalette(buf, rect, state.palette, filterEntries(paletteEntries(state), state.palette.query), theme);
   if (state.confirm) drawConfirm(buf, rect, state.confirm.text, theme);
   if (motion.wipe < 1) {
     const edge = rect.x + Math.floor(Math.max(0, motion.wipe) * rect.width);

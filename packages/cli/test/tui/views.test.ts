@@ -297,8 +297,8 @@ describe('views', () => {
   });
 
   it('help drops the glossary on a short screen but keeps the keys', () => {
-    const buf = new ScreenBuffer(100, 16);
-    drawHelp(buf, { x: 0, y: 0, width: 100, height: 16 }, theme);
+    const buf = new ScreenBuffer(100, 17);
+    drawHelp(buf, { x: 0, y: 0, width: 100, height: 17 }, theme);
     const text = toPlainText(buf);
     expect(text).toContain('quit');
     expect(text).not.toContain('weighted tokens');
@@ -493,3 +493,41 @@ describe('setup tab and confirm modal', () => {
     expect(frame('agents', 100, 30)).toContain('h manage');
   });
 });
+
+describe('command palette', () => {
+  const frame = (tab: 'overview' | 'models' | 'agents' | 'insights' | 'setup', width: number, height: number, palette: { query: string; selected: number }) =>
+    toPlainText(renderFrame({ ...initialState(model(), 'local only'), tab, palette }, { theme: 'dark' }, width, height, STILL).buffer);
+
+  it('draws the query line and the matching entries at 160×48', () => {
+    const text = frame('overview', 160, 48, { query: 'hook', selected: 1 });
+    for (const s of ['ACTIONS', '› hook', 'Claude Code hook', 'Cursor hook', 'Auto-sync · sync when a session ends']) expect(text).toContain(s);
+    expect(text.split('\n').find((row) => row.includes('Cursor hook'))).toContain('▸');
+    expect(text.split('\n').find((row) => row.includes('Claude Code hook'))).not.toContain('▸');
+  });
+
+  it('says no match when nothing fits', () => {
+    expect(frame('overview', 160, 48, { query: 'zzzqx', selected: 0 })).toContain('no match');
+  });
+
+  it('lists the palette keys in the hints and the help', () => {
+    for (const tab of ['overview', 'models', 'agents', 'insights', 'setup'] as const) {
+      const rows = toPlainText(renderFrame({ ...initialState(model(), 'local only'), tab }, { theme: 'dark' }, 160, 48, STILL).buffer).split('\n');
+      expect(rows[rows.length - 1]).toContain(': actions');
+    }
+    const buf = new ScreenBuffer(100, 40);
+    drawHelp(buf, { x: 0, y: 0, width: 100, height: 40 }, theme);
+    expect(toPlainText(buf)).toContain('command palette');
+  });
+
+  it('renders on every tab at the smallest size and at 100×30 without throwing', () => {
+    for (const [w, h] of [[MIN_WIDTH, MIN_HEIGHT], [100, 30]] as const) {
+      for (const tab of ['overview', 'models', 'agents', 'insights', 'setup'] as const) {
+        for (const query of ['', 'hook', 'zzzqx', 'a very long query that does not match anything in the palette at all']) {
+          expect(() => frame(tab, w, h, { query, selected: 3 })).not.toThrow();
+        }
+      }
+      expect(frame('overview', w, h, { query: 'hook', selected: 0 })).toContain('Claude Code hook');
+    }
+  });
+});
+

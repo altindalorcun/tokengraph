@@ -5,6 +5,7 @@ import type { FrameHits } from './frame.js';
 import type { InputEvent } from './input.js';
 import { RANGES, agentBreakdown, modelBreakdown, shiftDate, type RangeKey, type ViewModel } from './model.js';
 import type { OverviewState, TableState } from './views/props.js';
+import { filterEntries, paletteEntries } from './views/palette.js';
 import { hitTest } from './widgets/heatmap.js';
 
 export type TabKey = 'overview' | 'models' | 'agents' | 'insights' | 'setup';
@@ -19,6 +20,8 @@ export interface AppState {
   setupSel: number;
   colorMode: ColorMode;
   help: boolean;
+  /** The command palette while open: what was typed and the highlighted match. */
+  palette: { query: string; selected: number } | null;
   mode: string;
   /** Whether the session rescans on its own (false with --no-live). */
   live: boolean;
@@ -57,6 +60,7 @@ export function initialState(vm: ViewModel, mode: string, live = true): AppState
     setupSel: 0,
     colorMode: 'per-model',
     help: false,
+    palette: null,
     mode,
     live,
     scan: { running: false, current: null, done: 0, total: 0, lastScanAt: null, note: null },
@@ -167,12 +171,13 @@ function vertical(state: AppState, step: number): Reduced {
 
 function onChar(state: AppState, char: string): Reduced {
   const none = (next: AppState = state): Reduced => ({ state: next, effects: [] });
+  if (char === ':' && !state.help) return none({ ...state, palette: { query: '', selected: 0 } });
   if (char === 'q') return { state, effects: ['quit'] };
   if (char === '?') return none({ ...state, help: !state.help });
   if (state.help) return none();
   if (char >= '1' && char <= '5') return withTab(state, TABS[Number(char) - 1]!);
   if (char === 'h' && state.tab === 'agents') return openSetup(state, 'hook:claude-code');
-  if (char === 'c') return none({ ...state, colorMode: state.colorMode === 'single' ? 'per-model' : 'single' });
+  if (char === 'c') return none(toggleColour(state));
   if (char === 's') return { state, effects: ['rescan'] };
   if (state.tab === 'overview') {
     const today = state.vm.today;
@@ -186,6 +191,47 @@ function onChar(state: AppState, char: string): Reduced {
     return stepRange(state, 1);
   }
   return none();
+}
+
+function toggleColour(state: AppState): AppState {
+  return { ...state, colorMode: state.colorMode === 'single' ? 'per-model' : 'single' };
+}
+
+function jumpToToday(state: AppState): Reduced {
+  const today = state.vm.today;
+  const moved = withTab(state, 'overview');
+  return { state: { ...moved.state, overview: { cursor: today, yearEnd: today } }, effects: moved.effects };
+}
+
+/** While the palette is open every key edits the query or moves in the list; only Ctrl-C and Ctrl-K act on the app. */
+function onPalette(state: AppState, event: InputEvent, palette: NonNullable<AppState['palette']>): Reduced {
+  const none = (next: AppState = state): Reduced => ({ state: next, effects: [] });
+  const closed: AppState = { ...state, palette: null };
+  if (event.type === 'ctrl') {
+    if (event.char === 'c') return { state, effects: ['quit'] };
+    return event.char === 'k' ? none(closed) : none();
+  }
+  const matches = filterEntries(paletteEntries(state), palette.query);
+  const select = (selected: number): Reduced =>
+    none({ ...state, palette: { ...palette, selected: Math.max(0, Math.min(selected, matches.length - 1)) } });
+  const edit = (query: string): Reduced => none({ ...state, palette: { query, selected: 0 } });
+  if (event.type === 'char') return edit(palette.query + event.char);
+  if (event.type !== 'key') return none();
+  if (event.key === 'escape') return none(closed);
+  if (event.key === 'backspace') return edit([...palette.query].slice(0, -1).join(''));
+  if (event.key === 'up') return select(palette.selected - 1);
+  if (event.key === 'down') return select(palette.selected + 1);
+  if (event.key !== 'enter') return none();
+  const target = matches[palette.selected]?.target;
+  if (!target) return none();
+  if ('action' in target) return requestAction(closed, target.action);
+  if ('tab' in target) return withTab(closed, target.tab);
+  switch (target.command) {
+    case 'rescan': return { state: closed, effects: ['rescan'] };
+    case 'colour': return none(toggleColour(closed));
+    case 'today': return jumpToToday(closed);
+    case 'help': return none({ ...closed, help: true });
+  }
 }
 
 function onKey(state: AppState, key: string): Reduced {
@@ -214,7 +260,7 @@ function onKey(state: AppState, key: string): Reduced {
 }
 
 function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>, hits: FrameHits | null): Reduced {
-  if (state.help) return { state, effects: [] };
+  if (state.help || state.palette) return { state, effects: [] };
   if (event.action === 'wheelup') return vertical(state, -1);
   if (event.action === 'wheeldown') return vertical(state, 1);
   if (!hits) return { state, effects: [] };
@@ -269,11 +315,13 @@ function onConfirm(state: AppState, event: InputEvent, id: ActionId): Reduced {
 /** Pure reducer for input events; returns the next state and side-effect requests. */
 export function reduce(state: AppState, event: InputEvent, hits: FrameHits | null): Reduced {
   if (state.confirm) return onConfirm(state, event, state.confirm.id);
+  if (state.palette) return onPalette(state, event, state.palette);
   switch (event.type) {
     case 'char':
       return onChar(state, event.char);
     case 'ctrl':
-      return event.char === 'c' ? { state, effects: ['quit'] } : { state, effects: [] };
+      if (event.char === 'c') return { state, effects: ['quit'] };
+      return event.char === 'k' && !state.help ? { state: { ...state, palette: { query: '', selected: 0 } }, effects: [] } : { state, effects: [] };
     case 'key':
       return onKey(state, event.key);
     case 'mouse':
