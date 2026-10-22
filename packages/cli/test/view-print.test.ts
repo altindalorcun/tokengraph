@@ -52,7 +52,7 @@ describe('renderSnapshot', () => {
     ]);
     const out = renderSnapshot(buildViewModel(ledger, TODAY), { width: 100, theme: 'dark', depth: 'none', mode: 'local only' });
     expect(out).toContain('Busiest hour');
-    expect(out).toContain('9–10h · 82% of tokens (hour data from 2 Oct 2026)');
+    expect(out).toContain('09:00–10:00 · 82% of tokens (hour data from 2 Oct 2026)');
     expect(out.split('\n').every((line) => line.length <= 100)).toBe(true);
   });
 

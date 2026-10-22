@@ -26,7 +26,7 @@ const HINTS: Record<AppState['tab'], string> = {
   overview: '←↑↓→ day  [ ] year  t today  c colour  s rescan  ? help  q quit',
   models: '↑↓ select  ←→ range  c colour  s rescan  ? help  q quit',
   agents: '↑↓ select  ←→ range  c colour  s rescan  ? help  q quit',
-  insights: 'tab view  s rescan  ? help  q quit',
+  insights: 'Tab next tab  s rescan  ? help  q quit',
 };
 const WIDE_HINTS_WIDTH = 140; // wide screens also list the number keys
 const LIVE_WINDOW_MS = 60_000;

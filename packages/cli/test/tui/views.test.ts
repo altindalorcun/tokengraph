@@ -224,11 +224,11 @@ describe('views', () => {
     expect(toPlainText(buf)).not.toContain('TOKENS BY MODEL FAMILY');
   });
 
-  it('insights fills 160×40 with big cards, weekday columns, the 12-month chart and the novels callout', () => {
+  it('insights fills 160×40 with big cards, weekday columns, the months chart and the novels callout', () => {
     const buf = new ScreenBuffer(160, 40);
     drawInsights(buf, { x: 0, y: 0, width: 160, height: 40 }, base());
     const text = toPlainText(buf);
-    for (const s of ['LONGEST STREAK', 'LAST 12 MONTHS', 'BUSIEST WEEKDAY', 'Mon', 'Sun', 'Oct', '» You\'ve had AI write']) expect(text).toContain(s);
+    for (const s of ['LONGEST STREAK', 'LAST 6 MONTHS', 'BUSIEST WEEKDAY', 'Mon', 'Sun', 'Oct', '» You\'ve had AI write']) expect(text).toContain(s);
     expect(text).toMatch(/[┏╺]/);
     expect(text).not.toContain('✎');
     expect(text.split('\n').filter((row) => row.trim() === '').length).toBe(0);
@@ -319,24 +319,26 @@ describe('views', () => {
       }
       return buildViewModel(ledger, TODAY);
     }
+    const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const render = (width: number, height: number, vm = withHours()) => {
       const buf = new ScreenBuffer(width, height);
       drawInsights(buf, { x: 0, y: 0, width, height }, { vm, theme, motion: STILL, colorMode: 'per-model' });
       return toPlainText(buf);
     };
 
-    it('shows the busiest-hour card, the 24-hour profile and the weekday × hour grid at 160×44', () => {
-      const text = render(160, 44);
-      for (const s of ['BUSIEST HOUR', '22–23h', 'HOUR OF DAY', 'Mon', 'Sun', '■']) expect(text).toContain(s);
-      expect(text).toContain('50% of your tokens');
-      expect(text).toContain('hour data from');
+    it('shows the busiest-hour card and the coding clock at 160×48', () => {
+      const text = render(160, 48);
+      for (const s of ['BUSIEST HOUR', '22:00', 'CODING CLOCK', 'Evening coder', 'Peak', 'Busiest', 'Since', 'night', 'morning', 'afternoon', 'evening', 'All', '▐█▌', ...WEEKDAYS]) expect(text).toContain(s);
+      expect(text).toContain('50% · Evening coder');
+      expect(text).toContain('22:00–23:00 · 50%');
     });
 
-    it('drops the grid but keeps the card and the profile at 100×40', () => {
-      const text = render(100, 40);
-      expect(text).toContain('BUSIEST HOUR');
-      expect(text).toContain('HOUR OF DAY');
-      expect(text).not.toContain('■');
+    it('keeps the clock readable at 120×40 and falls back to the compact profile at 100×30', () => {
+      const wide = render(120, 40);
+      for (const s of ['CODING CLOCK', 'Evening coder', 'Peak', ...WEEKDAYS]) expect(wide).toContain(s);
+      const compact = render(100, 30);
+      expect(compact).toContain('CODING CLOCK');
+      expect(compact).toContain('Evening coder');
     });
 
     it('keeps the card at 70×24 and never writes outside the rect', () => {
@@ -349,7 +351,7 @@ describe('views', () => {
       const text = render(120, 34, model());
       expect(text).toContain('BUSIEST HOUR');
       expect(text).toContain('no hour data yet');
-      expect(text).not.toContain('HOUR OF DAY');
+      expect(text).not.toContain('CODING CLOCK');
     });
   });
 });

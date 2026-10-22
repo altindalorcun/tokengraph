@@ -98,7 +98,11 @@ export interface HourCell {
   weighted: number;
 }
 
-/** The 24-hour picture of the hour data: totals per hour, the busiest hour and a weekday × hour grid. */
+/** Quarter of the local day: night is hours 0–5, morning 6–11, afternoon 12–17, evening 18–23. */
+export type DayPart = 'night' | 'morning' | 'afternoon' | 'evening';
+export const DAY_PARTS: readonly DayPart[] = ['night', 'morning', 'afternoon', 'evening'];
+
+/** The 24-hour picture of the hour data: totals per hour, the busiest hour, day parts and a weekday × hour grid. */
 export interface HourProfile {
   /** Weighted tokens per local hour, index 0..23. */
   byHour: number[];
@@ -109,6 +113,12 @@ export interface HourProfile {
   firstDate: string | null;
   /** Weekday (Monday first) × hour, weighted tokens. */
   grid: number[][];
+  /** Share (0..1) of the hour data in each part of the day; sums to 1 with data, all 0 without. */
+  parts: Record<DayPart, number>;
+  /** What the day parts say about when you code; null without hour data. */
+  persona: string | null;
+  /** The grid's busiest cell (weekday Monday = 0); null without data. */
+  peak: { weekday: number; hour: number; weighted: number } | null;
 }
 
 export interface Stats {
@@ -144,7 +154,7 @@ export interface Insights {
   longest: Streak | null;
   record: { date: string; weighted: number } | null;
   favourite: { name: string; family: ModelFamily; weighted: number } | null;
-  /** Average weighted per weekday over the 52 weeks ending today, Monday first (length 7). */
+  /** Average weighted per weekday over the days since max(first day, today − 363), Monday first (length 7); 0 for a weekday that did not occur. */
   weekdays: number[];
   activeDays: number;
   firstDay: string | null;
@@ -322,20 +332,46 @@ export function hourProfile(vm: ViewModel): HourProfile {
     total += weighted;
   }
   let busiest: HourProfile['busiest'] = null;
+  let peak: HourProfile['peak'] = null;
+  const parts: Record<DayPart, number> = { night: 0, morning: 0, afternoon: 0, evening: 0 };
+  let persona: string | null = null;
   if (total > 0) {
     const max = Math.max(...byHour);
     const hour = byHour.indexOf(max);
     busiest = { hour, share: max / total };
+    grid.forEach((row, weekday) =>
+      row.forEach((weighted, h) => {
+        if (weighted > 0 && (!peak || weighted > peak.weighted)) peak = { weekday, hour: h, weighted };
+      }),
+    );
+    byHour.forEach((weighted, h) => {
+      parts[DAY_PARTS[Math.floor(h / 6)]!] += weighted / total;
+    });
+    persona = personaFor(parts);
   }
-  return { byHour, total, busiest, firstDate: vm.hours[0]?.date ?? null, grid };
+  return { byHour, total, busiest, firstDate: vm.hours[0]?.date ?? null, grid, parts, persona, peak };
 }
 
-/** "22–23h": the busiest hour as a range (the last hour of the day ends at 0h). */
+const PERSONAS: Record<DayPart, string> = { night: 'Night owl', morning: 'Early bird', afternoon: 'Daytime coder', evening: 'Evening coder' };
+
+/** The largest day part names the persona (a tie goes to the earlier part); under 35% nothing stands out. */
+function personaFor(parts: Record<DayPart, number>): string {
+  let top: DayPart = 'night';
+  for (const part of DAY_PARTS) if (parts[part] > parts[top]) top = part;
+  return parts[top] < 0.35 ? 'Around the clock' : PERSONAS[top];
+}
+
+/** "09:00" */
+export function hourLabel(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+/** "23:00–24:00": the hour as a range (the last hour of the day ends at 24:00). */
 export function hourRange(hour: number): string {
-  return `${hour}–${(hour + 1) % 24}h`;
+  return `${hourLabel(hour)}–${String(hour + 1).padStart(2, '0')}:00`;
 }
 
-/** "22–23h · 18%" */
+/** "23:00–24:00 · 18%" */
 export function busiestHourText(profile: HourProfile): string | null {
   return profile.busiest ? `${hourRange(profile.busiest.hour)} · ${Math.round(profile.busiest.share * 100)}%` : null;
 }
@@ -500,18 +536,21 @@ export function insights(vm: ViewModel): Insights {
     if (entry.weighted > 0 && (!favourite || entry.weighted > favourite.weighted)) favourite = { ...entry };
   }
 
+  // Averaged over the days that existed: a newcomer's Sundays are not diluted by a year they were not around for.
   const weekdays = new Array<number>(7).fill(0);
-  for (let i = 0; i < GRID_DAYS; i += 1) {
-    const date = shiftDate(vm.today, -i);
+  const occurrences = new Array<number>(7).fill(0);
+  const windowStart = vm.firstDay === null ? vm.today : vm.firstDay > shiftDate(vm.today, -(GRID_DAYS - 1)) ? vm.firstDay : shiftDate(vm.today, -(GRID_DAYS - 1));
+  for (let date = vm.today; date >= windowStart; date = shiftDate(date, -1)) {
     const monday0 = (new Date(`${date}T00:00:00Z`).getUTCDay() + 6) % 7;
     weekdays[monday0] = (weekdays[monday0] ?? 0) + weightedOn(vm, date);
+    occurrences[monday0] = (occurrences[monday0] ?? 0) + 1;
   }
 
   return {
     longest: longestStreak(days),
     record,
     favourite,
-    weekdays: weekdays.map((sum) => sum / 52),
+    weekdays: weekdays.map((sum, i) => (occurrences[i]! > 0 ? sum / occurrences[i]! : 0)),
     activeDays: days.length,
     firstDay: vm.firstDay,
     outputTokens,
@@ -664,11 +703,13 @@ export function agentBuckets(
   });
 }
 
-/** Weighted per calendar month for the 12 months ending with today's month, oldest first; label 'Oct' etc. */
+/** Weighted per calendar month ending with today's month, oldest first; 6 to 12 months (as far back as the first day); label 'Oct' etc. */
 export function monthlyTotals(vm: ViewModel): { label: string; weighted: number }[] {
   const last = monthIndex(vm.today);
-  return Array.from({ length: 12 }, (_, i) => {
-    const index = last - 11 + i;
+  const since = vm.firstDay === null ? 1 : last - monthIndex(vm.firstDay) + 1;
+  const count = Math.max(6, Math.min(12, since));
+  return Array.from({ length: count }, (_, i) => {
+    const index = last - (count - 1) + i;
     const bucket = monthBucket(index, vm.today, MONTH_NAMES[index % 12]!);
     return { label: bucket.label, weighted: eachDayIn(vm, bucket).reduce((sum, day) => sum + day.weighted, 0) };
   });

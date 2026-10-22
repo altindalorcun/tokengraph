@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { cacheSavingsForSplitCounts } from '@tokengraph/core';
-import { emptyLedger, mergeUsage, type Ledger } from '../../src/ledger.js';
+import { emptyLedger, mergeHours, mergeUsage, type Ledger } from '../../src/ledger.js';
 import {
   agentBreakdown, agentBuckets, buildViewModel, familyBuckets, monthlyTotals, rangeBuckets, dailySeries, familySeries, formatCost, insights, modelBreakdown, rangeStart, rangeTotals,
-  shiftDate, stats, yearGrid,
+  hourLabel, hourProfile, hourRange, busiestHourText, shiftDate, stats, yearGrid,
 } from '../../src/tui/model.js';
 
 const TODAY = '2026-10-03';
@@ -160,7 +160,7 @@ describe('view model', () => {
     expect(i.outputTokens).toBe(240_000);
     expect(i.novels).toBe(2);
     expect(i.weekdays).toHaveLength(7);
-    expect(i.weekdays[0]).toBeCloseTo(240_010 / 52);
+    expect(i.weekdays[0]).toBe(240_010); // the only Monday since the first day
     expect(i.firstDay).toBe('2026-09-28');
     expect(i.activeDays).toBe(2);
   });
@@ -337,5 +337,57 @@ describe('chart buckets', () => {
     expect(months[11]).toEqual({ label: 'Oct', weighted: 4 });
     expect(months[10]!.label).toBe('Sep');
     expect(months.reduce((a, m) => a + m.weighted, 0)).toBe(4);
+  });
+
+  describe('coding clock', () => {
+    const hoursVm = (rows: { hour: number; weighted: number }[]) => {
+      let ledger = ledgerWith([{ source: 'claude-code', date: '2026-10-03', model: 'gpt-5', c: counts(10) }]);
+      ledger = mergeHours(ledger, 'claude-code', rows.map((r) => ({ date: '2026-10-03', ...r })));
+      return buildViewModel(ledger, TODAY);
+    };
+
+    it('names the persona from the share of each part of the day, and finds the peak cell', () => {
+      const p = hourProfile(hoursVm([{ hour: 23, weighted: 700 }, { hour: 10, weighted: 300 }]));
+      expect(p.parts.evening).toBeCloseTo(0.7);
+      expect(p.parts.morning).toBeCloseTo(0.3);
+      expect(p.persona).toBe('Evening coder');
+      expect(p.peak).toEqual({ weekday: 5, hour: 23, weighted: 700 }); // 2026-10-03 is a Saturday
+    });
+
+    it('says around the clock when no part reaches 35%, and has no persona without data', () => {
+      const p = hourProfile(hoursVm([{ hour: 2, weighted: 100 }, { hour: 8, weighted: 100 }, { hour: 14, weighted: 100 }, { hour: 20, weighted: 100 }]));
+      expect(p.persona).toBe('Around the clock');
+      expect(hourProfile(buildViewModel(emptyLedger(), TODAY))).toMatchObject({ persona: null, peak: null, parts: { night: 0, morning: 0, afternoon: 0, evening: 0 } });
+    });
+
+    it('maps the other parts to their personas and breaks ties towards the earlier part', () => {
+      expect(hourProfile(hoursVm([{ hour: 3, weighted: 100 }])).persona).toBe('Night owl');
+      expect(hourProfile(hoursVm([{ hour: 7, weighted: 100 }])).persona).toBe('Early bird');
+      expect(hourProfile(hoursVm([{ hour: 15, weighted: 100 }])).persona).toBe('Daytime coder');
+      expect(hourProfile(hoursVm([{ hour: 3, weighted: 100 }, { hour: 7, weighted: 100 }])).persona).toBe('Night owl');
+    });
+
+    it('formats hours as clock ranges', () => {
+      expect(hourRange(23)).toBe('23:00–24:00');
+      expect(hourRange(0)).toBe('00:00–01:00');
+      expect(hourLabel(9)).toBe('09:00');
+      expect(busiestHourText(hourProfile(hoursVm([{ hour: 23, weighted: 180 }, { hour: 9, weighted: 820 }])))).toBe('09:00–10:00 · 82%');
+    });
+  });
+
+  it('averages a weekday over its occurrences since the first day, not over 52 weeks', () => {
+    const sundays = ['2026-09-27', '2026-09-20', '2026-09-13']; // firstDay is 20 days ago
+    const vm = buildViewModel(ledgerWith(sundays.map((date) => ({ source: 'claude-code' as const, date, model: 'gpt-5', c: counts(1000) }))), TODAY);
+    const { weekdays } = insights(vm);
+    expect(weekdays[6]).toBe(1000);
+    expect(weekdays.slice(0, 6).every((v) => v === 0)).toBe(true);
+  });
+
+  it('shows 6 to 12 months depending on how long ago the data starts', () => {
+    const at = (date: string) => monthlyTotals(buildViewModel(ledgerWith([{ source: 'claude-code', date, model: 'gpt-5', c: counts(5) }]), TODAY));
+    expect(at('2026-08-03')).toHaveLength(6);
+    expect(at('2025-02-03')).toHaveLength(12);
+    expect(at('2026-08-03').at(-1)!.label).toBe('Oct');
+    expect(monthlyTotals(buildViewModel(emptyLedger(), TODAY))).toHaveLength(6);
   });
 });

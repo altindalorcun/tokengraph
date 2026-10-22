@@ -105,7 +105,7 @@ describe('renderFrame', () => {
     expect(bar('models', 160)).toContain('1-4 tabs  ↑↓ select  ←→ range  c colour  s rescan  ? help  q quit');
     expect(bar('agents', 120)).toContain('↑↓ select  ←→ range');
     expect(bar('agents', 120)).not.toContain('1-4 tabs');
-    expect(bar('insights', 160)).toContain('1-4 tabs  tab view  s rescan  ? help  q quit');
+    expect(bar('insights', 160)).toContain('1-4 tabs  Tab next tab  s rescan  ? help  q quit');
     expect(bar('insights', 120)).not.toContain('range');
   });
 
