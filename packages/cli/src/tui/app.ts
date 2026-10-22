@@ -56,6 +56,8 @@ const TICK_MS = 1000;
 const SAMPLE_WINDOW_MS = 15 * 60_000;
 const MIN_SAMPLE_SPAN_MS = 30_000;
 const PERSIST_GRACE_MS = 2000;
+// Input that arrives this soon after a screen action returns was typed ahead during the command, not meant for the view.
+const SETTLE_MS = 150;
 const FLAME_WIDTH = 8;
 const FLAME_HEIGHT = 6;
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -106,6 +108,9 @@ export async function runApp(deps: AppDeps): Promise<number> {
       let samples: { t: number; weighted: number }[] = [];
       let persisting: Promise<unknown> | null = null;
       let scanTask: Promise<void> = Promise.resolve();
+      // True while a command owns the normal screen: nothing may be painted and typed-ahead input is dropped.
+      let suspended = false;
+      let settling = false;
 
       const finish = (code: number | Error): void => {
         if (finished) return;
@@ -169,6 +174,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
       };
 
       const draw = (): void => {
+        if (suspended) return;
         cancelTimer(frameTimer);
         frameTimer = null;
         paint();
@@ -314,6 +320,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
 
       /** Hands the terminal to a command: normal screen, its output, then a pause so the output can be read. */
       const runOnScreen = async (id: ActionId, title: string): Promise<void> => {
+        suspended = true;
         terminal.suspend();
         try {
           deps.write(`\n› ${title}\n\n`);
@@ -329,7 +336,10 @@ export async function runApp(deps: AppDeps): Promise<number> {
           deps.write('\nPress Enter to return to tokengraph.');
           await deps.waitForEnter();
         } finally {
+          settling = true;
+          after(() => { settling = false; }, SETTLE_MS);
           terminal.resume();
+          suspended = false;
           prev = null;
         }
       };
@@ -350,8 +360,10 @@ export async function runApp(deps: AppDeps): Promise<number> {
           if (finished) return;
           if (kind === 'inline') {
             const { code, lines } = await deps.runAction(id, 'inline', state.setup);
-            const last = lines.map((line) => line.replace(ANSI, '').trim()).filter(Boolean).at(-1);
-            toast(last ?? (code === 0 ? 'Done.' : 'Failed.'), code === 0 ? 'good' : 'bad');
+            // Success reads best as the first line ("Installed ..."), failure as the last (the reason); hints trail the first.
+            const shown = lines.map((line) => line.replace(ANSI, '').trim()).filter(Boolean);
+            const line = code === 0 ? shown[0] : shown.at(-1);
+            toast(line ?? (code === 0 ? 'Done.' : 'Failed.'), code === 0 ? 'good' : 'bad');
           } else {
             ledgerChanged = true;
             await runOnScreen(id, item?.title ?? id);
@@ -368,6 +380,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
       };
 
       const onInput = guard((events: InputEvent[]): void => {
+        if (suspended || settling) return;
         // An Alt+key chord arrives as an escape immediately followed by the key; the escape alone must not quit.
         const list = events.filter((event, i) => !(event.type === 'key' && event.key === 'escape' && i < events.length - 1));
         if (intro) {

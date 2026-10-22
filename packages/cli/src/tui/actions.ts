@@ -29,6 +29,8 @@ export interface ActionItem {
   kind: 'inline' | 'screen';
   confirm: string | null;
   recommended: boolean;
+  /** Graph colours only: the mode the action switches to. */
+  next?: GraphColors;
 }
 
 interface HookDef {
@@ -87,7 +89,8 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
   } else {
     items.push(screen('sync', 'Account', 'Sync and publish now', 'update your gist graph'));
     items.push(screen('readme', 'Account', 'Copy the README snippet', 'show your graph in a GitHub README'));
-    items.push(screen('colors', 'Account', 'Graph colours', status?.graphColors === 'single' ? 'single colour' : 'by model family'));
+    const single = status?.graphColors === 'single';
+    items.push({ ...screen('colors', 'Account', 'Graph colours', single ? 'single colour' : 'by model family'), next: single ? 'model' : 'single' });
     items.push(screen('logout', 'Account', `Disconnect @${login}`, 'forget the login on this machine'));
   }
 
@@ -126,24 +129,24 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
   return items;
 }
 
-const HOOK_AGENTS: Record<string, HookAgent> = {
-  'hook:claude-code': 'claude-code',
-  'hook:cursor': 'cursor',
-  'hook:codex': 'codex',
-  'hook:gemini-cli': 'gemini-cli',
-};
+function unreachable(id: never): never {
+  throw new Error(`no command for action ${String(id)}`);
+}
 
 /** The command line that does what the item does now (a toggle shows the direction it would flip). */
 export function cliCommand(item: ActionItem): string {
   const on = item.state === 'on';
-  const agent = HOOK_AGENTS[item.id];
-  if (agent) return `tokengraph install-hook --agent ${agent}${on ? ' --remove' : ''}`;
+  const hook = (agent: HookAgent): string => `tokengraph install-hook --agent ${agent}${on ? ' --remove' : ''}`;
   switch (item.id) {
+    case 'hook:claude-code': return hook('claude-code');
+    case 'hook:cursor': return hook('cursor');
+    case 'hook:codex': return hook('codex');
+    case 'hook:gemini-cli': return hook('gemini-cli');
     case 'sync': return 'tokengraph sync';
     case 'login': return 'tokengraph login';
     case 'logout': return 'tokengraph logout';
     case 'readme': return 'tokengraph readme';
-    case 'colors': return `tokengraph readme --colors ${item.detail === 'single colour' ? 'model' : 'single'}`;
+    case 'colors': return `tokengraph readme --colors ${item.next ?? 'single'}`;
     case 'schedule': return `tokengraph schedule${on ? ' --remove' : ''}`;
     case 'cursor-fetch': return `tokengraph cursor ${on ? 'off' : 'on'}`;
     case 'cursor-fetch-now': return 'tokengraph cursor fetch';
@@ -152,8 +155,9 @@ export function cliCommand(item: ActionItem): string {
     case 'export-json': return 'tokengraph export --format json --out <file>';
     case 'story': return 'tokengraph story';
     case 'status': return 'tokengraph status';
-    default: return 'tokengraph uninstall';
+    case 'uninstall': return 'tokengraph uninstall';
   }
+  return unreachable(item.id);
 }
 
 /** Setup steps done out of those that apply: GitHub, one hook per hook-capable agent in use, and the hourly sync for the rest. */

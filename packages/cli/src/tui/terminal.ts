@@ -70,6 +70,7 @@ export function openTerminal(io: TerminalIO, options: { mouse?: boolean } = {}):
 
   // Signals that terminate the process skip 'exit' handlers, so restore explicitly and exit with the shell's 128+n code.
   const onSigterm = (): void => { restore(); process.exit(143); };
+  // Also while suspended: Ctrl-C during a command restores the terminal and exits 130, as it always has.
   const onSigint = (): void => { restore(); process.exit(130); };
   const onSighup = (): void => { restore(); process.exit(129); };
 
@@ -94,6 +95,7 @@ export function openTerminal(io: TerminalIO, options: { mouse?: boolean } = {}):
     suspended = true;
     if (escapeTimer) clearTimeout(escapeTimer);
     escapeTimer = undefined;
+    decoder.flush(); // a half-read escape sequence must not join the keys typed after the command
     // A cooked-mode prompt reads stdin itself; the TUI must not see (or swallow) those keystrokes.
     for (const listener of dataListeners) stdin.off('data', listener);
     try { stdout.write(LEAVE_SEQUENCE); } catch { /* terminal already gone */ }

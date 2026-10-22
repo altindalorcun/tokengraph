@@ -139,4 +139,10 @@ describe('cliCommand', () => {
     expect(cmd(on, 'cursor-fetch')).toBe('tokengraph cursor on');
     expect(cmd(on, 'colors')).toBe('tokengraph readme --colors model');
   });
+
+  it('takes the colours direction from the status, not from the label', () => {
+    const items = actionItems(status({ login: 'orcun', graphColors: 'single' }), []);
+    expect(find(items, 'colors').next).toBe('model');
+    expect(cliCommand({ ...find(items, 'colors'), detail: 'anything' })).toBe('tokengraph readme --colors model');
+  });
 });

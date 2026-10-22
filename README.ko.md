@@ -93,7 +93,7 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 | | |
 | --- | --- |
 | **내 컴퓨터를 떠나는 것** | 내 계정의 공개 gist로: SVG 그래프(일별 토큰 합계와, 색을 나누는 데 쓰이는 모델 계열 이름), 그리고 임베드 스니펫과 링크가 담긴 README. 내 계정의 secret gist로: 일별·모델별 토큰 수, 무작위 컴퓨터 id, `darwin-3f2a1c` 같은 레이블, 해시한 컴퓨터 핑거프린트, CLI 버전, 마지막 업데이트 시각. 둘 다 `tokengraph login` 이후에만, 그리고 tokengraph가 게시할 때(`sync`, 훅, 스케줄, `login`)에만 전송됩니다. `sync --local`, `story`, `status`, `export`, `import`는 절대 전송하지 않으며, `view`도 그 안에서 Sync(또는 login, 그래프 색)를 직접 고를 때만 전송합니다. |
-| **이 컴퓨터에 남는 것** | 각 에이전트를 하루 중 몇 시에 썼는지. tokengraph는 가장 바쁜 시간 카드와 `export --hours`를 위해 현지 시각 기준 시간별 가중 토큰 수를 `state.json`에 보관합니다. 이 값은 컴퓨터 파일, 데이터 gist, 그래프, 스토리 카드에 절대 들어가지 않습니다. 시간대 데이터는 에이전트 로그가 아직 남아 있는 날에 대해서만 존재합니다. |
+| **이 컴퓨터에 남는 것** | 각 에이전트를 하루 중 몇 시에 썼는지. tokengraph는 가장 바쁜 시간 카드, 코딩 시계, `export --hours`를 위해 현지 시각 기준 시간별 가중 토큰 수를 `state.json`에 보관합니다. 이 값은 컴퓨터 파일, 데이터 gist, 그래프, 스토리 카드에 절대 들어가지 않습니다. 시간대 데이터는 에이전트 로그가 아직 남아 있는 날에 대해서만 존재합니다. |
 | **tokengraph가 가져오는 것** | Cursor에 한해, 그리고 켜져 있을 때만(Cursor에 로그인되어 있으면 기본값이며 `tokengraph cursor off`로 끕니다): `sync`가 Cursor의 로컬 데이터베이스에서 Cursor 자체의 로그인 토큰을 읽고(읽기 전용, 그 한 행만) cursor.com에 내 사용량 내보내기, 즉 Cursor 대시보드의 내보내기 버튼이 주는 것과 같은 파일을 요청합니다. 토큰은 cursor.com으로만 전송되고, 요청하는 동안만 메모리에 있으며, 저장되거나 출력되거나 로그에 남지 않습니다. 저장되는 것은 사용량 행(타임스탬프, 모델 이름, 토큰 수)입니다. `sync --local`은 절대 가져오지 않습니다. |
 | **절대 떠나지 않는 것** | 프롬프트, 답변, 코드, 파일 이름, 경로. tokengraph 서버로는 아무것도 전송되지 않습니다. 그런 서버 자체가 없습니다. |
 | **삭제하는 방법** | `tokengraph logout`은 이 컴퓨터에서 로그인 정보를 지웁니다. 게시된 내용을 없애려면 [gist.github.com](https://gist.github.com)에서 두 gist를 삭제하세요. |

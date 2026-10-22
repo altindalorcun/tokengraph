@@ -103,6 +103,11 @@ function matchColumns(title: string, query: string): Set<number> {
   return at === needle.length ? columns : new Set();
 }
 
+/** Keeps a selection inside a list that may have shrunk since it was made. */
+export function clampSelection(selected: number, length: number): number {
+  return Math.max(0, Math.min(selected, length - 1));
+}
+
 /** Index of the first visible row so the selected one stays inside a window of `rows`. */
 function firstRow(selected: number, rows: number): number {
   return Math.max(0, selected - rows + 1);
@@ -135,12 +140,13 @@ export function drawPalette(
     blit(buf, view, rect.x, rect.y);
     return;
   }
-  const first = firstRow(palette.selected, rows);
+  const current = clampSelection(palette.selected, entries.length);
+  const first = firstRow(current, rows);
   for (let i = 0; i < rows; i += 1) {
     const entry = entries[first + i];
     if (!entry) break;
     const y = inner.y + 2 + i;
-    const selected = first + i === palette.selected;
+    const selected = first + i === current;
     const bg = selected ? theme.panel : theme.bg;
     view.fill({ x: inner.x, y, width: inner.width, height: 1 }, ' ', { bg });
     view.text(x, y, selected ? '▸' : ' ', { fg: theme.accent, bg });

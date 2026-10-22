@@ -16,6 +16,7 @@ import { hitTest } from '../../src/tui/widgets/heatmap.js';
 import { drawOverview } from '../../src/tui/views/overview.js';
 import { MIN_HEIGHT, MIN_WIDTH, drawTooSmall } from '../../src/tui/views/too-small.js';
 import { actionItems, type SetupStatus } from '../../src/tui/actions.js';
+import { filterEntries, paletteEntries } from '../../src/tui/views/palette.js';
 import { initialState, type AppState } from '../../src/tui/app-state.js';
 import { renderFrame } from '../../src/tui/frame.js';
 
@@ -503,6 +504,13 @@ describe('command palette', () => {
     for (const s of ['ACTIONS', '› hook', 'Claude Code hook', 'Cursor hook', 'Auto-sync · sync when a session ends']) expect(text).toContain(s);
     expect(text.split('\n').find((row) => row.includes('Cursor hook'))).toContain('▸');
     expect(text.split('\n').find((row) => row.includes('Claude Code hook'))).not.toContain('▸');
+  });
+
+  it('highlights the last row when the selection is beyond the list', () => {
+    const text = frame('overview', 160, 48, { query: 'hook', selected: 99 });
+    const marked = text.split('\n').filter((row) => row.includes('▸'));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toContain(filterEntries(paletteEntries(initialState(model(), 'local only')), 'hook').at(-1)!.title);
   });
 
   it('says no match when nothing fits', () => {

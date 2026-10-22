@@ -509,6 +509,55 @@ describe('runApp', () => {
       expect(await app.done).toBe(0);
     });
 
+    it('toasts the first line of a successful inline action and the last of a failing one', async () => {
+      const ok = start({ runAction: vi.fn(async () => ({ code: 0, lines: ['Installed the hook.', '', 'If SessionEnd is not supported, try X.'] })) });
+      await wait();
+      ok.request('schedule');
+      ok.term.send([{ type: 'char', char: 'y' }]);
+      await wait();
+      expect(ok.text()).toContain('✓ Installed the hook.');
+      expect(ok.text()).not.toContain('If SessionEnd');
+      ok.term.send([{ type: 'char', char: 'q' }]);
+      await ok.done;
+      const bad = start({ runAction: vi.fn(async () => ({ code: 1, lines: ['Trying.', 'Could not write settings.'] })) });
+      await wait();
+      bad.request('schedule');
+      bad.term.send([{ type: 'char', char: 'y' }]);
+      await wait();
+      expect(bad.text()).toContain('✗ Could not write settings.');
+      bad.term.send([{ type: 'char', char: 'q' }]);
+      await bad.done;
+    });
+
+    it('writes nothing while a screen action runs, then redraws; typed-ahead input after resume is ignored', async () => {
+      let release: () => void = () => {};
+      let resize: () => void = () => {};
+      const app = start({
+        runAction: vi.fn(() => new Promise((resolve) => { release = () => resolve({ code: 0, lines: [] }); })),
+        setTimer: (fn: () => void, ms: number) => { const t = setTimeout(fn, ms > 100 ? Math.min(ms, 20) : ms); return () => clearTimeout(t); },
+      });
+      (app.term.terminal as { onResize: (fn: () => void) => void }).onResize = (fn) => void (resize = fn);
+      await wait();
+      app.request('status');
+      await wait();
+      expect(app.term.calls).toEqual(['suspend']);
+      const before = app.term.writes.length;
+      resize();
+      await wait(80);
+      expect(app.term.writes.length).toBe(before);
+      // A key typed during the command and delivered on resume must not reach the view.
+      const terminal = app.term.terminal as { resume: () => void; write: (s: string) => void };
+      const resume = terminal.resume;
+      terminal.resume = () => { resume(); app.term.send([{ type: 'char', char: 'q' }]); };
+      release();
+      await wait(10);
+      expect(app.term.calls).toEqual(['suspend', 'enter', 'resume']);
+      expect(app.term.writes.length).toBeGreaterThan(before);
+      await wait(60);
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
     it('shows a failing exit code as a red toast', async () => {
       const app = start({ runAction: vi.fn(async () => ({ code: 1, lines: ['Nope.'] })) });
       await wait();

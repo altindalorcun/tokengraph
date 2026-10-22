@@ -5,7 +5,7 @@ import type { FrameHits } from './frame.js';
 import type { InputEvent } from './input.js';
 import { RANGES, agentBreakdown, modelBreakdown, shiftDate, type RangeKey, type ViewModel } from './model.js';
 import type { OverviewState, TableState } from './views/props.js';
-import { filterEntries, paletteEntries } from './views/palette.js';
+import { clampSelection, filterEntries, paletteEntries } from './views/palette.js';
 import { hitTest } from './widgets/heatmap.js';
 
 export type TabKey = 'overview' | 'models' | 'agents' | 'insights' | 'setup';
@@ -213,16 +213,17 @@ function onPalette(state: AppState, event: InputEvent, palette: NonNullable<AppS
   }
   const matches = filterEntries(paletteEntries(state), palette.query);
   const select = (selected: number): Reduced =>
-    none({ ...state, palette: { ...palette, selected: Math.max(0, Math.min(selected, matches.length - 1)) } });
+    none({ ...state, palette: { ...palette, selected: clampSelection(selected, matches.length) } });
   const edit = (query: string): Reduced => none({ ...state, palette: { query, selected: 0 } });
   if (event.type === 'char') return edit(palette.query + event.char);
   if (event.type !== 'key') return none();
   if (event.key === 'escape') return none(closed);
   if (event.key === 'backspace') return edit([...palette.query].slice(0, -1).join(''));
-  if (event.key === 'up') return select(palette.selected - 1);
-  if (event.key === 'down') return select(palette.selected + 1);
+  const current = clampSelection(palette.selected, matches.length);
+  if (event.key === 'up') return select(current - 1);
+  if (event.key === 'down') return select(current + 1);
   if (event.key !== 'enter') return none();
-  const target = matches[palette.selected]?.target;
+  const target = matches[current]?.target;
   if (!target) return none();
   if ('action' in target) return requestAction(closed, target.action);
   if ('tab' in target) return withTab(closed, target.tab);

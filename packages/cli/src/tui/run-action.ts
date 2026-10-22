@@ -57,9 +57,9 @@ function dateStamp(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-async function exportFile(format: 'csv' | 'json'): Promise<number> {
-  const out = `tokengraph-${dateStamp()}.${format}`;
-  const code = await runExport({ format, out });
+async function exportFile(kind: 'csv' | 'json'): Promise<number> {
+  const out = `tokengraph-${dateStamp()}.${kind}`;
+  const code = await runExport({ format: kind, out });
   if (code === 0) console.log(`Wrote ${resolve(process.cwd(), out)}`);
   return code;
 }

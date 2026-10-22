@@ -97,6 +97,14 @@ describe('palette in the reducer', () => {
     expect(press(open(), key('backspace')).state.palette!.query).toBe('');
   });
 
+  it('clamps a selection beyond the filtered list, so Enter runs the last entry', () => {
+    const s = typed(open(), 'hook');
+    const last = filterEntries(paletteEntries(s), 'hook').length - 1;
+    const stale = press({ ...s, palette: { ...s.palette!, selected: 40 } }, key('enter'));
+    expect(stale).toEqual(press({ ...s, palette: { ...s.palette!, selected: last } }, key('enter')));
+    expect(stale.state.palette).toBeNull();
+  });
+
   it('runs an action entry through requestAction and closes the palette', () => {
     const out = press(typed(open(), 'claude code hook'), key('enter'));
     expect(out.state.palette).toBeNull();
