@@ -1,4 +1,4 @@
-import { actionItems, type ActionId } from '../actions.js';
+import { actionItems, cliCommand, type ActionId, type ActionItem } from '../actions.js';
 import type { AppState, TabKey } from '../app-state.js';
 import { ScreenBuffer, type Rect } from '../screen.js';
 import type { TuiTheme } from '../theme.js';
@@ -11,6 +11,8 @@ export interface PaletteEntry {
   title: string;
   section: string;
   detail: string;
+  /** Extra words the filter matches but the list never shows. */
+  keywords: string;
   target: PaletteTarget;
 }
 
@@ -18,27 +20,34 @@ const BOX_WIDTH = 72;
 const MAX_ROWS = 10;
 const PADDING = 1; // columns between the border and the text
 
-const TAB_ENTRIES: readonly (readonly [TabKey, string])[] = [
-  ['overview', 'Overview'],
-  ['models', 'Models'],
-  ['agents', 'Agents'],
-  ['insights', 'Insights'],
-  ['setup', 'Setup'],
+const TAB_ENTRIES: readonly (readonly [TabKey, string, string])[] = [
+  ['overview', 'Overview', 'heatmap graph days'],
+  ['models', 'Models', 'cost price'],
+  ['agents', 'Agents', 'sources hooks status'],
+  ['insights', 'Insights', 'stats streak'],
+  ['setup', 'Setup', 'settings config'],
 ];
+
+/** The CLI command name (`install-hook`, `export`, ...) plus words people reach for. */
+function actionKeywords(item: ActionItem): string {
+  const command = cliCommand(item).split(' ')[1] ?? '';
+  const extra = item.id.startsWith('hook:') ? 'hook' : item.id === 'schedule' ? 'schedule cron background' : '';
+  return `${command} ${extra}`.trim();
+}
 
 /** Every action of the Setup tab, then the navigation and view commands, in the order the palette lists them. */
 export function paletteEntries(state: AppState): PaletteEntry[] {
   const actions = actionItems(state.setup, state.vm.sources).map(
-    (item): PaletteEntry => ({ title: item.title, section: item.section, detail: item.detail, target: { action: item.id } }),
+    (item): PaletteEntry => ({ title: item.title, section: item.section, detail: item.detail, keywords: actionKeywords(item), target: { action: item.id } }),
   );
   const tabs = TAB_ENTRIES.map(
-    ([tab, label], i): PaletteEntry => ({ title: `Go to ${label}`, section: 'Navigate', detail: `key ${i + 1}`, target: { tab } }),
+    ([tab, label, keywords], i): PaletteEntry => ({ title: `Go to ${label}`, section: 'Navigate', detail: `key ${i + 1}`, keywords, target: { tab } }),
   );
   const commands: PaletteEntry[] = [
-    { title: 'Rescan now', section: 'View', detail: 'key s', target: { command: 'rescan' } },
-    { title: 'Switch colours', section: 'View', detail: 'key c', target: { command: 'colour' } },
-    { title: 'Jump to today', section: 'View', detail: 'key t', target: { command: 'today' } },
-    { title: 'Show keys', section: 'View', detail: 'key ?', target: { command: 'help' } },
+    { title: 'Rescan now', section: 'View', detail: 'key s', keywords: 'scan refresh reload', target: { command: 'rescan' } },
+    { title: 'Switch colours', section: 'View', detail: 'key c', keywords: 'color theme single family', target: { command: 'colour' } },
+    { title: 'Jump to today', section: 'View', detail: 'key t', keywords: 'date cursor now', target: { command: 'today' } },
+    { title: 'Show keys', section: 'View', detail: 'key ?', keywords: 'help shortcuts keybindings', target: { command: 'help' } },
   ];
   return [...actions, ...tabs, ...commands];
 }
@@ -52,7 +61,7 @@ function isSubsequence(query: string, text: string): boolean {
 /** 0 = a word of the title starts with the query, 1 = the query is a substring, 2 = its characters appear in order, null = no match. */
 function rank(entry: PaletteEntry, query: string): number | null {
   const title = entry.title.toLowerCase();
-  const haystack = `${title} ${entry.section.toLowerCase()}`;
+  const haystack = `${title} ${entry.section.toLowerCase()} ${entry.keywords.toLowerCase()}`;
   if (!isSubsequence(query, haystack)) return null;
   if (title.split(' ').some((word) => word.startsWith(query))) return 0;
   return haystack.includes(query) ? 1 : 2;

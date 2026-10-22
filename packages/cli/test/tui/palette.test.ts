@@ -22,9 +22,17 @@ const open = (s = state()): AppState => typed(s, ':');
 describe('filterEntries', () => {
   const entries = paletteEntries(state());
 
-  it('lists the hook items first for "hook"', () => {
+  const hooks = ['Claude Code hook', 'Codex notify', 'Cursor hook', 'Gemini CLI hook'];
+
+  it('lists the four hook items first for "hook", Codex notify included', () => {
     const titles = filterEntries(entries, 'hook').map((e) => e.title);
+    expect([...titles.slice(0, 4)].sort()).toEqual(hooks);
     expect(titles.slice(0, 3)).toEqual(['Claude Code hook', 'Cursor hook', 'Gemini CLI hook']);
+  });
+
+  it('finds the hook entries by their CLI command name', () => {
+    expect([...filterEntries(entries, 'install-hook').map((e) => e.title)].sort()).toEqual(hooks);
+    expect(filterEntries(entries, 'cron')[0]!.title).toBe('Hourly sync');
   });
 
   it('matches a subsequence of the title', () => {
@@ -33,10 +41,10 @@ describe('filterEntries', () => {
 
   it('ranks word prefixes before substrings before subsequences, keeping order inside a rank', () => {
     const list = [
-      { title: 'Alpha tools', section: 'S', detail: '', target: { command: 'help' as const } },
-      { title: 'Beta tool', section: 'S', detail: '', target: { command: 'help' as const } },
-      { title: 'Stool', section: 'S', detail: '', target: { command: 'help' as const } },
-      { title: 'Tiny odd lamp', section: 'S', detail: '', target: { command: 'help' as const } },
+      { title: 'Alpha tools', section: 'S', detail: '', keywords: '', target: { command: 'help' as const } },
+      { title: 'Beta tool', section: 'S', detail: '', keywords: '', target: { command: 'help' as const } },
+      { title: 'Stool', section: 'S', detail: '', keywords: '', target: { command: 'help' as const } },
+      { title: 'Tiny odd lamp', section: 'S', detail: '', keywords: '', target: { command: 'help' as const } },
     ];
     expect(filterEntries(list, 'TOOL').map((e) => e.title)).toEqual(['Alpha tools', 'Beta tool', 'Stool']);
     expect(filterEntries(list, 'tol').map((e) => e.title)).toEqual(['Alpha tools', 'Beta tool', 'Stool', 'Tiny odd lamp']);
@@ -83,8 +91,9 @@ describe('palette in the reducer', () => {
     expect(s.palette).toEqual({ query: 'hoo', selected: 0 });
     s = typed(s, 'k');
     for (let i = 0; i < 50; i += 1) s = press(s, key('down')).state;
-    expect(s.palette!.selected).toBe(2);
-    expect(press(press(s, key('up')).state, key('up')).state.palette!.selected).toBe(0);
+    const last = filterEntries(paletteEntries(state()), 'hook').length - 1;
+    expect(s.palette!.selected).toBe(last);
+    expect(press(press(s, key('up')).state, key('up')).state.palette!.selected).toBe(last - 2);
     expect(press(open(), key('backspace')).state.palette!.query).toBe('');
   });
 
