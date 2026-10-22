@@ -1,4 +1,5 @@
 import type { ColorMode, GraphGrid } from '@tokengraph/core';
+import type { ActionId } from '../actions.js';
 import type { Motion } from '../animate.js';
 import type { RangeKey, ViewModel } from '../model.js';
 import type { ScreenBuffer, Rect } from '../screen.js';
@@ -23,7 +24,8 @@ export interface TableState {
 export type Hit =
   | { kind: 'day'; date: string; rect: Rect }
   | { kind: 'range'; range: RangeKey; rect: Rect }
-  | { kind: 'row'; index: number; rect: Rect };
+  | { kind: 'row'; index: number; rect: Rect }
+  | { kind: 'action'; id: ActionId; rect: Rect };
 export interface ViewResult {
   hits: Hit[];
   /** Heatmap layout for hover hit-testing, when drawn. */

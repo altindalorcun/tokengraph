@@ -14,7 +14,10 @@ import { drawModels } from '../../src/tui/views/models.js';
 import { blit } from '../../src/tui/views/props.js';
 import { hitTest } from '../../src/tui/widgets/heatmap.js';
 import { drawOverview } from '../../src/tui/views/overview.js';
-import { drawTooSmall } from '../../src/tui/views/too-small.js';
+import { MIN_HEIGHT, MIN_WIDTH, drawTooSmall } from '../../src/tui/views/too-small.js';
+import { actionItems, type SetupStatus } from '../../src/tui/actions.js';
+import { initialState, type AppState } from '../../src/tui/app-state.js';
+import { renderFrame } from '../../src/tui/frame.js';
 
 const TODAY = '2026-10-03';
 const theme = tuiTheme('dark');
@@ -410,5 +413,66 @@ describe('views', () => {
       expect(text).toContain('no hour data yet');
       expect(text).not.toContain('CODING CLOCK');
     });
+  });
+});
+
+describe('setup tab and confirm modal', () => {
+  const status = (): SetupStatus => ({
+    login: 'orcun',
+    autoSync: { claudeHook: false, cursorHook: false, codexNotify: false, geminiHook: false, schedule: false },
+    cursorFetch: true,
+    graphColors: 'per-model',
+  });
+  const frame = (tab: 'setup' | 'agents' | 'overview', width: number, height: number, extra: Partial<AppState> = {}) =>
+    toPlainText(renderFrame({ ...initialState(model(), 'local only'), tab, setup: status(), autoSync: status().autoSync, ...extra }, { theme: 'dark' }, width, height, STILL).buffer);
+
+  it('lists the sections, the recommended hook and the progress header at 160×48', () => {
+    const text = frame('setup', 160, 48);
+    for (const s of ['ACCOUNT', 'AUTO-SYNC', 'CURSOR', 'YOUR DATA', 'Claude Code hook', 'recommended', 'of 3 recommended steps done', '▸']) expect(text).toContain(s);
+    expect(text.split('\n').find((row) => row.includes('Claude Code hook'))).toContain('recommended');
+  });
+
+  it('puts a dot after the Setup tab while a recommended step is open, and drops it when all are done', () => {
+    expect(frame('overview', 160, 48).split('\n')[0]).toMatch(/5 Setup •/);
+    const done = status();
+    done.autoSync = { claudeHook: true, cursorHook: true, codexNotify: true, geminiHook: false, schedule: true };
+    const text = frame('setup', 160, 48, { setup: done });
+    expect(text.split('\n')[0]).not.toContain('•');
+    expect(text).toContain('All set');
+  });
+
+  it('shows no dot and says it is reading until the configuration is known', () => {
+    const text = frame('setup', 160, 48, { setup: null });
+    expect(text.split('\n')[0]).not.toContain('•');
+    expect(text).toContain('reading your configuration');
+  });
+
+  it('scrolls to keep the selected row visible on a short terminal', () => {
+    const items = actionItems(status(), model().sources);
+    const text = frame('setup', 80, 24, { setupSel: items.length - 1 });
+    expect(text).toContain('Uninstall tokengraph');
+    expect(text).toContain('YOUR DATA');
+  });
+
+  it('draws the question and its keys over the view', () => {
+    const text = frame('setup', 160, 48, { confirm: { id: 'hook:claude-code', text: 'Install the Claude Code hook? It edits Claude Code\'s settings.' } });
+    expect(text).toContain('Install the Claude Code hook?');
+    expect(text).toContain('y yes  n no');
+  });
+
+  it('renders Setup, Agents and the confirm modal at the smallest size and at 100×30 without throwing', () => {
+    for (const [w, h] of [[MIN_WIDTH, MIN_HEIGHT], [100, 30]] as const) {
+      for (const tab of ['setup', 'agents'] as const) {
+        expect(() => frame(tab, w, h)).not.toThrow();
+        expect(() => frame(tab, w, h, { setup: null, autoSync: null })).not.toThrow();
+        const asked = frame(tab, w, h, { confirm: { id: 'uninstall', text: 'Remove every tokengraph hook and the hourly sync from this machine, and forget the login?' } });
+        expect(asked).toContain('y yes  n no');
+      }
+    }
+  });
+
+  it('shows the h manage hint with the Agents statuses', () => {
+    expect(frame('agents', 160, 48)).toContain('h manage');
+    expect(frame('agents', 100, 30)).toContain('h manage');
   });
 });

@@ -1,3 +1,4 @@
+import type { ActionId } from '../actions.js';
 import { formatTokens } from '@tokengraph/core';
 import { mix } from '../color.js';
 import { RANGES, RANGE_LABELS, formatCost, type Breakdown, type CostSummary } from '../model.js';
@@ -30,6 +31,8 @@ const MIN_TABLE_ROWS = 5;
 export interface FooterPart {
   text: string;
   color: string;
+  /** Makes the part clickable. */
+  action?: ActionId;
 }
 
 /** What a ranked table shows; the models and agents tabs differ only in this. */
@@ -224,8 +227,12 @@ export function drawBreakdownTable(buf: ScreenBuffer, rect: Rect, props: ViewPro
   if (showFooter) {
     let x = 0;
     for (const part of spec.footer!) {
+      const width = [...part.text].length;
       view.text(x, view.height - 1, part.text, { fg: part.color });
-      x += [...part.text].length;
+      if (part.action && x < view.width) {
+        hits.push({ kind: 'action', id: part.action, rect: { x: rect.x + x, y: rect.y + view.height - 1, width: Math.min(width, view.width - x), height: 1 } });
+      }
+      x += width;
     }
   }
 

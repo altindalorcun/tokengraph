@@ -4,6 +4,9 @@ import { STILL } from '../../src/tui/animate.js';
 import { initialState, reduce, renderFrame, requestAction, runApp, withViewModel } from '../../src/tui/app.js';
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
 import { toPlainText } from '../../src/tui/screen.js';
+import { actionItems, type SetupStatus } from '../../src/tui/actions.js';
+import type { AppState } from '../../src/tui/app-state.js';
+import type { InputEvent } from '../../src/tui/input.js';
 
 const TODAY = '2026-10-03';
 const c = (input: number) => ({ inputTokens: input, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0 });
@@ -97,11 +100,16 @@ describe('requestAction', () => {
       expect(out.state.confirm).toBeNull();
       expect(out.effects).toEqual([]);
     }
-    for (const event of [{ type: 'char', char: 'q' }, { type: 'char', char: '2' }, { type: 'ctrl', char: 'c' }, { type: 'key', key: 'tab' }] as const) {
+    for (const event of [{ type: 'char', char: 'q' }, { type: 'char', char: '2' }, { type: 'key', key: 'tab' }] as const) {
       const out = reduce(asked, event, null);
       expect(out.state.confirm).toEqual(asked.confirm);
       expect(out.effects).toEqual([]);
     }
+  });
+
+  it('quits on Ctrl-C even while asking', () => {
+    const asked = requestAction(state(), 'schedule').state;
+    expect(reduce(asked, { type: 'ctrl', char: 'c' }, null).effects).toEqual(['quit']);
   });
 
   it('runs at once when there is nothing to confirm, and does nothing while another action runs', () => {
@@ -109,6 +117,66 @@ describe('requestAction', () => {
     const busy = { ...state(), running: 'sync' as const };
     expect(requestAction(busy, 'status')).toEqual({ state: busy, effects: [] });
     expect(requestAction(busy, 'schedule')).toEqual({ state: busy, effects: [] });
+  });
+});
+
+describe('setup tab', () => {
+  const status = (login: string | null): SetupStatus => ({
+    login,
+    autoSync: { claudeHook: false, cursorHook: false, codexNotify: false, geminiHook: false, schedule: false },
+    cursorFetch: true,
+    graphColors: 'per-model',
+  });
+  const setup = () => ({ ...state(), setup: status('orcun') });
+  const press = (s: AppState, event: InputEvent) => reduce(s, event, null);
+
+  it('opens on 5, moves within bounds and wraps no further than the list', () => {
+    let s = press(setup(), { type: 'char', char: '5' }).state;
+    expect(s.tab).toBe('setup');
+    expect(s.setupSel).toBe(0);
+    s = press(s, { type: 'key', key: 'up' }).state;
+    expect(s.setupSel).toBe(0);
+    s = press(s, { type: 'key', key: 'down' }).state;
+    expect(s.setupSel).toBe(1);
+    const count = actionItems(s.setup, s.vm.sources).length;
+    for (let i = 0; i < count + 3; i += 1) s = press(s, { type: 'key', key: 'down' }).state;
+    expect(s.setupSel).toBe(count - 1);
+  });
+
+  it('runs a screen item on Enter and asks first for a hook', () => {
+    const s = press(setup(), { type: 'char', char: '5' }).state;
+    expect(press(s, { type: 'key', key: 'enter' }).effects).toEqual([{ run: 'sync' }]);
+    const items = actionItems(s.setup, s.vm.sources);
+    const hook = press({ ...s, setupSel: items.findIndex((i) => i.id === 'hook:claude-code') }, { type: 'key', key: 'enter' });
+    expect(hook.effects).toEqual([]);
+    expect(hook.state.confirm).toMatchObject({ id: 'hook:claude-code' });
+  });
+
+  it('jumps from Agents to the Claude Code hook row on h, and not from other tabs', () => {
+    const agents = press(setup(), { type: 'char', char: '3' }).state;
+    const out = press(agents, { type: 'char', char: 'h' }).state;
+    expect(out.tab).toBe('setup');
+    expect(actionItems(out.setup, out.vm.sources)[out.setupSel]!.id).toBe('hook:claude-code');
+    expect(press(setup(), { type: 'char', char: 'h' }).state.tab).toBe('overview');
+  });
+
+  it('selects a row on the first press and requests it on the second; an Agents footer press opens the row', () => {
+    const s = press(setup(), { type: 'char', char: '5' }).state;
+    const { hits } = renderFrame(s, { theme: 'dark' }, 160, 48, STILL);
+    const row = (id: string) => hits.view.hits.find((h) => h.kind === 'action' && h.id === id)!.rect;
+    const target = row('readme');
+    const click = { type: 'mouse', action: 'press', x: target.x + 5, y: target.y, button: 0 } as const;
+    const first = reduce(s, click, hits);
+    expect(actionItems(first.state.setup, first.state.vm.sources)[first.state.setupSel]!.id).toBe('readme');
+    expect(first.effects).toEqual([]);
+    expect(reduce(first.state, click, hits).effects).toEqual([{ run: 'readme' }]);
+
+    const agents = press(setup(), { type: 'char', char: '3' }).state;
+    const frame = renderFrame({ ...agents, autoSync: status('orcun').autoSync }, { theme: 'dark' }, 160, 48, STILL);
+    const cursor = frame.hits.view.hits.find((h) => h.kind === 'action' && h.id === 'hook:cursor')!;
+    const opened = reduce({ ...agents, autoSync: status('orcun').autoSync }, { type: 'mouse', action: 'press', x: cursor.rect.x, y: cursor.rect.y, button: 0 }, frame.hits);
+    expect(opened.state.tab).toBe('setup');
+    expect(actionItems(opened.state.setup, opened.state.vm.sources)[opened.state.setupSel]!.id).toBe('hook:cursor');
   });
 });
 
@@ -134,11 +202,11 @@ describe('renderFrame', () => {
   it('shows key hints for the current tab, with the number keys only on wide screens', () => {
     const bar = (tab: 'overview' | 'models' | 'agents' | 'insights', width: number) =>
       toPlainText(renderFrame({ ...state(), tab }, { theme: 'dark' }, width, 40, STILL).buffer).split('\n').at(-1)!;
-    expect(bar('overview', 160)).toContain('1-4 tabs  ←↑↓→ day  [ ] year  t today  c colour  s rescan  ? help  q quit');
-    expect(bar('models', 160)).toContain('1-4 tabs  ↑↓ select  ←→ range  c colour  s rescan  ? help  q quit');
+    expect(bar('overview', 160)).toContain('1-5 tabs  ←↑↓→ day  [ ] year  t today  c colour  s rescan  ? help  q quit');
+    expect(bar('models', 160)).toContain('1-5 tabs  ↑↓ select  ←→ range  c colour  s rescan  ? help  q quit');
     expect(bar('agents', 120)).toContain('↑↓ select  ←→ range');
-    expect(bar('agents', 120)).not.toContain('1-4 tabs');
-    expect(bar('insights', 160)).toContain('1-4 tabs  Tab next tab  s rescan  ? help  q quit');
+    expect(bar('agents', 120)).not.toContain('1-5 tabs');
+    expect(bar('insights', 160)).toContain('1-5 tabs  Tab next tab  s rescan  ? help  q quit');
     expect(bar('insights', 120)).not.toContain('range');
   });
 
@@ -147,7 +215,8 @@ describe('renderFrame', () => {
       toPlainText(renderFrame({ ...state(), mode }, { theme: 'dark' }, width, 24, STILL).buffer).split('\n')[0]!;
     expect(header('↑ publishing as @orcun', 80)).toContain('↑ @orcun');
     expect(header('↑ publishing as @orcun', 80)).not.toContain('…');
-    expect(header('local only', 80)).toMatch(/idle\s+local\s*$/);
+    // Five tabs leave no room for the idle indicator at 80 columns, so the pill keeps its full text.
+    expect(header('local only', 80)).toMatch(/local only\s*$/);
     expect(header('↑ publishing as @orcun', 140)).toContain('↑ publishing as @orcun');
   });
 

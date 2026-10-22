@@ -5,11 +5,14 @@ import { blit } from './props.js';
 
 const KEYS: readonly (readonly [string, string])[] = [
   ['1-4, Tab, click', 'switch tab'],
+  ['5', 'setup tab'],
   ['↑ ↓, mouse', 'move day cursor / row selection'],
   ['← →', 'move day cursor by a week (Overview)'],
   ['[  ]', 'previous / next year (Overview)'],
   ['t', 'jump to today'],
   ['←  →, r', 'previous / next range (Models, Agents)'],
+  ['h', 'manage hooks (Agents)'],
+  ['Enter', 'run the selected action (Setup)'],
   ['c', 'per-family / single-hue colour'],
   ['s', 'rescan now'],
   ['?', 'toggle this help'],

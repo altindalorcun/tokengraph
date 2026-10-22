@@ -1,5 +1,5 @@
 import type { ColorMode } from '@tokengraph/core';
-import { actionItems, type ActionId, type SetupStatus } from './actions.js';
+import { actionItems, type ActionId, type ActionItem, type SetupStatus } from './actions.js';
 import type { AutoSyncStatus } from './auto-sync.js';
 import type { FrameHits } from './frame.js';
 import type { InputEvent } from './input.js';
@@ -7,14 +7,16 @@ import { RANGES, agentBreakdown, modelBreakdown, shiftDate, type RangeKey, type 
 import type { OverviewState, TableState } from './views/props.js';
 import { hitTest } from './widgets/heatmap.js';
 
-export type TabKey = 'overview' | 'models' | 'agents' | 'insights';
-export const TABS: readonly TabKey[] = ['overview', 'models', 'agents', 'insights'];
+export type TabKey = 'overview' | 'models' | 'agents' | 'insights' | 'setup';
+export const TABS: readonly TabKey[] = ['overview', 'models', 'agents', 'insights', 'setup'];
 
 export interface AppState {
   vm: ViewModel;
   tab: TabKey;
   overview: OverviewState;
   table: TableState;
+  /** The selected row of the Setup tab, an index into `actionItems(...)`. */
+  setupSel: number;
   colorMode: ColorMode;
   help: boolean;
   mode: string;
@@ -52,6 +54,7 @@ export function initialState(vm: ViewModel, mode: string, live = true): AppState
     tab: 'overview',
     overview: { cursor: vm.today, yearEnd: vm.today },
     table: { range: '30d', selected: 0 },
+    setupSel: 0,
     colorMode: 'per-model',
     help: false,
     mode,
@@ -139,8 +142,24 @@ function setRange(state: AppState, range: RangeKey): Reduced {
   return { state: next, effects: range === state.table.range ? [] : ['bars'] };
 }
 
-/** Up/down: a day on Overview, a row on Models and Agents. */
+function setupItems(state: AppState): ActionItem[] {
+  return actionItems(state.setup, state.vm.sources);
+}
+
+function selectSetup(state: AppState, index: number): AppState {
+  return { ...state, setupSel: Math.max(0, Math.min(index, setupItems(state).length - 1)) };
+}
+
+/** Switches to the Setup tab with the row of `id` selected. */
+function openSetup(state: AppState, id: ActionId): Reduced {
+  const moved = withTab(state, 'setup');
+  const index = setupItems(state).findIndex((item) => item.id === id);
+  return { state: index < 0 ? moved.state : selectSetup(moved.state, index), effects: moved.effects };
+}
+
+/** Up/down: a day on Overview, a row on Models and Agents, an action on Setup. */
 function vertical(state: AppState, step: number): Reduced {
+  if (state.tab === 'setup') return { state: selectSetup(state, state.setupSel + step), effects: [] };
   if (state.tab === 'overview') return { state: moveCursor(state, step), effects: [] };
   if (state.tab === 'models' || state.tab === 'agents') return { state: selectRow(state, state.table.selected + step), effects: [] };
   return { state, effects: [] };
@@ -151,7 +170,8 @@ function onChar(state: AppState, char: string): Reduced {
   if (char === 'q') return { state, effects: ['quit'] };
   if (char === '?') return none({ ...state, help: !state.help });
   if (state.help) return none();
-  if (char >= '1' && char <= '4') return withTab(state, TABS[Number(char) - 1]!);
+  if (char >= '1' && char <= '5') return withTab(state, TABS[Number(char) - 1]!);
+  if (char === 'h' && state.tab === 'agents') return openSetup(state, 'hook:claude-code');
   if (char === 'c') return none({ ...state, colorMode: state.colorMode === 'single' ? 'per-model' : 'single' });
   if (char === 's') return { state, effects: ['rescan'] };
   if (state.tab === 'overview') {
@@ -175,6 +195,10 @@ function onKey(state: AppState, key: string): Reduced {
   if (key === 'backtab') return cycleTab(state, -1);
   if (key === 'up') return vertical(state, -1);
   if (key === 'down') return vertical(state, 1);
+  if (key === 'enter' && state.tab === 'setup') {
+    const item = setupItems(state)[state.setupSel];
+    return item ? requestAction(state, item.id) : { state, effects: [] };
+  }
   if (state.tab === 'overview') {
     const { lo, hi } = bounds(state);
     if (key === 'left') return { state: moveCursor(state, -7), effects: [] };
@@ -205,12 +229,18 @@ function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>,
     if (date && (event.action === 'move' || event.action === 'press')) return { state: setCursor(state, date), effects: [] };
     return { state, effects: [] };
   }
-  if (event.action !== 'press' || (state.tab !== 'models' && state.tab !== 'agents')) return { state, effects: [] };
+  if (event.action !== 'press' || (state.tab !== 'models' && state.tab !== 'agents' && state.tab !== 'setup')) return { state, effects: [] };
   const inside = (r: { x: number; y: number; width: number; height: number }): boolean =>
     x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
   for (const hit of hits.view.hits) {
     if (hit.kind === 'range' && inside(hit.rect)) return setRange(state, hit.range);
     if (hit.kind === 'row' && inside(hit.rect)) return { state: selectRow(state, hit.index), effects: [] };
+    if (hit.kind === 'action' && inside(hit.rect)) {
+      // On Agents a status opens its Setup row; on Setup a first press selects the row and a press on the selected one runs it.
+      if (state.tab === 'agents') return openSetup(state, hit.id);
+      const index = setupItems(state).findIndex((item) => item.id === hit.id);
+      return index === state.setupSel ? requestAction(state, hit.id) : { state: selectSetup(state, index), effects: [] };
+    }
   }
   return { state, effects: [] };
 }
@@ -223,8 +253,9 @@ export function requestAction(state: AppState, id: ActionId): Reduced {
   return { state, effects: [{ run: id }] };
 }
 
-/** While a question is open only y / Enter and n / Esc count. */
+/** While a question is open only y / Enter and n / Esc count, and Ctrl-C still quits. */
 function onConfirm(state: AppState, event: InputEvent, id: ActionId): Reduced {
+  if (event.type === 'ctrl' && event.char === 'c') return { state, effects: ['quit'] };
   const cleared = { ...state, confirm: null };
   if ((event.type === 'char' && event.char === 'y') || (event.type === 'key' && event.key === 'enter')) {
     return { state: cleared, effects: [{ run: id }] };

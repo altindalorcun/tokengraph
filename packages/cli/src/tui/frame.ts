@@ -1,16 +1,19 @@
 import { formatTokens, type Theme } from '@tokengraph/core';
 import type { AppState } from './app-state.js';
 import { TABS } from './app-state.js';
+import { actionItems, setupProgress, type ActionItem } from './actions.js';
 import type { Motion } from './animate.js';
 import { mix } from './color.js';
 import { ScreenBuffer, type Rect } from './screen.js';
 import { tuiTheme, type TuiTheme } from './theme.js';
 import { drawAgents } from './views/agents.js';
+import { drawConfirm } from './views/confirm.js';
 import { drawEmpty } from './views/empty.js';
 import { drawHelp } from './views/help.js';
 import { drawInsights } from './views/insights.js';
 import { drawModels } from './views/models.js';
 import { drawOverview } from './views/overview.js';
+import { drawSetup } from './views/setup.js';
 import type { ViewProps, ViewResult } from './views/props.js';
 import { MIN_HEIGHT, MIN_WIDTH, drawTooSmall } from './views/too-small.js';
 import { drawHeaderMark } from './widgets/logo.js';
@@ -21,15 +24,17 @@ export interface FrameHits {
   view: ViewResult;
 }
 
-const TAB_LABELS = ['Overview', 'Models', 'Agents', 'Insights'];
+const TAB_LABELS = ['Overview', 'Models', 'Agents', 'Insights', 'Setup'];
 const HINTS: Record<AppState['tab'], string> = {
   overview: '←↑↓→ day  [ ] year  t today  c colour  s rescan  ? help  q quit',
   models: '↑↓ select  ←→ range  c colour  s rescan  ? help  q quit',
-  agents: '↑↓ select  ←→ range  c colour  s rescan  ? help  q quit',
+  agents: '↑↓ select  ←→ range  c colour  h hooks  s rescan  ? help  q quit',
   insights: 'Tab next tab  s rescan  ? help  q quit',
+  setup: '↑↓ select  enter run  s rescan  ? help  q quit',
 };
 const WIDE_HINTS_WIDTH = 140; // wide screens also list the number keys
 const LIVE_WINDOW_MS = 60_000;
+const NARROW_TABS_WIDTH = 100; // below this the tabs sit one space apart so the mode pill keeps its room
 const TABS_X = 18; // the mark and wordmark end at column 15; leave a gap
 const PROGRESS_SEGMENTS = 4;
 const TOAST_MS = 4000;
@@ -95,15 +100,16 @@ function drawStatusBar(buf: ScreenBuffer, state: AppState, theme: TuiTheme, moti
   }
   const gap = 2;
   const rightWidth = parts.reduce((sum, p) => sum + [...p.text].length, 0) + gap * Math.max(0, parts.length - 1);
-  buf.text(1, y, `${buf.width >= WIDE_HINTS_WIDTH ? '1-4 tabs  ' : ''}${HINTS[state.tab]}`, { fg: theme.muted }, Math.max(0, buf.width - 2 - (rightWidth > 0 ? rightWidth + gap : 0)));
+  buf.text(1, y, `${buf.width >= WIDE_HINTS_WIDTH ? '1-5 tabs  ' : ''}${HINTS[state.tab]}`, { fg: theme.muted }, Math.max(0, buf.width - 2 - (rightWidth > 0 ? rightWidth + gap : 0)));
   let x = buf.width - 1 - rightWidth;
   for (const part of parts) {
     x += buf.text(x, y, part.text, { fg: part.fg }) + gap;
   }
 }
 
-function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiTheme, motion: Motion): ViewResult {
-  if (state.empty) {
+function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiTheme, motion: Motion, items: readonly ActionItem[]): ViewResult {
+  // Setup stays usable with no usage yet: that is when hooks matter most.
+  if (state.empty && state.tab !== 'setup') {
     drawEmpty(buf, rect, { theme, scanning: state.scan.running });
     return { hits: [] };
   }
@@ -117,6 +123,15 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
       return drawAgents(buf, rect, { ...props, state: state.table, autoSync: state.autoSync, detected: state.detected });
     case 'insights':
       return drawInsights(buf, rect, props);
+    case 'setup':
+      return drawSetup(buf, rect, {
+        theme,
+        items,
+        progress: setupProgress(items, state.setup, state.vm.sources),
+        selected: state.setupSel,
+        running: state.running,
+        loading: state.setup === null,
+      });
   }
 }
 
@@ -135,14 +150,19 @@ export function renderFrame(
     return { buffer: buf, hits: { tabs: [], view: { hits: [] } } };
   }
   drawHeaderMark(buf, 1, 0, theme);
-  const tabs = drawTabs(buf, TABS_X, 0, TAB_LABELS, TABS.indexOf(state.tab), theme);
+  const items = actionItems(state.setup, state.vm.sources);
+  const progress = setupProgress(items, state.setup, state.vm.sources);
+  // The Setup tab carries a dot while a recommended step is open (not before the configuration has been read).
+  const badged = state.setup !== null && progress.done < progress.total ? [TABS.indexOf('setup')] : [];
+  const tabs = drawTabs(buf, TABS_X, 0, TAB_LABELS, TABS.indexOf(state.tab), theme, badged, buf.width < NARROW_TABS_WIDTH ? 1 : 2);
   const last = tabs[tabs.length - 1]!;
   drawHeaderRight(buf, state, theme, motion, last.x + last.width);
   buf.fill({ x: 1, y: 2, width: buf.width - 2, height: 1 }, '─', { fg: theme.border });
 
   const rect = { x: 1, y: 3, width: buf.width - 2, height: buf.height - 4 };
-  const view = drawView(buf, rect, state, theme, motion);
+  const view = drawView(buf, rect, state, theme, motion, items);
   if (state.help) drawHelp(buf, rect, theme);
+  if (state.confirm) drawConfirm(buf, rect, state.confirm.text, theme);
   if (motion.wipe < 1) {
     const edge = rect.x + Math.floor(Math.max(0, motion.wipe) * rect.width);
     buf.fill({ x: edge, y: rect.y, width: rect.x + rect.width - edge, height: rect.height }, ' ', { fg: theme.ink, bg: theme.bg });
