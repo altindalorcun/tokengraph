@@ -134,6 +134,17 @@ describe('view model', () => {
     expect(rangeTotals(vm, '30d').activeDays).toBe(2);
   });
 
+  it('shows Claude models by display name and keeps the label as key', () => {
+    const vm = buildViewModel(
+      ledgerWith([{ source: 'claude-code', date: TODAY, model: 'claude-sonnet-4-5', c: counts(100) }]),
+      TODAY,
+    );
+    const first = modelBreakdown(vm, '30d')[0]!;
+    expect(first.key).toBe('claude-sonnet-4-5');
+    expect(first.name).toBe('Claude Sonnet 4.5');
+    expect(insights(vm).favourite.name).toBe('Claude Sonnet 4.5');
+  });
+
   it('builds insights', () => {
     const vm = buildViewModel(
       ledgerWith([

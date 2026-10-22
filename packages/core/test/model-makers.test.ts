@@ -93,8 +93,26 @@ describe('displayModelName', () => {
     ['auto', 'Cursor Auto'],
     ['default', 'Cursor Auto'],
     ['composer-2.5-fast', 'composer-2.5-fast'],
-    ['claude-unknown-9', 'claude-unknown-9'],
+    ['claude-unknown-9', 'Claude Unknown 9'],
   ])('%s is shown as %s', (id, name) => {
+    expect(displayModelName(id)).toBe(name);
+  });
+
+  it.each([
+    ['claude-opus-5-5', 'Claude Opus 5.5'],
+    ['claude-sonnet-5-5', 'Claude Sonnet 5.5'],
+    ['claude-sonnet-4-5-20250929', 'Claude Sonnet 4.5'],
+    ['claude-haiku-4-5-20251001', 'Claude Haiku 4.5'],
+    ['claude-fable-5-1', 'Claude Fable 5.1'],
+    ['claude-mythos-5', 'Claude Mythos 5'],
+    ['claude-nova-6-2', 'Claude Nova 6.2'],
+    ['claude-3-5-sonnet-20241022', 'Claude Sonnet 3.5'],
+    ['us.anthropic.claude-opus-5-5-v1:0', 'Claude Opus 5.5'],
+    ['claude-opus-4-5-thinking', 'Claude Opus 4.5'],
+    ['claude-2-1', 'Claude 2.1'],
+    ['gpt-6-luna', 'gpt-6-luna'],
+    ['auto', 'Cursor Auto'],
+  ])('names every Claude tier and version: %s', (id, name) => {
     expect(displayModelName(id)).toBe(name);
   });
 });

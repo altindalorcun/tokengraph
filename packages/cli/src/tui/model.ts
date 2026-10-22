@@ -6,6 +6,7 @@ import {
   agentName,
   buildGraphGrid,
   costForSplitCounts,
+  displayModelName,
   emptyCounts,
   formatDollars,
   KNOWN_SOURCES,
@@ -204,7 +205,7 @@ function buildDay(date: string, rows: UsageRow[], families: Map<string, ModelFam
     const family = families.get(label) ?? 'other';
     const weighted = weightedTokens(labelCounts);
     familyWeighted.set(family, (familyWeighted.get(family) ?? 0) + weighted);
-    return { key: label, name: label, family, weighted };
+    return { key: label, name: displayModelName(label), family, weighted };
   });
   const agents = [...bySource].map(
     ([source, sourceCounts]): Share => ({

@@ -95,7 +95,7 @@ describe('views', () => {
     const models = drawModels(buf, { x: 0, y: 0, width: 120, height: 30 }, { ...base(), state: table });
     let text = toPlainText(buf);
     expect(text).toContain('30 days');
-    expect(text).toContain('claude-sonnet-4-5');
+    expect(text).toContain('Claude Sonnet 4.5');
     expect(text).toContain('gpt-5');
     expect(models.hits.filter((h) => h.kind === 'range')).toHaveLength(5);
 
