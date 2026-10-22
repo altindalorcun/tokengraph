@@ -51,7 +51,7 @@
     "esbuild": "0.28.2",
     "qrcode-generator": "^2.0.4",
     "react": "^19.3.0",
-    "satori": "^0.55.4"
+    "satori": "^0.62.0"
   },
   "engines": {
     "node": ">=22"
