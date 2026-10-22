@@ -27,6 +27,20 @@ export async function askYesNo(question: string, options: { defaultYes?: boolean
   }
 }
 
+/** One line of free text, trimmed. Without a terminal, or when the prompt is closed without an answer, it returns ''. */
+export async function askText(question: string, options: { io?: PromptIO } = {}): Promise<string> {
+  const io = options.io ?? { input: process.stdin, output: process.stdout };
+  if (!io.input.isTTY) return '';
+  const rl = createInterface({ input: io.input, output: io.output });
+  try {
+    const closed = new Promise<null>((resolve) => rl.once('close', () => resolve(null)));
+    const raw = await Promise.race([rl.question(`${question} `), closed]);
+    return raw === null ? '' : raw.trim();
+  } finally {
+    rl.close();
+  }
+}
+
 /**
  * A numbered list; Enter takes the default and an answer outside the list asks again. Without a terminal it
  * returns the default. Closing the prompt without an answer (Ctrl+D, Ctrl+C) returns null, so the caller stops.

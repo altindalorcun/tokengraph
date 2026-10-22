@@ -32,6 +32,7 @@ const WIDE_HINTS_WIDTH = 140; // wide screens also list the number keys
 const LIVE_WINDOW_MS = 60_000;
 const TABS_X = 18; // the mark and wordmark end at column 15; leave a gap
 const PROGRESS_SEGMENTS = 4;
+const TOAST_MS = 4000;
 
 function clip(text: string, max: number): string {
   const chars = [...text];
@@ -81,7 +82,11 @@ function drawStatusBar(buf: ScreenBuffer, state: AppState, theme: TuiTheme, moti
   const parts: { text: string; fg: string }[] = [];
   if (scan.note) parts.push({ text: clip(scan.note, Math.max(10, Math.floor(buf.width / 2))), fg: theme.bad });
   if (state.burnRate !== null) parts.push({ text: `▲ ${formatTokens(state.burnRate)}/min`, fg: theme.muted });
-  if (scan.running) {
+  const toast = state.toast && motion.now - state.toast.at < TOAST_MS ? state.toast : null;
+  if (toast) {
+    const text = `${toast.tone === 'good' ? '✓' : '✗'} ${toast.text}`;
+    parts.push({ text: clip(text, Math.max(10, Math.floor(buf.width / 2))), fg: toast.tone === 'good' ? theme.good : theme.bad });
+  } else if (scan.running) {
     const filled = scan.total > 0 ? Math.round((Math.min(scan.done, scan.total) / scan.total) * PROGRESS_SEGMENTS) : 0;
     const bar = '▰'.repeat(filled) + '▱'.repeat(PROGRESS_SEGMENTS - filled);
     parts.push({ text: `scanning ${scan.current ? `${scan.current}… ` : '… '}${bar}`, fg: theme.accent });

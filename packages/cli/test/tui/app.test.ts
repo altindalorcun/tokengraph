@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { emptyLedger, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
-import { initialState, reduce, renderFrame, runApp, withViewModel } from '../../src/tui/app.js';
+import { initialState, reduce, renderFrame, requestAction, runApp, withViewModel } from '../../src/tui/app.js';
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
 import { toPlainText } from '../../src/tui/screen.js';
 
@@ -79,6 +79,39 @@ describe('reduce', () => {
   });
 });
 
+describe('requestAction', () => {
+  it('asks first when the action has a confirmation, then runs on y or Enter', () => {
+    const asked = requestAction(state(), 'hook:claude-code');
+    expect(asked.effects).toEqual([]);
+    expect(asked.state.confirm).toEqual({ id: 'hook:claude-code', text: expect.stringContaining('Claude Code hook') });
+    const yes = reduce(asked.state, { type: 'char', char: 'y' }, null);
+    expect(yes.effects).toEqual([{ run: 'hook:claude-code' }]);
+    expect(yes.state.confirm).toBeNull();
+    expect(reduce(asked.state, { type: 'key', key: 'enter' }, null).effects).toEqual([{ run: 'hook:claude-code' }]);
+  });
+
+  it('cancels on n or Esc and ignores every other key while asking', () => {
+    const asked = requestAction(state(), 'schedule').state;
+    for (const event of [{ type: 'char', char: 'n' }, { type: 'key', key: 'escape' }] as const) {
+      const out = reduce(asked, event, null);
+      expect(out.state.confirm).toBeNull();
+      expect(out.effects).toEqual([]);
+    }
+    for (const event of [{ type: 'char', char: 'q' }, { type: 'char', char: '2' }, { type: 'ctrl', char: 'c' }, { type: 'key', key: 'tab' }] as const) {
+      const out = reduce(asked, event, null);
+      expect(out.state.confirm).toEqual(asked.confirm);
+      expect(out.effects).toEqual([]);
+    }
+  });
+
+  it('runs at once when there is nothing to confirm, and does nothing while another action runs', () => {
+    expect(requestAction(state(), 'status')).toMatchObject({ effects: [{ run: 'status' }] });
+    const busy = { ...state(), running: 'sync' as const };
+    expect(requestAction(busy, 'status')).toEqual({ state: busy, effects: [] });
+    expect(requestAction(busy, 'schedule')).toEqual({ state: busy, effects: [] });
+  });
+});
+
 describe('withViewModel', () => {
   it('moves the year view and cursor off the old today when the date rolls over', () => {
     const s = state();
@@ -118,6 +151,17 @@ describe('renderFrame', () => {
     expect(header('↑ publishing as @orcun', 140)).toContain('↑ publishing as @orcun');
   });
 
+  it('shows a toast in the status bar for four seconds, replacing the scan text', () => {
+    const toast = (tone: 'good' | 'bad') => ({ ...state(), scan: { ...state().scan, lastScanAt: 0 }, toast: { text: 'Hook installed.', tone, at: 0 } });
+    const bar = (s: ReturnType<typeof state>, now: number) =>
+      toPlainText(renderFrame(s, { theme: 'dark' }, 120, 30, { ...STILL, now }).buffer).split('\n').at(-1)!;
+    expect(bar(toast('good'), 1000)).toContain('✓ Hook installed.');
+    expect(bar(toast('good'), 1000)).not.toContain('scanned');
+    expect(bar(toast('bad'), 1000)).toContain('✗ Hook installed.');
+    expect(bar(toast('good'), 4000)).not.toContain('Hook installed.');
+    expect(bar(toast('good'), 4000)).toContain('scanned');
+  });
+
   it('asks for a bigger window below 80×24 and survives absurd sizes', () => {
     expect(toPlainText(renderFrame(state(), { theme: 'dark' }, 60, 20, STILL).buffer)).toContain('80');
     expect(() => renderFrame(state(), { theme: 'light' }, 300, 80, STILL)).not.toThrow();
@@ -129,8 +173,9 @@ function fakeTerminal() {
   const writes: string[] = [];
   let input: (events: unknown[]) => void = () => {};
   let restored = 0;
+  const calls: string[] = [];
   return {
-    writes, get restored() { return restored; },
+    writes, calls, get restored() { return restored; },
     send: (events: unknown[]) => input(events),
     terminal: {
       width: 120, height: 36,
@@ -138,6 +183,8 @@ function fakeTerminal() {
       onInput: (fn: (events: unknown[]) => void) => void (input = fn),
       onResize: () => {},
       restore: () => void (restored += 1),
+      suspend: () => void calls.push('suspend'),
+      resume: () => void calls.push('resume'),
     },
   };
 }
@@ -318,5 +365,131 @@ describe('runApp', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('actions', () => {
+    const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
+    const SETUP = { login: null, autoSync: null, cursorFetch: null, graphColors: 'model' as const };
+
+    function start(over: Record<string, unknown> = {}) {
+      const term = fakeTerminal();
+      let last = '';
+      let request: (id: string) => void = () => {};
+      const runAction = vi.fn(async (id: string, kind: string) => (term.calls.push(`run:${id}:${kind}`), { code: 0, lines: ['', 'Done it.', ''] }));
+      const setupStatus = vi.fn(async () => SETUP);
+      const writes: string[] = [];
+      const deps = {
+        onFrame: (buffer: never) => void (last = toPlainText(buffer)),
+        onReady: (controls: { request: (id: string) => void }) => void (request = controls.request),
+        terminal: term.terminal as never, depth: 'none', theme: 'dark', motion: false, live: false,
+        clock: () => 0, today: () => TODAY,
+        loadLedger: async () => emptyLedger(),
+        scan: async (l: never) => ({ ledger: l, results: [], failures: [], detected: [] }),
+        persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+        setTimer: (fn: () => void, ms: number) => { const t = setTimeout(fn, Math.min(ms, 5)); return () => clearTimeout(t); },
+        setupStatus, runAction,
+        waitForEnter: async () => void term.calls.push('enter'),
+        write: (t: string) => void writes.push(t),
+        ...over,
+      };
+      const done = runApp(deps as never);
+      return { term, done, runAction: deps.runAction as typeof runAction, setupStatus, writes, request: (id: string) => request(id), text: () => last };
+    }
+
+    it('runs an inline action after the confirmation, toasts its last line and reloads the setup status', async () => {
+      const app = start();
+      await wait();
+      const loads = app.setupStatus.mock.calls.length;
+      app.request('hook:claude-code');
+      expect(app.runAction).not.toHaveBeenCalled();
+      app.term.send([{ type: 'char', char: 'y' }]);
+      await wait();
+      expect(app.runAction).toHaveBeenCalledWith('hook:claude-code', 'inline', SETUP);
+      expect(app.text()).toContain('✓ Done it.');
+      expect(app.setupStatus.mock.calls.length).toBeGreaterThan(loads);
+      expect(app.term.calls).toEqual([expect.stringContaining('run:hook:claude-code:inline')]);
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('suspends the terminal around a screen action and waits for Enter before resuming', async () => {
+      const app = start();
+      await wait();
+      app.request('status');
+      await wait();
+      expect(app.term.calls).toEqual(['suspend', 'run:status:screen', 'enter', 'resume']);
+      expect(app.writes.join('')).toContain('› Show status');
+      expect(app.writes.join('')).toContain('Press Enter to return to tokengraph.');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('resumes the terminal and shows a red toast when a screen action throws', async () => {
+      const app = start({
+        runAction: vi.fn(async () => { throw new Error('command exploded'); }),
+      });
+      await wait();
+      app.request('status');
+      await wait();
+      expect(app.term.calls).toEqual(['suspend', 'enter', 'resume']);
+      expect(app.text()).toContain('✗ command exploded');
+      app.request('status');
+      await wait();
+      expect(app.term.calls.filter((c) => c === 'resume')).toHaveLength(2);
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('shows a failing exit code as a red toast', async () => {
+      const app = start({ runAction: vi.fn(async () => ({ code: 1, lines: ['Nope.'] })) });
+      await wait();
+      app.request('schedule');
+      app.term.send([{ type: 'char', char: 'y' }]);
+      await wait();
+      expect(app.text()).toContain('✗ Nope.');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      await app.done;
+    });
+
+    it('waits for a scan that is still running instead of starting the action', async () => {
+      let finishScan: () => void = () => {};
+      let scans = 0;
+      const app = start({
+        scan: (l: never) => new Promise((resolve) => {
+          scans += 1;
+          // Only the first scan hangs; the one after the action must not.
+          if (scans > 1) return resolve({ ledger: l, results: [], failures: [], detected: [] });
+          finishScan = () => resolve({ ledger: l, results: [], failures: [], detected: [] });
+        }),
+      });
+      await wait();
+      app.request('status');
+      await wait();
+      expect(app.runAction).not.toHaveBeenCalled();
+      expect(app.term.calls).toEqual([]);
+      finishScan();
+      await wait(60);
+      expect(app.runAction).toHaveBeenCalledTimes(1);
+      expect(app.term.calls).toEqual(['suspend', 'run:status:screen', 'enter', 'resume']);
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('does not start a second action while one runs', async () => {
+      let release: () => void = () => {};
+      const app = start({ runAction: vi.fn(() => new Promise((resolve) => { release = () => resolve({ code: 0, lines: ['ok'] }); })) });
+      await wait();
+      app.request('hook:cursor');
+      app.term.send([{ type: 'char', char: 'y' }]);
+      await wait();
+      app.request('schedule');
+      app.term.send([{ type: 'char', char: 'y' }]);
+      await wait();
+      expect(app.runAction).toHaveBeenCalledTimes(1);
+      release();
+      await wait();
+      app.term.send([{ type: 'char', char: 'q' }]);
+      await app.done;
+    });
   });
 });

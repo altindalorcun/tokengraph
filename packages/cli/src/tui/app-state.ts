@@ -1,4 +1,5 @@
 import type { ColorMode } from '@tokengraph/core';
+import { actionItems, type ActionId, type SetupStatus } from './actions.js';
 import type { AutoSyncStatus } from './auto-sync.js';
 import type { FrameHits } from './frame.js';
 import type { InputEvent } from './input.js';
@@ -26,9 +27,17 @@ export interface AppState {
   burnRate: number | null;
   /** No usage and the first scan found no agents. */
   empty: boolean;
+  /** Config and installed hooks as of the last load; null until read. */
+  setup: SetupStatus | null;
+  /** The outcome of the last action, shown in the status bar for a few seconds. `at` is on the app clock. */
+  toast: { text: string; tone: 'good' | 'bad'; at: number } | null;
+  /** An action waiting for y / n. */
+  confirm: { id: ActionId; text: string } | null;
+  /** The action being run. */
+  running: ActionId | null;
 }
 
-export type Effect = 'quit' | 'rescan' | 'bars' | 'wipe';
+export type Effect = 'quit' | 'rescan' | 'bars' | 'wipe' | { run: ActionId };
 export interface Reduced {
   state: AppState;
   effects: Effect[];
@@ -52,6 +61,10 @@ export function initialState(vm: ViewModel, mode: string, live = true): AppState
     autoSync: null,
     burnRate: null,
     empty: false,
+    setup: null,
+    toast: null,
+    confirm: null,
+    running: null,
   };
 }
 
@@ -202,8 +215,29 @@ function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>,
   return { state, effects: [] };
 }
 
+/** Asks for an action: it waits for a y when the action has a confirmation, else runs at once. Ignored while another runs. */
+export function requestAction(state: AppState, id: ActionId): Reduced {
+  if (state.running !== null) return { state, effects: [] };
+  const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
+  if (item?.confirm) return { state: { ...state, confirm: { id, text: item.confirm } }, effects: [] };
+  return { state, effects: [{ run: id }] };
+}
+
+/** While a question is open only y / Enter and n / Esc count. */
+function onConfirm(state: AppState, event: InputEvent, id: ActionId): Reduced {
+  const cleared = { ...state, confirm: null };
+  if ((event.type === 'char' && event.char === 'y') || (event.type === 'key' && event.key === 'enter')) {
+    return { state: cleared, effects: [{ run: id }] };
+  }
+  if ((event.type === 'char' && event.char === 'n') || (event.type === 'key' && event.key === 'escape')) {
+    return { state: cleared, effects: [] };
+  }
+  return { state, effects: [] };
+}
+
 /** Pure reducer for input events; returns the next state and side-effect requests. */
 export function reduce(state: AppState, event: InputEvent, hits: FrameHits | null): Reduced {
+  if (state.confirm) return onConfirm(state, event, state.confirm.id);
   switch (event.type) {
     case 'char':
       return onChar(state, event.char);
