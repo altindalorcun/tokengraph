@@ -375,3 +375,22 @@ export function costForSplitCounts(
     (counts.outputTokens * outputRate) / 1e6;
   return { priced: true, dollars };
 }
+
+/**
+ * Dollars saved because cache reads were billed at the cache-read rate instead of the full input
+ * rate, at the same tier as `costForSplitCounts`. Null exactly when that cost is unpriced.
+ */
+export function cacheSavingsForSplitCounts(
+  model: string,
+  date: string,
+  counts: SplitTokenCounts,
+  tier: PricingTier = DEFAULT_PRICING_TIER,
+): number | null {
+  if (!costForSplitCounts(model, date, counts, tier).priced) return null;
+  const rate = findRate(model, date)!;
+  const long = tier === 'long-context' || tier === 'fast-long-context';
+  const fast = tier === 'fast' || tier === 'fast-long-context';
+  const speed = fast ? (rate.fastMultiplier ?? 1) : 1;
+  const inputRate = rate.inputPerMillion * (long ? (rate.longContext?.input ?? 1) : 1) * speed;
+  return (counts.cacheReadTokens * inputRate * (1 - rate.cacheReadMultiplier)) / 1e6;
+}

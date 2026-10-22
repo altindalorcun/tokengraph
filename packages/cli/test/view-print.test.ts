@@ -27,6 +27,18 @@ describe('renderSnapshot', () => {
     });
   }
 
+  it('shows the same five tiles and never cuts the cost detail mid-word', () => {
+    let ledger = emptyLedger();
+    for (let i = 0; i < 30; i += 1) {
+      ledger = mergeUsage(ledger, 'codex-cli', [{ date: shiftDate(TODAY, -i), model: 'gpt-5.5', pricingTier: 'standard', counts: c(2_000_000) }]);
+    }
+    ledger = mergeUsage(ledger, 'codex-cli', [{ date: TODAY, model: 'mystery-model-9', pricingTier: 'standard', counts: c(1000) }]);
+    const out = renderSnapshot(buildViewModel(ledger, TODAY), { width: 100, theme: 'dark', depth: 'none', mode: 'local only' });
+    for (const title of ['TODAY', 'THIS WEEK', 'STREAK', 'EST. COST', 'CACHE SAVED']) expect(out).toContain(title);
+    expect(out).not.toMatch(/cache hit/i);
+    expect(out).not.toMatch(/\+ unp(?!riced)/);
+  });
+
   it('uses ANSI colour when asked', () => {
     expect(renderSnapshot(vm, { width: 120, theme: 'dark', depth: 'truecolor', mode: 'local only' })).toContain('\x1b[');
   });

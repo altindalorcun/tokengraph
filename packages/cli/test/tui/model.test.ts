@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { cacheSavingsForSplitCounts } from '@tokengraph/core';
 import { emptyLedger, mergeUsage, type Ledger } from '../../src/ledger.js';
 import {
   agentBreakdown, agentBuckets, buildViewModel, familyBuckets, monthlyTotals, rangeBuckets, dailySeries, familySeries, formatCost, insights, modelBreakdown, rangeStart, rangeTotals,
@@ -28,7 +29,7 @@ describe('view model', () => {
     expect(vm.days).toEqual([]);
     expect(stats(vm)).toEqual({ today: 0, week: 0, weekDelta: null, streak: 0, longest: null });
     const totals = rangeTotals(vm, '30d');
-    expect(totals.cacheHit).toBeNull();
+    expect(totals.cost.cacheSaved).toBe(0);
     expect(formatCost(totals.cost)).toBe('$0.00');
     expect(modelBreakdown(vm, 'all')).toEqual([]);
     expect(insights(vm).novels).toBe(0);
@@ -164,9 +165,18 @@ describe('view model', () => {
     expect(i.activeDays).toBe(2);
   });
 
-  it('computes cache hit', () => {
-    const vm = buildViewModel(ledgerWith([{ source: 'codex-cli', date: TODAY, model: 'gpt-5', c: counts(100, 0, 300) }]), TODAY);
-    expect(rangeTotals(vm, '7d').cacheHit).toBeCloseTo(0.75);
+  it('adds up what caching saved over priced rows only', () => {
+    const vm = buildViewModel(
+      ledgerWith([
+        { source: 'claude-code', date: TODAY, model: 'claude-sonnet-4-5', c: counts(100, 0, 300_000) },
+        { source: 'codex-cli', date: TODAY, model: 'mystery-model-9', c: counts(100, 0, 900_000) },
+      ]),
+      TODAY,
+    );
+    const expected = cacheSavingsForSplitCounts('claude-sonnet-4-5', TODAY, counts(100, 0, 300_000))!;
+    expect(expected).toBeGreaterThan(0);
+    expect(rangeTotals(vm, '7d').cost.cacheSaved).toBeCloseTo(expected);
+    expect(vm.byDate.get(TODAY)!.cost.cacheSaved).toBeCloseTo(expected);
   });
 
   it('ignores days after today in ranges and stats but keeps them in days', () => {

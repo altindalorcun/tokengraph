@@ -5,6 +5,7 @@ import {
   addDays,
   agentName,
   buildGraphGrid,
+  cacheSavingsForSplitCounts,
   costForSplitCounts,
   displayModelName,
   emptyCounts,
@@ -40,6 +41,8 @@ export interface CostSummary {
   dollars: number;
   pricedWeighted: number;
   unpricedWeighted: number;
+  /** Dollars prompt caching saved against full input price, over priced rows. */
+  cacheSaved: number;
 }
 export interface Share {
   key: string;
@@ -120,7 +123,6 @@ export interface RangeTotals {
   weighted: number;
   counts: TokenCounts;
   cost: CostSummary;
-  cacheHit: number | null;
   activeDays: number;
 }
 
@@ -152,7 +154,7 @@ export interface Insights {
 }
 
 function emptyCost(): CostSummary {
-  return { dollars: 0, pricedWeighted: 0, unpricedWeighted: 0 };
+  return { dollars: 0, pricedWeighted: 0, unpricedWeighted: 0, cacheSaved: 0 };
 }
 
 function addCost(a: CostSummary, b: CostSummary): CostSummary {
@@ -160,6 +162,7 @@ function addCost(a: CostSummary, b: CostSummary): CostSummary {
     dollars: a.dollars + b.dollars,
     pricedWeighted: a.pricedWeighted + b.pricedWeighted,
     unpricedWeighted: a.unpricedWeighted + b.unpricedWeighted,
+    cacheSaved: a.cacheSaved + b.cacheSaved,
   };
 }
 
@@ -264,8 +267,13 @@ export function buildViewModel(ledger: Ledger, today: string): ViewModel {
       const priced = costForSplitCounts(entry.model, entry.date, counts, entry.pricingTier);
       const weighted = weightedTokens(base);
       const cost: CostSummary = priced.priced
-        ? { dollars: priced.dollars, pricedWeighted: weighted, unpricedWeighted: 0 }
-        : { dollars: 0, pricedWeighted: 0, unpricedWeighted: weighted };
+        ? {
+            dollars: priced.dollars,
+            pricedWeighted: weighted,
+            unpricedWeighted: 0,
+            cacheSaved: cacheSavingsForSplitCounts(entry.model, entry.date, counts, entry.pricingTier) ?? 0,
+          }
+        : { dollars: 0, pricedWeighted: 0, unpricedWeighted: weighted, cacheSaved: 0 };
       rows.push({ source, date: entry.date, label, counts: base, cost });
     }
   }
@@ -405,9 +413,7 @@ export function rangeTotals(vm: ViewModel, range: RangeKey): RangeTotals {
     counts = addCounts(counts, row.counts);
     cost = addCost(cost, row.cost);
   }
-  const denominator = counts.inputTokens + counts.cacheCreationTokens + counts.cacheReadTokens;
-  const cacheHit = denominator > 0 ? counts.cacheReadTokens / denominator : null;
-  return { weighted, counts, cost, cacheHit, activeDays };
+  return { weighted, counts, cost, activeDays };
 }
 
 function breakdown(vm: ViewModel, range: RangeKey, byModel: boolean): Breakdown[] {

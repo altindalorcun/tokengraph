@@ -9,6 +9,7 @@ import {
   yearGrid,
   type RangeTotals,
   type Stats,
+  type ViewModel,
 } from '../model.js';
 import { ScreenBuffer, type Rect } from '../screen.js';
 import { familyColor, type TuiTheme } from '../theme.js';
@@ -41,34 +42,66 @@ interface BigTile {
   detailColor?: string;
 }
 
-function dollarsText(month: RangeTotals): string {
-  const { dollars, pricedWeighted, unpricedWeighted } = month.cost;
-  if (pricedWeighted === 0 && unpricedWeighted > 0) return '—';
+/** Whole dollars with thousands separators from $100, else two decimals. */
+export function moneyText(dollars: number): string {
   if (dollars >= 100) return `$${Math.round(dollars).toLocaleString('en-US')}`;
   return `$${dollars.toFixed(2)}`;
 }
 
+function dollarsText(month: RangeTotals): string {
+  const { dollars, pricedWeighted, unpricedWeighted } = month.cost;
+  if (pricedWeighted === 0 && unpricedWeighted > 0) return '—';
+  return moneyText(dollars);
+}
+
 /** Plain-tile cost value: whole dollars from $100, and `+ unpriced` lives in the detail instead. */
-function plainCost(month: RangeTotals): string {
+export function plainCost(month: RangeTotals): string {
   const { dollars, pricedWeighted, unpricedWeighted } = month.cost;
   if (pricedWeighted === 0) return unpricedWeighted > 0 ? 'cost unknown' : '$0.00';
-  return `≈ ${dollars >= 100 ? `$${Math.round(dollars).toLocaleString('en-US')}` : `$${dollars.toFixed(2)}`}`;
+  return `≈ ${moneyText(dollars)}`;
 }
 
 function plainCostDetail(month: RangeTotals): string {
   return `30d${month.cost.pricedWeighted > 0 && month.cost.unpricedWeighted > 0 ? ' + unpriced' : ''}`;
 }
 
-function bigTiles(s: Stats, month: RangeTotals, today: string, week: string, theme: TuiTheme): BigTile[] {
-  const delta = s.weekDelta === null ? null : Math.round(Math.abs(s.weekDelta) * 100);
-  const up = s.weekDelta !== null && s.weekDelta >= 0;
+/** Today's cost as a tile detail; undefined when today has no priced usage. */
+function todayCostText(vm: ViewModel): string | undefined {
+  const cost = vm.byDate.get(vm.today)?.cost;
+  return cost && cost.pricedWeighted > 0 ? `≈ ${moneyText(cost.dollars)}` : undefined;
+}
+
+/** What caching saved over the range; a dash when nothing in it was priced. */
+function cacheSavedText(month: RangeTotals): string {
+  return month.cost.pricedWeighted > 0 ? moneyText(month.cost.cacheSaved) : '—';
+}
+
+/** The week-over-week change as a tile detail, coloured good or bad. */
+function weekDeltaDetail(s: Stats, theme: TuiTheme): { detail?: string; detailColor?: string } {
+  if (s.weekDelta === null) return {};
+  const up = s.weekDelta >= 0;
+  return { detail: `${up ? '▲' : '▼'} ${Math.round(Math.abs(s.weekDelta) * 100)}%`, detailColor: up ? theme.good : theme.bad };
+}
+
+function bigTiles(vm: ViewModel, s: Stats, month: RangeTotals, today: string, week: string, theme: TuiTheme): BigTile[] {
   const unpriced = month.cost.pricedWeighted > 0 && month.cost.unpricedWeighted > 0;
   return [
-    { title: 'Today', value: today, detail: delta === null ? undefined : `${up ? '▲' : '▼'} ${delta}%`, detailColor: up ? theme.good : theme.bad },
-    { title: 'This week', value: week },
+    { title: 'Today', value: today, detail: todayCostText(vm) },
+    { title: 'This week', value: week, ...weekDeltaDetail(s, theme) },
     { title: 'Streak', value: `${s.streak}d`, detail: `best ${s.longest?.length ?? 0}` },
     { title: 'Est. cost', value: dollarsText(month), detail: `30d${unpriced ? ' · +unpriced' : ''}`, shortDetail: '30d' },
-    { title: 'Cache hit', value: month.cacheHit === null ? '—' : `${Math.round(month.cacheHit * 100)}%` },
+    { title: 'Cache saved', value: cacheSavedText(month), detail: '30d' },
+  ];
+}
+
+/** The five plain tiles, shared by the overview and `view --print`. */
+export function plainTiles(vm: ViewModel, s: Stats, month: RangeTotals, today: string, week: string, theme: TuiTheme): Tile[] {
+  return [
+    { title: 'Today', value: today, detail: todayCostText(vm) },
+    { title: 'This week', value: week, ...weekDeltaDetail(s, theme) },
+    { title: 'Streak', value: `${s.streak} ${s.streak === 1 ? 'day' : 'days'}`, detail: `best ${s.longest?.length ?? 0}` },
+    { title: 'Est. cost', value: plainCost(month), detail: plainCostDetail(month), shortDetail: '30d' },
+    { title: 'Cache saved', value: cacheSavedText(month), detail: '30d' },
   ];
 }
 
@@ -175,21 +208,13 @@ export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
   const s = stats(vm);
   const month = rangeTotals(vm, '30d');
 
-  const settled = bigTiles(s, month, formatTokens(s.today), formatTokens(s.week), theme);
+  const settled = bigTiles(vm, s, month, formatTokens(s.today), formatTokens(s.week), theme);
   const big = view.height >= BIG_LAYOUT_MIN_HEIGHT && bigTilesFit(view.width, settled);
   const tileHeight = big ? BIG_TILE_HEIGHT : TILE_HEIGHT;
   if (big) {
-    drawBigTiles(view, view.width, bigTiles(s, month, formatTokens(motion.number('today', s.today)), formatTokens(motion.number('week', s.week)), theme), theme);
+    drawBigTiles(view, view.width, bigTiles(vm, s, month, formatTokens(motion.number('today', s.today)), formatTokens(motion.number('week', s.week)), theme), theme);
   } else {
-    const delta = s.weekDelta === null ? null : Math.round(Math.abs(s.weekDelta) * 100);
-    const up = s.weekDelta !== null && s.weekDelta >= 0;
-    const tiles: Tile[] = [
-      { title: 'Today', value: formatTokens(motion.number('today', s.today)), detail: delta === null ? undefined : `${up ? '▲' : '▼'} ${delta}%`, detailColor: up ? theme.good : theme.bad },
-      { title: 'This week', value: formatTokens(motion.number('week', s.week)) },
-      { title: 'Streak', value: `${s.streak} ${s.streak === 1 ? 'day' : 'days'}`, detail: `best ${s.longest?.length ?? 0}` },
-      { title: 'Est. cost', value: plainCost(month), detail: plainCostDetail(month), shortDetail: '30d' },
-      { title: 'Cache hit', value: month.cacheHit === null ? '—' : `${Math.round(month.cacheHit * 100)}%` },
-    ];
+    const tiles = plainTiles(vm, s, month, formatTokens(motion.number('today', s.today)), formatTokens(motion.number('week', s.week)), theme);
     drawTiles(view, { x: 0, y: 0, width: view.width, height: tileHeight }, tiles, theme);
   }
 

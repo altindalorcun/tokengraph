@@ -36,9 +36,26 @@ describe('views', () => {
     const buf = new ScreenBuffer(160, 40);
     const result = drawOverview(buf, { x: 0, y: 0, width: 160, height: 40 }, { ...base(), state: { cursor: TODAY, yearEnd: TODAY } });
     const text = toPlainText(buf);
-    for (const s of ['TODAY', 'THIS WEEK', 'STREAK', 'EST. COST', 'CACHE HIT', 'Mon', 'LAST 30 DAYS', 'TOP MODELS', 'Sat 3 Oct 2026']) expect(text).toContain(s);
+    for (const s of ['TODAY', 'THIS WEEK', 'STREAK', 'EST. COST', 'CACHE SAVED', 'Mon', 'LAST 30 DAYS', 'TOP MODELS', 'Sat 3 Oct 2026']) expect(text).toContain(s);
     expect(text).toMatch(/[┏╺]/);
     expect(result.heatmap!.layout.step).toBe(3);
+  });
+
+  it('overview shows cache saved instead of the hit rate, today\'s cost and the delta on This week', () => {
+    for (const [w, h, title] of [[160, 48, 'CACHE SAVED'], [100, 30, 'CACHE SAVED']] as const) {
+      const buf = new ScreenBuffer(w, h);
+      drawOverview(buf, { x: 0, y: 0, width: w, height: h }, { ...base(), state: { cursor: TODAY, yearEnd: TODAY } });
+      const text = toPlainText(buf);
+      expect(text).toContain(title);
+      expect(text).not.toMatch(/cache hit/i);
+      const tileRows = text.split('\n').slice(0, h >= 28 && w >= 140 ? 5 : 3);
+      const top = tileRows[1]!;
+      // The delta glyph sits inside the This week tile, today's cost inside the Today tile.
+      const weekAt = tileRows[0]!.search(/this week/i);
+      const streakAt = tileRows[0]!.search(/streak/i);
+      expect(top.slice(weekAt, streakAt)).toMatch(/[▲▼]/);
+      expect(top.slice(0, weekAt)).not.toMatch(/[▲▼]/);
+    }
   });
 
   it('overview uses large heatmap cells in a real 160-column terminal (158-wide content)', () => {
@@ -238,9 +255,18 @@ describe('views', () => {
     expect(toPlainText(buf)).toContain('No AI coding usage found yet');
     drawHelp(buf, { x: 0, y: 0, width: 100, height: 30 }, theme);
     expect(toPlainText(buf)).toContain('quit');
+    expect(toPlainText(buf)).toContain('weighted tokens');
     const small = new ScreenBuffer(40, 10);
     drawTooSmall(small, { x: 0, y: 0, width: 40, height: 10 }, theme);
     expect(toPlainText(small)).toContain('80');
+  });
+
+  it('help drops the glossary on a short screen but keeps the keys', () => {
+    const buf = new ScreenBuffer(100, 16);
+    drawHelp(buf, { x: 0, y: 0, width: 100, height: 16 }, theme);
+    const text = toPlainText(buf);
+    expect(text).toContain('quit');
+    expect(text).not.toContain('weighted tokens');
   });
 
   it('blit keeps the target colours under a cell drawn with only a fg', () => {
