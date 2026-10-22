@@ -328,7 +328,7 @@ describe('views', () => {
 
     it('shows the busiest-hour card and the coding clock at 160×48', () => {
       const text = render(160, 48);
-      for (const s of ['BUSIEST HOUR', '22:00', 'CODING CLOCK', 'Evening coder', 'Peak', 'Busiest', 'Since', 'night', 'morning', 'afternoon', 'evening', 'All', '▐█▌', ...WEEKDAYS]) expect(text).toContain(s);
+      for (const s of ['BUSIEST HOUR', '22:00', 'CODING CLOCK', 'Evening coder', 'Peak', 'Busiest', 'Since', 'night', 'morning', 'afternoon', 'evening', 'All', '▐███▌', ...WEEKDAYS]) expect(text).toContain(s);
       expect(text).toContain('50% · Evening coder');
       expect(text).toContain('22:00–23:00 · 50%');
     });
@@ -336,9 +336,34 @@ describe('views', () => {
     it('keeps the clock readable at 120×40 and falls back to the compact profile at 100×30', () => {
       const wide = render(120, 40);
       for (const s of ['CODING CLOCK', 'Evening coder', 'Peak', ...WEEKDAYS]) expect(wide).toContain(s);
-      const compact = render(100, 30);
-      expect(compact).toContain('CODING CLOCK');
-      expect(compact).toContain('Evening coder');
+      const small = render(100, 30);
+      expect(small).toContain('CODING CLOCK');
+      for (const s of ['Evening coder', 'Peak', ...WEEKDAYS]) expect(small).toContain(s);
+    });
+
+    it('draws the clock above the weekday box with cells wider than three columns at 160×48', () => {
+      const text = render(160, 48);
+      const rows = text.split('\n');
+      const clockAt = rows.findIndex((r) => r.includes('CODING CLOCK'));
+      const weekdayAt = rows.findIndex((r) => r.includes('BUSIEST WEEKDAY'));
+      expect(clockAt).toBeGreaterThan(0);
+      expect(weekdayAt).toBeGreaterThan(clockAt);
+      const header = rows[clockAt + 1]!;
+      expect(header.indexOf('03') - header.indexOf('00')).toBeGreaterThan(3 * 3);
+    });
+
+    it('keeps the All bars on the grid cells and shows the one-line summary without a side panel', () => {
+      const rows = render(80, 44).split('\n');
+      const clockAt = rows.findIndex((r) => r.includes('CODING CLOCK'));
+      const monday = rows[clockAt + 2]!;
+      expect(monday).toContain('Mon');
+      const allRow = rows.slice(clockAt + 9, clockAt + 11).find((r) => r.includes('All'))!;
+      // Hours 22 and 23: both busy, separated by the gap column, never fused.
+      const cell = 3;
+      const start = monday.indexOf('Mon') + 4;
+      for (const hour of [22, 23]) expect(allRow.slice(start + hour * cell, start + hour * cell + cell - 1)).toMatch(/^[▁-█]+$/);
+      expect(allRow[start + 22 * cell + cell - 1]).toBe(' ');
+      expect(rows[clockAt + 12]).toMatch(/Evening coder · peak \w{3} 22:00 · since /);
     });
 
     it('keeps the card at 70×24 and never writes outside the rect', () => {

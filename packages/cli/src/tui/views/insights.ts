@@ -115,24 +115,27 @@ function drawWeekdays(view: ScreenBuffer, rect: Rect, weekdays: readonly number[
 const HOUR_LABEL_WIDTH = 4; // "Mon "
 const SIDE_PANEL_WIDTH = 26;
 const SIDE_GAP = 3;
+const MAX_CLOCK_CELL = 5;
 const DAY_PART_SHORT: Record<DayPart, string> = { night: 'night', morning: 'morn', afternoon: 'aft', evening: 'eve' };
 
 interface ClockLayout {
-  /** Columns per hour cell: 3 (block, block, gap), 2 or 1. */
-  cell: 1 | 2 | 3;
+  /** Columns per hour: 1, or a glyph of cell − 1 columns plus a gap column (2 to 5). */
+  cell: number;
   /** Persona, peak, busiest hour and first date to the right of the grid; otherwise one line under the day parts. */
   side: boolean;
   /** Rows the box needs, borders included. */
   height: number;
 }
 
-/** What the coding clock can be drawn as in `room` columns; null when even single-column cells do not fit. */
+/** What the coding clock can be drawn as in `room` columns: the widest cells that still leave room for the side panel; null when even single-column cells do not fit. */
 function clockLayout(room: number): ClockLayout | null {
   const grid = (cell: number) => HOUR_LABEL_WIDTH + 24 * cell;
-  if (room >= grid(3) + SIDE_GAP + SIDE_PANEL_WIDTH) return { cell: 3, side: true, height: HOURS_GRID_HEIGHT };
-  if (room >= grid(2) + SIDE_GAP + SIDE_PANEL_WIDTH) return { cell: 2, side: true, height: HOURS_GRID_HEIGHT };
-  if (room >= grid(2)) return { cell: 2, side: false, height: HOURS_GRID_HEIGHT + 1 };
-  if (room >= grid(1)) return { cell: 1, side: false, height: HOURS_GRID_HEIGHT + 1 };
+  for (let cell = MAX_CLOCK_CELL; cell >= 2; cell--) {
+    if (room >= grid(cell) + SIDE_GAP + SIDE_PANEL_WIDTH) return { cell, side: true, height: HOURS_GRID_HEIGHT };
+  }
+  for (let cell = MAX_CLOCK_CELL; cell >= 1; cell--) {
+    if (room >= grid(cell)) return { cell, side: false, height: HOURS_GRID_HEIGHT + 1 };
+  }
   return null;
 }
 
@@ -197,13 +200,16 @@ function drawHours(view: ScreenBuffer, rect: Rect, profile: HourProfile, theme: 
       }
       const color = cellColor(levelFor(value, thresholds), { colorMode: 'single', theme: theme.name, empty: theme.empty });
       const isPeak = profile.peak?.weekday === weekday && profile.peak.hour === hour;
-      if (isPeak && cell === 3) {
-        view.set(cx, y, '▐', { fg: theme.ink, bold: true });
-        view.set(cx + 1, y, '█', { fg: color });
-        view.set(cx + 2, y, '▌', { fg: theme.ink, bold: true });
+      const glyph = Math.max(1, cell - 1);
+      if (isPeak && cell >= 3) {
+        // Outlined across the whole cell: ▐███▌
+        view.text(cx, y, `▐${'█'.repeat(cell - 2)}▌`, { fg: theme.ink, bold: true });
+        view.text(cx + 1, y, '█'.repeat(cell - 2), { fg: color });
+      } else if (isPeak) {
+        view.text(cx, y, cell === 1 ? '◆' : '█▌', { fg: theme.ink, bold: true });
+        if (cell === 2) view.set(cx, y, '█', { fg: color });
       } else {
-        view.set(cx, y, isPeak && cell === 1 ? '◆' : '█', { fg: isPeak && cell === 1 ? theme.ink : color, bold: isPeak });
-        if (cell >= 2) view.set(cx + 1, y, isPeak ? '▌' : cell === 3 ? '█' : ' ', { fg: isPeak ? theme.ink : color, bold: isPeak });
+        view.text(cx, y, '█'.repeat(glyph), { fg: color });
       }
     });
   });
@@ -211,7 +217,7 @@ function drawHours(view: ScreenBuffer, rect: Rect, profile: HourProfile, theme: 
   // The "All" row: one eighth-block bar per hour, two rows tall.
   const barsY = inner.y + 8;
   const barRect = { x: gx, y: barsY, width: 24 * cell, height: 2 };
-  for (let dx = 0; dx < Math.min(cell, 2); dx++) drawColumns(view, { ...barRect, x: gx + dx }, profile.byHour, barColors, cell - 1);
+  for (let dx = 0; dx < Math.max(1, cell - 1); dx++) drawColumns(view, { ...barRect, x: gx + dx }, profile.byHour, barColors, cell - 1);
   view.text(x, barsY + 1, 'All', { fg: theme.muted });
 
   // Under each six-hour block: its share of the day, the biggest in the accent colour.
@@ -313,11 +319,17 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
   // Everything under the cards: the weekday and months boxes, next to each other on wide screens.
   const boxesY = showCards ? cardHeight * cardRows : 0;
   const availableHeight = remaining - boxesY;
-  // The hour box sits under the weekday and months boxes; it is left out when they would get less than their minimum.
+  // The coding clock sits right under the cards and comes first: the weekday and months boxes get what is left,
+  // and only a clock that cannot fit whole shrinks to the compact profile (or goes).
   const hoursRoom = view.width - 4;
-  const clockHeight = clockLayout(hoursRoom)?.height ?? HOURS_PROFILE_HEIGHT;
-  let hoursHeight = profile.busiest === null ? 0 : clockHeight;
-  if (hoursHeight > 0 && availableHeight - hoursHeight < WEEKDAY_MIN_HEIGHT) hoursHeight = availableHeight - HOURS_PROFILE_HEIGHT >= WEEKDAY_MIN_HEIGHT ? HOURS_PROFILE_HEIGHT : 0;
+  const fullClock = clockLayout(hoursRoom)?.height ?? Infinity;
+  let hoursHeight = 0;
+  if (profile.busiest !== null) {
+    if (availableHeight >= fullClock) hoursHeight = fullClock;
+    else if (availableHeight - HOURS_PROFILE_HEIGHT >= WEEKDAY_MIN_HEIGHT) hoursHeight = HOURS_PROFILE_HEIGHT;
+  }
+  const hoursY = boxesY;
+  const boxesTop = boxesY + hoursHeight;
   const boxesHeight = availableHeight - hoursHeight;
   const monthsFit = (height: number) => height >= CHART_MIN_HEIGHT;
   // The 12-month chart: one accent column per month, the current month at full strength.
@@ -335,17 +347,17 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
   };
   if (view.width >= SIDE_BY_SIDE_WIDTH && boxesHeight >= WEEKDAY_MIN_HEIGHT) {
     const left = Math.floor(view.width * WEEKDAY_SHARE);
-    drawWeekdays(view, { x: 0, y: boxesY, width: left, height: boxesHeight }, data.weekdays, theme);
-    if (monthsFit(boxesHeight)) drawMonths({ x: left, y: boxesY, width: view.width - left, height: boxesHeight });
+    drawWeekdays(view, { x: 0, y: boxesTop, width: left, height: boxesHeight }, data.weekdays, theme);
+    if (monthsFit(boxesHeight)) drawMonths({ x: left, y: boxesTop, width: view.width - left, height: boxesHeight });
   } else if (monthsFit(boxesHeight) && boxesHeight >= WEEKDAY_MIN_HEIGHT + CHART_MIN_HEIGHT) {
     const weekdayHeight = Math.max(WEEKDAY_MIN_HEIGHT, Math.floor(boxesHeight * 0.4));
-    drawWeekdays(view, { x: 0, y: boxesY, width: view.width, height: weekdayHeight }, data.weekdays, theme);
-    drawMonths({ x: 0, y: boxesY + weekdayHeight, width: view.width, height: boxesHeight - weekdayHeight });
+    drawWeekdays(view, { x: 0, y: boxesTop, width: view.width, height: weekdayHeight }, data.weekdays, theme);
+    drawMonths({ x: 0, y: boxesTop + weekdayHeight, width: view.width, height: boxesHeight - weekdayHeight });
   } else if (boxesHeight >= WEEKDAY_MIN_HEIGHT) {
-    drawWeekdays(view, { x: 0, y: boxesY, width: view.width, height: boxesHeight }, data.weekdays, theme);
+    drawWeekdays(view, { x: 0, y: boxesTop, width: view.width, height: boxesHeight }, data.weekdays, theme);
   }
 
-  if (hoursHeight > 0) drawHours(view, { x: 0, y: boxesY + boxesHeight, width: view.width, height: hoursHeight }, profile, theme);
+  if (hoursHeight > 0) drawHours(view, { x: 0, y: hoursY, width: view.width, height: hoursHeight }, profile, theme);
 
   if (novelsHeight > 0 && novels !== null) {
     const y = view.height - 1;
