@@ -432,6 +432,23 @@ describe('setup tab and confirm modal', () => {
     expect(text.split('\n').find((row) => row.includes('Claude Code hook'))).toContain('recommended');
   });
 
+  it('draws one progress segment per step and the selected row\'s command under the list', () => {
+    const items = actionItems(status(), model().sources);
+    const text = frame('setup', 160, 48, { setupSel: items.findIndex((i) => i.id === 'hook:cursor') });
+    expect(text).toContain('1 of 3 recommended steps done  ▰▱▱');
+    expect(text).not.toContain('▰▱▱▱');
+    expect(text).toContain('$ tokengraph install-hook --agent cursor');
+    // Scrolled lists have no room for it.
+    expect(frame('setup', 80, 24, { setupSel: items.length - 1 })).not.toContain('$ tokengraph');
+  });
+
+  it('draws 4 of 5 as ▰▰▰▰▱', () => {
+    const done = status();
+    done.autoSync = { claudeHook: true, cursorHook: true, codexNotify: true, geminiHook: false, schedule: false };
+    const text = frame('setup', 160, 48, { setup: done, vm: { ...model(), sources: ['claude-code', 'cursor', 'codex-cli', 'opencode'] } });
+    expect(text).toContain('4 of 5 recommended steps done  ▰▰▰▰▱');
+  });
+
   it('puts a dot after the Setup tab while a recommended step is open, and drops it when all are done', () => {
     expect(frame('overview', 160, 48).split('\n')[0]).toMatch(/5 Setup •/);
     const done = status();

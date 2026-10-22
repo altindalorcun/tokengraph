@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actionItems, setupProgress, type SetupStatus } from '../../src/tui/actions.js';
+import { actionItems, cliCommand, setupProgress, type SetupStatus } from '../../src/tui/actions.js';
 
 const noHooks = { claudeHook: false, cursorHook: false, codexNotify: false, geminiHook: false, schedule: false };
 const status = (patch: Partial<SetupStatus> = {}, autoSync: Partial<typeof noHooks> = {}): SetupStatus => ({
@@ -102,5 +102,41 @@ describe('setupProgress', () => {
 
   it('counts nothing done without a status', () => {
     expect(setupProgress(actionItems(null, ['codex-cli']), null, ['codex-cli'])).toEqual({ done: 0, total: 2 });
+  });
+});
+
+describe('cliCommand', () => {
+  const cmd = (items: ReturnType<typeof actionItems>, id: string) => cliCommand(find(items, id));
+
+  it('names the command behind each action', () => {
+    const out = actionItems(status({ login: 'orcun' }), []);
+    expect(['sync', 'readme', 'logout', 'cursor-fetch-now', 'import-cursor', 'export-csv', 'export-json', 'story', 'status', 'uninstall'].map((id) => cmd(out, id))).toEqual([
+      'tokengraph sync',
+      'tokengraph readme',
+      'tokengraph logout',
+      'tokengraph cursor fetch',
+      'tokengraph import cursor <file.csv>',
+      'tokengraph export --format csv --out <file>',
+      'tokengraph export --format json --out <file>',
+      'tokengraph story',
+      'tokengraph status',
+      'tokengraph uninstall',
+    ]);
+    expect(cmd(actionItems(status(), []), 'login')).toBe('tokengraph login');
+  });
+
+  it('shows the direction a toggle would flip', () => {
+    const off = actionItems(status({ login: 'orcun' }), []);
+    expect(cmd(off, 'hook:codex')).toBe('tokengraph install-hook --agent codex');
+    expect(cmd(off, 'schedule')).toBe('tokengraph schedule');
+    expect(cmd(off, 'cursor-fetch')).toBe('tokengraph cursor off');
+    expect(cmd(off, 'colors')).toBe('tokengraph readme --colors single');
+    const on = actionItems(status({ login: 'orcun', cursorFetch: false, graphColors: 'single' }, { claudeHook: true, geminiHook: true, schedule: true }), []);
+    expect(cmd(on, 'hook:claude-code')).toBe('tokengraph install-hook --agent claude-code --remove');
+    expect(cmd(on, 'hook:gemini-cli')).toBe('tokengraph install-hook --agent gemini-cli --remove');
+    expect(cmd(on, 'hook:cursor')).toBe('tokengraph install-hook --agent cursor');
+    expect(cmd(on, 'schedule')).toBe('tokengraph schedule --remove');
+    expect(cmd(on, 'cursor-fetch')).toBe('tokengraph cursor on');
+    expect(cmd(on, 'colors')).toBe('tokengraph readme --colors model');
   });
 });

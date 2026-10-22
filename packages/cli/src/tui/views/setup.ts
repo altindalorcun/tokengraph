@@ -1,4 +1,4 @@
-import type { ActionId, ActionItem } from '../actions.js';
+import { cliCommand, type ActionId, type ActionItem } from '../actions.js';
 import { ScreenBuffer, type Rect } from '../screen.js';
 import type { TuiTheme } from '../theme.js';
 import { truncate } from './dates.js';
@@ -8,7 +8,6 @@ const MAX_WIDTH = 104;
 const MAX_TITLE_W = 30;
 const TAG = 'recommended';
 const RUNNING = 'running…';
-const PROGRESS_SEGMENTS = 6;
 const HEADER_HEIGHT = 2; // progress line, blank line
 
 export interface SetupProps {
@@ -50,11 +49,12 @@ function drawHeader(view: ScreenBuffer, width: number, props: SetupProps): void 
   } else {
     x += view.text(x, 0, ` · ${progress.done} of ${progress.total} recommended steps done`, { fg: theme.muted });
   }
-  const filled = progress.total > 0 ? Math.round((Math.min(progress.done, progress.total) / progress.total) * PROGRESS_SEGMENTS) : PROGRESS_SEGMENTS;
+  // One segment per step.
+  const filled = Math.min(progress.done, progress.total);
   x += 2;
-  if (x + PROGRESS_SEGMENTS > width) return;
+  if (x + progress.total > width) return;
   x += view.text(x, 0, '▰'.repeat(filled), { fg: allDone ? theme.good : theme.accent });
-  view.text(x, 0, '▱'.repeat(PROGRESS_SEGMENTS - filled), { fg: theme.faint });
+  view.text(x, 0, '▱'.repeat(progress.total - filled), { fg: theme.faint });
 }
 
 /** The state mark of a toggle: ✓ on, — off, ? unknown; plain actions have none. */
@@ -107,6 +107,11 @@ export function drawSetup(buf: ScreenBuffer, rect: Rect, props: SetupProps): Vie
       else if (item.recommended) view.text(width - tagW, y, TAG, { fg: theme.accent, ...row });
       hits.push({ kind: 'action', id: item.id, rect: { x: rect.x, y: rect.y + y, width, height: 1 } });
     }
+  }
+  // Under a list that fits whole, after a blank row: the command line for the selected row.
+  const commandY = HEADER_HEIGHT + lines.length + 1;
+  if (offset === 0 && commandY < view.height && items[selected]) {
+    view.text(0, commandY, truncate(`$ ${cliCommand(items[selected]!)}`, width), { fg: theme.muted });
   }
   // A quiet cue that the list goes on below the last drawn line.
   const lastShown = Math.min(lines.length, offset + area);

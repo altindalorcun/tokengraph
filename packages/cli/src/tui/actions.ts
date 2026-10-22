@@ -126,6 +126,36 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
   return items;
 }
 
+const HOOK_AGENTS: Record<string, HookAgent> = {
+  'hook:claude-code': 'claude-code',
+  'hook:cursor': 'cursor',
+  'hook:codex': 'codex',
+  'hook:gemini-cli': 'gemini-cli',
+};
+
+/** The command line that does what the item does now (a toggle shows the direction it would flip). */
+export function cliCommand(item: ActionItem): string {
+  const on = item.state === 'on';
+  const agent = HOOK_AGENTS[item.id];
+  if (agent) return `tokengraph install-hook --agent ${agent}${on ? ' --remove' : ''}`;
+  switch (item.id) {
+    case 'sync': return 'tokengraph sync';
+    case 'login': return 'tokengraph login';
+    case 'logout': return 'tokengraph logout';
+    case 'readme': return 'tokengraph readme';
+    case 'colors': return `tokengraph readme --colors ${item.detail === 'single colour' ? 'model' : 'single'}`;
+    case 'schedule': return `tokengraph schedule${on ? ' --remove' : ''}`;
+    case 'cursor-fetch': return `tokengraph cursor ${on ? 'off' : 'on'}`;
+    case 'cursor-fetch-now': return 'tokengraph cursor fetch';
+    case 'import-cursor': return 'tokengraph import cursor <file.csv>';
+    case 'export-csv': return 'tokengraph export --format csv --out <file>';
+    case 'export-json': return 'tokengraph export --format json --out <file>';
+    case 'story': return 'tokengraph story';
+    case 'status': return 'tokengraph status';
+    default: return 'tokengraph uninstall';
+  }
+}
+
 /** Setup steps done out of those that apply: GitHub, one hook per hook-capable agent in use, and the hourly sync for the rest. */
 export function setupProgress(
   items: readonly ActionItem[],
