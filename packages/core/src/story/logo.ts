@@ -179,9 +179,14 @@ export function logoIconSvg(): string {
   return `${head(LOGO_ICON_VIEWBOX)}${logoCellMarkup()}</svg>\n`;
 }
 
+/** Flame plus wordmark in the mark's own coordinates, the wordmark filled with `ink`. */
+export function logoLockupMarkup(ink: string): string {
+  return `${logoCellMarkup()}<path d="${LOGO_WORDMARK_PATH}" transform="${LOGO_WORDMARK_TRANSFORM}" fill="${ink}"/>`;
+}
+
 /** Flame plus wordmark, for a light or a dark surface. */
 export function logoLockupSvg(theme: LogoTheme): string {
-  return `${head(LOGO_LOCKUP_VIEWBOX)}${logoCellMarkup()}<path d="${LOGO_WORDMARK_PATH}" transform="${LOGO_WORDMARK_TRANSFORM}" fill="${SURFACE[theme].ink}"/></svg>\n`;
+  return `${head(LOGO_LOCKUP_VIEWBOX)}${logoLockupMarkup(SURFACE[theme].ink)}</svg>\n`;
 }
 
 /** Bounds of the flame, used to centre it exactly in the app icon tile. */

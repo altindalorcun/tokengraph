@@ -13,6 +13,7 @@ import {
 import { computeGraphStats, type GraphStats } from './graph-stats.js';
 import { computeThresholds, levelFor, type Level } from './levels.js';
 import { FAMILY_LABELS, FAMILY_LOGOS, MODEL_FAMILIES, type ModelFamily } from './model-makers.js';
+import { LOGO_CELL, LOGO_CELLS, logoLockupMarkup } from './story/logo.js';
 
 export interface GraphDay {
   date: string;
@@ -305,6 +306,25 @@ function brandLogo(art: BrandLogoArt, idPrefix: string, x: number, y: number, in
     .map((path) => `<path d="${path.d}" fill="${brandPaint(path.fill, idPrefix, ink)}"${path.evenodd ? ' fill-rule="evenodd"' : ''}/>`)
     .join('');
   return `<g transform="translate(${n(x)} ${n(y)}) scale(${n(LEGEND_LOGO / 24)})">${defs ? `<defs>${defs}</defs>` : ''}${paths}</g>`;
+}
+
+const FOOTER_MARK_HEIGHT = 16;
+
+/** The flame's left edge and height, and its visual centre (the mean of its cell centres, lower than the box middle). */
+const FLAME_LEFT = Math.min(...LOGO_CELLS.map(([x]) => x));
+const FLAME_TOP = Math.min(...LOGO_CELLS.map(([, y]) => y));
+const FLAME_HEIGHT = Math.max(...LOGO_CELLS.map(([, y]) => y)) + LOGO_CELL - FLAME_TOP;
+const FLAME_CENTROID_Y = LOGO_CELLS.reduce((sum, [, y]) => sum + y + LOGO_CELL / 2, 0) / LOGO_CELLS.length;
+
+/**
+ * The site's logo lockup, bottom left: the flame in its own colours and the outlined wordmark in
+ * the theme's ink. The flame starts at `x` and its visual centre sits on `centreY`; the wordmark is
+ * already lined up with it inside the lockup.
+ */
+function footerMark(surface: DisplaySurface, x: number, centreY: number): string {
+  const scale = FOOTER_MARK_HEIGHT / FLAME_HEIGHT;
+  const transform = `translate(${n(x - FLAME_LEFT * scale)} ${n(centreY - FLAME_CENTROID_Y * scale)}) scale(${Math.round(scale * 10000) / 10000})`;
+  return `<g transform="${transform}">${logoLockupMarkup(surface.ink)}</g>`;
 }
 
 /** The hue key, per-model mode only (hue means nothing when every cell is one red). Left-aligned. */
@@ -750,7 +770,7 @@ export function renderGraphSvg(days: readonly GraphDay[], options: RenderOptions
   if (layout.showLabels) {
     const footerY = map.bottom + 20;
     parts.push(
-      text('tokengraph', pad, footerY + 10, { size: 11, fill: surface.muted, weight: 500, tracking: 0.4, opacity: 0.8 }),
+      footerMark(surface, pad, footerY + layout.cell / 2),
       intensityLegend(layout, surface, theme, colorMode, footerY),
     );
     height = Math.round(footerY + layout.cell + 22);

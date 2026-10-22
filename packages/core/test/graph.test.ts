@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DISPLAY_SURFACES, FAMILY_RAMPS, FAMILY_RAMPS_LIGHT } from '../src/graph-colors.js';
 import { FAMILY_LABELS, MODEL_FAMILIES } from '../src/model-makers.js';
+import { LOGO_CELLS, logoCellMarkup, logoLockupMarkup } from '../src/story/logo.js';
 import { buildGraphGrid, gridFamilies, formatTokens, formatTokensExact, renderGraphSvg, renderNoticeSvg, WEEKS, type GraphDay } from '../src/graph.js';
 
 function daysEndingAt(endDate: string, count: number, value: (index: number) => number): GraphDay[] {
@@ -45,9 +46,9 @@ describe('renderGraphSvg', () => {
     const svg = renderGraphSvg(daysEndingAt(END, 400, () => 1000), { endDate: END });
     const cells = (svg.match(/<title>/g) ?? []).length;
     expect(cells).toBe(WEEKS * 7 - OMITTED_AFTER_END);
-    // Cells, six Less/More swatches, today's halo and ring, the strip's panel and outline, and the
-    // card's surface, glow and ring.
-    expect((svg.match(/<rect /g) ?? []).length).toBe(cells + 6 + 2 + 2 + 3);
+    // Cells, six Less/More swatches, today's halo and ring, the strip's panel and outline, the
+    // card's surface, glow and ring, and the footer flame.
+    expect((svg.match(/<rect /g) ?? []).length).toBe(cells + 6 + 2 + 2 + 3 + LOGO_CELLS.length);
   });
 
   it('never draws a day after the end date', () => {
@@ -114,7 +115,8 @@ describe('renderGraphSvg', () => {
     const single = renderGraphSvg(days, { endDate: END });
     const perModel = renderGraphSvg(days, { endDate: END, colorMode: 'per-model' });
     expect(single).toContain('#dc2626');
-    expect(perModel).not.toMatch(/#dc2626|#b91c1c|#f87171/);
+    // The footer logo is the product mark and keeps its own reds.
+    expect(perModel.replace(logoCellMarkup(), '')).not.toMatch(/#dc2626|#b91c1c|#f87171/);
     expect(perModel).toContain('#9ba2ab');
   });
 
@@ -408,9 +410,13 @@ describe('the alive README graph', () => {
     expect(full()).toContain('stroke="rgb(255 255 255 / 0.08)"');
   });
 
-  it('carries a muted tokengraph mark opposite Less and More, in the full graph only', () => {
-    expect(full()).toMatch(/fill="#a3aab3" fill-opacity="0.8" letter-spacing="0.4">tokengraph<\/text>/);
-    expect(renderGraphSvg([], { endDate: END, compact: true })).not.toContain('>tokengraph</text>');
+  it('carries the logo lockup opposite Less and More, in the full graph only', () => {
+    const svg = full();
+    expect(svg).toContain(logoLockupMarkup(DISPLAY_SURFACES.dark.ink));
+    expect(full({ theme: 'light' })).toContain(logoLockupMarkup(DISPLAY_SURFACES.light.ink));
+    // The wordmark is outlined like the site's logo, not set as text.
+    expect(svg).not.toContain('>tokengraph</text>');
+    expect(renderGraphSvg([], { endDate: END, compact: true })).not.toContain(logoCellMarkup());
   });
 
   it('puts the streak in the accessible label, and leaves it out of an empty graph', () => {
