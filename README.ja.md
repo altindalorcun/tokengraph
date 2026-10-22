@@ -92,7 +92,7 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 
 | | |
 | --- | --- |
-| **マシンの外に出るもの** | アカウントの公開 gist へ：SVG グラフ（日ごとのトークン合計と、色分けに使うモデルファミリー名）と、埋め込みスニペットとリンクを載せた README。アカウントの秘密 gist へ：日ごと・モデルごとのトークン数、ランダムなマシン ID、`darwin-3f2a1c` のようなラベル、ハッシュ化したマシンのフィンガープリント、CLI のバージョン、最終更新の時刻。どちらも `tokengraph login` の後で、かつ tokengraph が公開するとき（`sync`、フック、スケジュール、`login`）だけです。`sync --local`、`view`、`story`、`status`、`export`、`import` は一切送信しません。 |
+| **マシンの外に出るもの** | アカウントの公開 gist へ：SVG グラフ（日ごとのトークン合計と、色分けに使うモデルファミリー名）と、埋め込みスニペットとリンクを載せた README。アカウントの秘密 gist へ：日ごと・モデルごとのトークン数、ランダムなマシン ID、`darwin-3f2a1c` のようなラベル、ハッシュ化したマシンのフィンガープリント、CLI のバージョン、最終更新の時刻。どちらも `tokengraph login` の後で、かつ tokengraph が公開するとき（`sync`、フック、スケジュール、`login`）だけです。`sync --local`、`story`、`status`、`export`、`import` は一切送信しません。`view` も、その中で Sync（または login、グラフの色）を自分で選んだときだけ送信します。 |
 | **このマシンに残るもの** | 各エージェントを 1 日のどの時間帯に使ったか。tokengraph は、最も忙しい時間帯のカードと `export --hours` のために、ローカル時刻の 1 時間ごとの重み付きトークン数を `state.json` に保存します。これがマシンファイル、データ gist、グラフ、ストーリーカードに入ることはありません。時間帯のデータは、エージェントのログがまだ残っている日の分だけあります。 |
 | **tokengraph が取得するもの** | Cursor に限り、かつ有効なときだけ（Cursor にサインインしていれば既定で有効。`tokengraph cursor off` で停止）：`sync` が Cursor のローカルデータベースから Cursor 自身のサインイントークンを読み取り（読み取り専用で、その 1 行だけ）、cursor.com にあなた自身の使用量エクスポート、つまり Cursor ダッシュボードのエクスポートボタンで得られるものと同じファイルを求めます。トークンは cursor.com にだけ送られ、リクエストの間だけメモリに保持され、保存も表示もログ出力もされません。保存されるのは使用量の行（タイムスタンプ、モデル名、トークン数）です。`sync --local` は一切行いません。 |
 | **出ないもの** | プロンプト、回答、コード、ファイル名、パス。tokengraph のサーバーには何も送られません。そもそもサーバーが存在しません。 |
@@ -128,7 +128,7 @@ Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code、Goose にフック�
 
 | コマンド | 内容 |
 | --- | --- |
-| `tokengraph [view]` | ライブのターミナルビューを開きます：年間ヒートマップ、モデル、エージェント、連続日数、そして 1 日で最も忙しい時間帯と 24 時間のプロファイル。`--print` で静的なスナップショットを表示します。ターミナルでの既定のコマンドです。 |
+| `tokengraph [view]` | ライブのターミナルビューを開きます：年間ヒートマップ、モデル、エージェント、連続日数、1 日のどの時間帯に作業しているかを示すコーディング時計、そしてビューを離れずにフック、毎時のスケジュール、sync、Cursor、エクスポート、story を管理する Setup タブ。`:` または Ctrl-K でコマンドパレットが開き、各アクションには対応する CLI コマンドが表示されます。`--print` で静的なスナップショットを表示します。ターミナルでの既定のコマンドです。 |
 | `tokengraph login` | GitHub に接続し、グラフを自分の gist に公開して、README のスニペットを表示します。GitHub CLI にログイン済みならそれを使い（`--gh`）、そうでなければブラウザーで承認するワンタイムコードを使います（`--device`、`--no-open`）。要求するのは gist の権限だけです。 |
 | `tokengraph logout` | このマシンの GitHub ログインを消去します。ローカルのデータと gist はそのまま残ります。 |
 | `tokengraph sync` | すべてのエージェントのログを台帳に読み込み、ログイン済みなら公開します。Cursor にサインインしていれば、最初に cursor.com から Cursor の使用量を取得します（最大 1 時間に 1 回）。`--since <days>` でさかのぼる日数を指定し（既定は 90）、`--local` はネットワークを一切使いません。 |
@@ -156,7 +156,7 @@ Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code、Goose にフック�
 
 **なぜ重み付きトークンなのですか？** 生の合計の大半はキャッシュ読み取りで、安い割に量が膨大です。10 分の 1 で数えることで、グラフを実際にこなした作業量に近づけています。計算式は[仕組み](#仕組み)にあります。
 
-**オフラインで使えますか？** はい。`view`、`story`、`status`、`export`、`import <file>`、`sync --local` はネットワークを使いません。GitHub が必要なのは公開するときだけで、Cursor の取得（`sync`、`cursor fetch`）には cursor.com が必要です。
+**オフラインで使えますか？** はい。`view`、`story`、`status`、`export`、`import <file>`、`sync --local` はネットワークなしで動きます。`view` が公開するのは、その中で Sync（または login、グラフの色）を自分で選んだときだけです。GitHub が必要なのは公開するときだけで、Cursor の取得（`sync`、`cursor fetch`）には cursor.com が必要です。
 
 **やめるには？** `tokengraph uninstall` で、Claude Code、Cursor、Codex、Gemini CLI のフックと 1 時間ごとのスケジュールを削除します。`--purge` を付けると、`~/.tokengraph` にある tokengraph 自身のファイル（台帳、ログイン情報、ログ、Cursor のイベントファイル、インポートファイル、取得したアカウントのファイル）も削除します。そのフォルダーにあるそれ以外のものは残ります。
 そのあと `npm uninstall -g tokengraph` を実行してください。gist は、自分で削除するまで GitHub に残ります。

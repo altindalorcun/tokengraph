@@ -151,7 +151,8 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
   from Cursor's local database, held in memory for the request, sent to `cursor.com` and
   `www.cursor.com` only, and never stored, logged or printed.
 - `status`, `view`, `story`, `export` and `import <file>` work offline from local files. `sync --local` never uses the
-  network. `view` never publishes.
+  network. `view` publishes only when the user
+  picks Sync, login or graph colours in its Setup tab or palette; opening and scanning never do.
 - The public gist exposes daily totals, model family names and colours, and never model ids or
   per-model counts. Those are only in the secret data gist.
 - Without `login`, nothing is published at all.

@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Setup tab and command palette.** The terminal view has a fifth tab that manages this machine:
+  the account, a hook for each agent (Claude Code, Cursor, Codex, Gemini CLI), the hourly sync,
+  Cursor history, story cards, export, status and uninstall. `:` or Ctrl-K opens a palette with the
+  same actions, `h` on the Agents tab manages hooks, and every action shows its CLI equivalent. The
+  view publishes only when you pick Sync, login or graph colours in it.
+- **Cache saved.** The overview shows what caching saved you instead of the cache hit rate.
+- **Coding clock.** The Insights tab shows when in the day you work as a coding clock, replacing the
+  24-hour profile.
+- **Claude model names.** Claude models appear by name and version in the view.
+- **Fixes.** The weekday average no longer miscounts days, narrow terminals keep the selected day and
+  full names visible, and `view --print` shows the cost tile.
+
 ## 0.1.0 — unreleased
 
 The first public release.
