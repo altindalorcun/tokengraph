@@ -25,7 +25,8 @@ export type Hit =
   | { kind: 'day'; date: string; rect: Rect }
   | { kind: 'range'; range: RangeKey; rect: Rect }
   | { kind: 'row'; index: number; rect: Rect }
-  | { kind: 'action'; id: ActionId; rect: Rect };
+  | { kind: 'action'; id: ActionId; rect: Rect }
+  | { kind: 'hour'; hour: number; rect: Rect };
 export interface ViewResult {
   hits: Hit[];
   /** Heatmap layout for hover hit-testing, when drawn. */

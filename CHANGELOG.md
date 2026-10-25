@@ -8,8 +8,9 @@
   same actions, `h` on the Agents tab manages hooks, and every action shows its CLI equivalent. The
   view publishes only when you pick Sync, login or graph colours in it.
 - **Cache saved.** The overview shows what caching saved you instead of the cache hit rate.
-- **Coding clock.** The Insights tab shows when in the day you work as a coding clock, replacing the
-  24-hour profile.
+- **When you code.** The Insights tab says in a sentence which part of the day you use AI in, with
+  one bar per hour and the day parts bracketed under them; ← → or the mouse picks an hour and the
+  readout shows its tokens, its share and the weekday it falls on most. It replaces the 24-hour profile.
 - **Claude model names.** Claude models appear by name and version in the view.
 - **Fixes.** The weekday average no longer miscounts days, narrow terminals keep the selected day and
   full names visible, and `view --print` shows the cost tile.

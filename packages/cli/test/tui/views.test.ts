@@ -298,8 +298,8 @@ describe('views', () => {
   });
 
   it('help drops the glossary on a short screen but keeps the keys', () => {
-    const buf = new ScreenBuffer(100, 17);
-    drawHelp(buf, { x: 0, y: 0, width: 100, height: 17 }, theme);
+    const buf = new ScreenBuffer(100, 18);
+    drawHelp(buf, { x: 0, y: 0, width: 100, height: 18 }, theme);
     const text = toPlainText(buf);
     expect(text).toContain('quit');
     expect(text).not.toContain('weighted tokens');
@@ -355,64 +355,59 @@ describe('views', () => {
       }
       return buildViewModel(ledger, TODAY);
     }
-    const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const render = (width: number, height: number, vm = withHours()) => {
+    const render = (width: number, height: number, vm = withHours(), hour: number | null = null) => {
       const buf = new ScreenBuffer(width, height);
-      drawInsights(buf, { x: 0, y: 0, width, height }, { vm, theme, motion: STILL, colorMode: 'per-model' });
-      return toPlainText(buf);
+      const result = drawInsights(buf, { x: 0, y: 0, width, height }, { vm, theme, motion: STILL, colorMode: 'per-model', hour });
+      return { text: toPlainText(buf), hits: result.hits };
     };
 
-    it('shows the busiest-hour card and the coding clock at 160×48', () => {
-      const text = render(160, 48);
-      for (const s of ['BUSIEST HOUR', '22:00', 'CODING CLOCK', 'Evening coder', 'Peak', 'Busiest', 'Since', 'night', 'morning', 'afternoon', 'evening', 'All', '▐███▌', ...WEEKDAYS]) expect(text).toContain(s);
-      expect(text).toContain('50% · Evening coder');
-      expect(text).toContain('22:00–23:00 · 50%');
+    it('says in words when you code, brackets the day parts and reads out the busiest hour at 160×48', () => {
+      const { text } = render(160, 48);
+      for (const s of ['BUSIEST HOUR', '22:00', 'WHEN YOU CODE', 'evening 67%', 'morning 33%', 'night 0%', 'afternoon 0%']) expect(text).toContain(s);
+      expect(text).toContain('Evening coder  67% of your tokens are used in the evening, 18:00–24:00');
+      expect(text).toMatch(/╰─+ evening 67% ─+╯/);
+      expect(text).toContain('‹ 22:00–23:00 ›  ·  your busiest hour  ·  120.0K tokens, 50% of all  ·  mostly on');
+      expect(text).toContain('← → pick an hour');
+      // The old grid and its unexplained peak outline are gone.
+      for (const s of ['CODING CLOCK', '▐', 'Peak']) expect(text).not.toContain(s);
     });
 
-    it('keeps the clock readable at 120×40 and falls back to the compact profile at 100×30', () => {
-      const wide = render(120, 40);
-      for (const s of ['CODING CLOCK', 'Evening coder', 'Peak', ...WEEKDAYS]) expect(wide).toContain(s);
-      const small = render(100, 30);
-      expect(small).toContain('CODING CLOCK');
-      for (const s of ['Evening coder', 'Peak', ...WEEKDAYS]) expect(small).toContain(s);
+    it('reads out the picked hour instead of the busiest, and says when an hour is empty', () => {
+      const { text } = render(160, 48, withHours(), 10);
+      expect(text).toContain('‹ 10:00–11:00 ›  ·  80.0K tokens, 33% of all');
+      expect(text).not.toContain('your busiest hour');
+      expect(render(160, 48, withHours(), 4).text).toContain('‹ 04:00–05:00 ›  ·  nothing in this hour yet');
     });
 
-    it('draws the clock above the weekday box with cells wider than three columns at 160×48', () => {
-      const text = render(160, 48);
+    it('reports one hit per hour over its bar, in screen coordinates', () => {
+      const { text, hits } = render(160, 48);
+      const hours = hits.filter((h) => h.kind === 'hour');
+      expect(hours.map((h) => (h.kind === 'hour' ? h.hour : -1))).toEqual(Array.from({ length: 24 }, (_, i) => i));
       const rows = text.split('\n');
-      const clockAt = rows.findIndex((r) => r.includes('CODING CLOCK'));
-      const weekdayAt = rows.findIndex((r) => r.includes('BUSIEST WEEKDAY'));
-      expect(clockAt).toBeGreaterThan(0);
-      expect(weekdayAt).toBeGreaterThan(clockAt);
-      const header = rows[clockAt + 1]!;
-      expect(header.indexOf('03') - header.indexOf('00')).toBeGreaterThan(3 * 3);
+      const labels = rows.find((r) => /^\s*│\s+00\s+03/.test(r))!;
+      // The label row sits right under the bars, inside the hit rect, and the 00 label starts at hour 0's column.
+      expect(labels.indexOf('00')).toBe(hours[0]!.rect.x);
     });
 
-    it('keeps the All bars on the grid cells and shows the one-line summary without a side panel', () => {
-      const rows = render(80, 44).split('\n');
-      const clockAt = rows.findIndex((r) => r.includes('CODING CLOCK'));
-      const monday = rows[clockAt + 2]!;
-      expect(monday).toContain('Mon');
-      const allRow = rows.slice(clockAt + 9, clockAt + 11).find((r) => r.includes('All'))!;
-      // Hours 22 and 23: both busy, separated by the gap column, never fused.
-      const cell = 3;
-      const start = monday.indexOf('Mon') + 4;
-      for (const hour of [22, 23]) expect(allRow.slice(start + hour * cell, start + hour * cell + cell - 1)).toMatch(/^[▁-█]+$/);
-      expect(allRow[start + 22 * cell + cell - 1]).toBe(' ');
-      expect(rows[clockAt + 12]).toMatch(/Evening coder · peak \w{3} 22:00 · since /);
+    it('draws the box above the weekday box at 160×48, and keeps the sentence and readout at 80×24', () => {
+      const rows = render(160, 48).text.split('\n');
+      expect(rows.findIndex((r) => r.includes('BUSIEST WEEKDAY'))).toBeGreaterThan(rows.findIndex((r) => r.includes('WHEN YOU CODE')));
+      const small = render(80, 24).text;
+      for (const s of ['WHEN YOU CODE', 'Evening coder', '‹ 22:00–23:00 ›']) expect(small).toContain(s);
+      expect(small.split('\n').every((row) => row.length <= 80)).toBe(true);
     });
 
     it('keeps the card at 70×24 and never writes outside the rect', () => {
-      const text = render(70, 24);
+      const { text } = render(70, 24);
       expect(text).toContain('BUSIEST HOUR');
       expect(text.split('\n').every((row) => row.length <= 70)).toBe(true);
     });
 
     it('says there is no hour data yet when none exists, and draws no hour box', () => {
-      const text = render(120, 34, model());
+      const { text } = render(120, 34, model());
       expect(text).toContain('BUSIEST HOUR');
       expect(text).toContain('no hour data yet');
-      expect(text).not.toContain('CODING CLOCK');
+      expect(text).not.toContain('WHEN YOU CODE');
     });
   });
 });

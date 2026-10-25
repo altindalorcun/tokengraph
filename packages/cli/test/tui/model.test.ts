@@ -3,7 +3,7 @@ import { cacheSavingsForSplitCounts } from '@tokengraph/core';
 import { emptyLedger, mergeHours, mergeUsage, type Ledger } from '../../src/ledger.js';
 import {
   agentBreakdown, agentBuckets, buildViewModel, familyBuckets, monthlyTotals, rangeBuckets, dailySeries, familySeries, formatCost, insights, modelBreakdown, rangeStart, rangeTotals,
-  hourLabel, hourProfile, hourRange, busiestHourText, shiftDate, stats, yearGrid,
+  hourDetail, hourLabel, hourProfile, hourRange, busiestHourText, shiftDate, stats, yearGrid,
 } from '../../src/tui/model.js';
 
 const TODAY = '2026-10-03';
@@ -339,25 +339,39 @@ describe('chart buckets', () => {
     expect(months.reduce((a, m) => a + m.weighted, 0)).toBe(4);
   });
 
-  describe('coding clock', () => {
+  describe('hour profile', () => {
     const hoursVm = (rows: { hour: number; weighted: number }[]) => {
       let ledger = ledgerWith([{ source: 'claude-code', date: '2026-10-03', model: 'gpt-5', c: counts(10) }]);
       ledger = mergeHours(ledger, 'claude-code', rows.map((r) => ({ date: '2026-10-03', ...r })));
       return buildViewModel(ledger, TODAY);
     };
 
-    it('names the persona from the share of each part of the day, and finds the peak cell', () => {
+    it('names the persona from the share of each part of the day', () => {
       const p = hourProfile(hoursVm([{ hour: 23, weighted: 700 }, { hour: 10, weighted: 300 }]));
       expect(p.parts.evening).toBeCloseTo(0.7);
       expect(p.parts.morning).toBeCloseTo(0.3);
       expect(p.persona).toBe('Evening coder');
-      expect(p.peak).toEqual({ weekday: 5, hour: 23, weighted: 700 }); // 2026-10-03 is a Saturday
+    });
+
+    it('details one hour: its tokens, its share and the weekday holding most of it', () => {
+      let ledger = ledgerWith([{ source: 'claude-code', date: '2026-10-03', model: 'gpt-5', c: counts(10) }]);
+      // 2026-10-03 is a Saturday, 2026-10-02 a Friday.
+      ledger = mergeHours(ledger, 'claude-code', [
+        { date: '2026-10-03', hour: 23, weighted: 700 },
+        { date: '2026-10-02', hour: 23, weighted: 200 },
+        { date: '2026-10-02', hour: 10, weighted: 300 },
+      ]);
+      const p = hourProfile(buildViewModel(ledger, TODAY));
+      expect(hourDetail(p, 23)).toEqual({ hour: 23, weighted: 900, share: 0.75, topWeekday: 5 });
+      expect(hourDetail(p, 10)).toEqual({ hour: 10, weighted: 300, share: 0.25, topWeekday: 4 });
+      expect(hourDetail(p, 4)).toEqual({ hour: 4, weighted: 0, share: 0, topWeekday: null });
+      expect(hourDetail(hourProfile(buildViewModel(emptyLedger(), TODAY)), 4).share).toBe(0);
     });
 
     it('says around the clock when no part reaches 35%, and has no persona without data', () => {
       const p = hourProfile(hoursVm([{ hour: 2, weighted: 100 }, { hour: 8, weighted: 100 }, { hour: 14, weighted: 100 }, { hour: 20, weighted: 100 }]));
       expect(p.persona).toBe('Around the clock');
-      expect(hourProfile(buildViewModel(emptyLedger(), TODAY))).toMatchObject({ persona: null, peak: null, parts: { night: 0, morning: 0, afternoon: 0, evening: 0 } });
+      expect(hourProfile(buildViewModel(emptyLedger(), TODAY))).toMatchObject({ persona: null, busiest: null, parts: { night: 0, morning: 0, afternoon: 0, evening: 0 } });
     });
 
     it('maps the other parts to their personas and breaks ties towards the earlier part', () => {

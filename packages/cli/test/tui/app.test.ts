@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { emptyLedger, mergeUsage } from '../../src/ledger.js';
+import { emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
 import { initialState, reduce, renderFrame, requestAction, runApp, withViewModel } from '../../src/tui/app.js';
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
@@ -44,6 +44,23 @@ describe('reduce', () => {
     expect(back.overview.yearEnd).toBe(shiftDate(TODAY, -364));
     expect(reduce(back, { type: 'char', char: ']' }, null).state.overview.yearEnd).toBe(TODAY);
     expect(reduce(back, { type: 'char', char: 't' }, null).state.overview).toEqual({ cursor: TODAY, yearEnd: TODAY });
+  });
+
+  it('picks the Insights hour with left/right, from the busiest and round midnight, and with the mouse', () => {
+    let ledger = mergeUsage(emptyLedger(), 'claude-code', [{ date: TODAY, model: 'claude-sonnet-4-5', pricingTier: 'standard', counts: c(1000) }]);
+    ledger = mergeHours(ledger, 'claude-code', [{ date: TODAY, hour: 23, weighted: 900 }, { date: TODAY, hour: 9, weighted: 100 }]);
+    const s = reduce(initialState(buildViewModel(ledger, TODAY), 'local only'), { type: 'char', char: '4' }, null).state;
+    expect(s.clockHour).toBeNull();
+    const next = reduce(s, { type: 'key', key: 'right' }, null).state;
+    expect(next.clockHour).toBe(0); // 23 + 1 wraps to midnight
+    expect(reduce(s, { type: 'key', key: 'left' }, null).state.clockHour).toBe(22);
+    expect(reduce(next, { type: 'key', key: 'left' }, null).state.clockHour).toBe(23);
+    // Without hour data the keys do nothing.
+    expect(reduce(reduce(state(), { type: 'char', char: '4' }, null).state, { type: 'key', key: 'right' }, null).state.clockHour).toBeNull();
+    // The mouse picks the hour under it, from the hits the frame reports.
+    const { hits } = renderFrame(s, { theme: 'dark' }, 160, 48, STILL);
+    const nine = hits.view.hits.find((h) => h.kind === 'hour' && h.hour === 9)!;
+    expect(reduce(s, { type: 'mouse', action: 'move', button: 0, x: nine.rect.x, y: nine.rect.y }, hits).state.clockHour).toBe(9);
   });
 
   it('steps the range with left/right on Models and Agents but moves the day cursor on Overview', () => {
@@ -206,7 +223,7 @@ describe('renderFrame', () => {
     expect(bar('models', 160)).toContain('1-5 tabs  ↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit');
     expect(bar('agents', 120)).toContain('↑↓ select  ←→ range');
     expect(bar('agents', 120)).not.toContain('1-5 tabs');
-    expect(bar('insights', 160)).toContain('1-5 tabs  Tab next tab  s rescan  : actions  ? help  q quit');
+    expect(bar('insights', 160)).toContain('1-5 tabs  ←→ hour  s rescan  : actions  ? help  q quit');
     expect(bar('insights', 120)).not.toContain('range');
   });
 

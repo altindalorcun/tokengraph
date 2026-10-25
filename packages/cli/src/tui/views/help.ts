@@ -11,6 +11,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['[  ]', 'previous / next year (Overview)'],
   ['t', 'jump to today'],
   ['←  →, r', 'previous / next range (Models, Agents)'],
+  ['←  →, mouse', 'pick an hour (Insights)'],
   ['h', 'manage hooks (Agents)'],
   ['Enter', 'run the selected action (Setup)'],
   ['c', 'per-family / single-hue colour'],

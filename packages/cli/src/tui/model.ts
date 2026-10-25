@@ -102,7 +102,7 @@ export interface HourCell {
 export type DayPart = 'night' | 'morning' | 'afternoon' | 'evening';
 export const DAY_PARTS: readonly DayPart[] = ['night', 'morning', 'afternoon', 'evening'];
 
-/** The 24-hour picture of the hour data: totals per hour, the busiest hour, day parts and a weekday × hour grid. */
+/** The 24-hour picture of the hour data: totals per hour, the busiest hour, day parts and a weekday × hour grid (for the weekday an hour falls on most). */
 export interface HourProfile {
   /** Weighted tokens per local hour, index 0..23. */
   byHour: number[];
@@ -117,8 +117,14 @@ export interface HourProfile {
   parts: Record<DayPart, number>;
   /** What the day parts say about when you code; null without hour data. */
   persona: string | null;
-  /** The grid's busiest cell (weekday Monday = 0); null without data. */
-  peak: { weekday: number; hour: number; weighted: number } | null;
+}
+
+/** One hour of the day: its weighted tokens, its share (0..1) of all hour data and the weekday (Monday = 0) holding most of it. */
+export interface HourDetail {
+  hour: number;
+  weighted: number;
+  share: number;
+  topWeekday: number | null;
 }
 
 export interface Stats {
@@ -332,24 +338,28 @@ export function hourProfile(vm: ViewModel): HourProfile {
     total += weighted;
   }
   let busiest: HourProfile['busiest'] = null;
-  let peak: HourProfile['peak'] = null;
   const parts: Record<DayPart, number> = { night: 0, morning: 0, afternoon: 0, evening: 0 };
   let persona: string | null = null;
   if (total > 0) {
     const max = Math.max(...byHour);
     const hour = byHour.indexOf(max);
     busiest = { hour, share: max / total };
-    grid.forEach((row, weekday) =>
-      row.forEach((weighted, h) => {
-        if (weighted > 0 && (!peak || weighted > peak.weighted)) peak = { weekday, hour: h, weighted };
-      }),
-    );
     byHour.forEach((weighted, h) => {
       parts[DAY_PARTS[Math.floor(h / 6)]!] += weighted / total;
     });
     persona = personaFor(parts);
   }
-  return { byHour, total, busiest, firstDate: vm.hours[0]?.date ?? null, grid, parts, persona, peak };
+  return { byHour, total, busiest, firstDate: vm.hours[0]?.date ?? null, grid, parts, persona };
+}
+
+/** What `hour` holds in `profile`; a tie between weekdays goes to the earlier one. */
+export function hourDetail(profile: HourProfile, hour: number): HourDetail {
+  const weighted = profile.byHour[hour] ?? 0;
+  let topWeekday: number | null = null;
+  profile.grid.forEach((row, weekday) => {
+    if ((row[hour] ?? 0) > 0 && (topWeekday === null || row[hour]! > profile.grid[topWeekday]![hour]!)) topWeekday = weekday;
+  });
+  return { hour, weighted, share: profile.total > 0 ? weighted / profile.total : 0, topWeekday };
 }
 
 const PERSONAS: Record<DayPart, string> = { night: 'Night owl', morning: 'Early bird', afternoon: 'Daytime coder', evening: 'Evening coder' };

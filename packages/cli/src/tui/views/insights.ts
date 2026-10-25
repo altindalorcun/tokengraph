@@ -1,6 +1,6 @@
-import { cellColor, computeThresholds, formatTokens, levelFor } from '@tokengraph/core';
+import { formatTokens } from '@tokengraph/core';
 import { mix } from '../color.js';
-import { DAY_PARTS, busiestHourText, hourLabel, hourProfile, hourRange, insights, monthlyTotals, type DayPart, type HourProfile } from '../model.js';
+import { DAY_PARTS, busiestHourText, hourDetail, hourLabel, hourProfile, hourRange, insights, monthlyTotals, type DayPart, type HourProfile } from '../model.js';
 import { ScreenBuffer, type Rect } from '../screen.js';
 import { familyColor, type TuiTheme } from '../theme.js';
 import { bigTextWidth, drawBigText } from '../widgets/big-digits.js';
@@ -8,15 +8,15 @@ import { drawBox } from '../widgets/box.js';
 import { drawColumns } from '../widgets/sparkline.js';
 import { CHART_MIN_HEIGHT, drawColumnChart } from './chart.js';
 import { longDate, shortDate, truncate } from './dates.js';
-import { blit, type ViewProps, type ViewResult } from './props.js';
+import { blit, type Hit, type ViewProps, type ViewResult } from './props.js';
 
 const CARD_HEIGHT = 6; // border, three big rows, detail, border
 const MIN_BIG_CARD_HEIGHT = 5;
 const MIN_CARD_HEIGHT = 3;
 const WEEKDAY_MIN_HEIGHT = 5;
 const WIDE_WIDTH = 140; // cards in one row of four
-const HOURS_GRID_HEIGHT = 13; // borders, hour labels, seven weekday rows, two bar rows, day parts
-const HOURS_PROFILE_HEIGHT = 8;
+const CLOCK_HEIGHT = 13; // borders, headline, seven bar rows, hour labels, day parts, readout
+const CLOCK_MIN_HEIGHT = 7; // borders, headline, two bar rows, hour labels, readout
 const CARD_COUNT = 5;
 const SIDE_BY_SIDE_WIDTH = 120; // weekday and months boxes next to each other
 const WEEKDAY_SHARE = 0.45;
@@ -112,139 +112,133 @@ function drawWeekdays(view: ScreenBuffer, rect: Rect, weekdays: readonly number[
   }
 }
 
-const HOUR_LABEL_WIDTH = 4; // "Mon "
-const SIDE_PANEL_WIDTH = 26;
-const SIDE_GAP = 3;
-const MAX_CLOCK_CELL = 5;
-const DAY_PART_SHORT: Record<DayPart, string> = { night: 'night', morning: 'morn', afternoon: 'aft', evening: 'eve' };
+const MAX_HOUR_WIDTH = 5; // columns per hour: a bar of up to 4 plus a gap
+const HOUR_FADE = 0.4; // hours other than the selected one
+const PART_RANGES: Record<DayPart, string> = { night: '00:00–06:00', morning: '06:00–12:00', afternoon: '12:00–18:00', evening: '18:00–24:00' };
+const PART_PHRASES: Record<DayPart, string> = { night: 'at night', morning: 'in the morning', afternoon: 'in the afternoon', evening: 'in the evening' };
+const PART_SHORT: Record<DayPart, string> = { night: 'night', morning: 'morn', afternoon: 'aft', evening: 'eve' };
 
-interface ClockLayout {
-  /** Columns per hour: 1, or a glyph of cell − 1 columns plus a gap column (2 to 5). */
-  cell: number;
-  /** Persona, peak, busiest hour and first date to the right of the grid; otherwise one line under the day parts. */
-  side: boolean;
-  /** Rows the box needs, borders included. */
-  height: number;
+const percent = (share: number): string => `${Math.round(share * 100)}%`;
+
+/** The part of the day with the largest share (a tie goes to the earlier part). */
+function topPart(profile: HourProfile): DayPart {
+  return DAY_PARTS.reduce((a, b) => (profile.parts[b] > profile.parts[a] ? b : a), DAY_PARTS[0]!);
 }
 
-/** What the coding clock can be drawn as in `room` columns: the widest cells that still leave room for the side panel; null when even single-column cells do not fit. */
-function clockLayout(room: number): ClockLayout | null {
-  const grid = (cell: number) => HOUR_LABEL_WIDTH + 24 * cell;
-  for (let cell = MAX_CLOCK_CELL; cell >= 2; cell--) {
-    if (room >= grid(cell) + SIDE_GAP + SIDE_PANEL_WIDTH) return { cell, side: true, height: HOURS_GRID_HEIGHT };
-  }
-  for (let cell = MAX_CLOCK_CELL; cell >= 1; cell--) {
-    if (room >= grid(cell)) return { cell, side: false, height: HOURS_GRID_HEIGHT + 1 };
-  }
-  return null;
+/** "55% of your tokens are used in the evening, 18:00–24:00" — what the persona means, in words. */
+function clockHeadline(profile: HourProfile): string {
+  const top = topPart(profile);
+  if (profile.persona === 'Around the clock') return `no part of the day holds more than ${percent(profile.parts[top])} of your tokens`;
+  return `${percent(profile.parts[top])} of your tokens are used ${PART_PHRASES[top]}, ${PART_RANGES[top]}`;
 }
 
-/** "Night owl · peak Sun 23:00 · since 19 Jun 2026" */
-function clockSummary(profile: HourProfile): string {
-  const peak = profile.peak ? ` · peak ${WEEKDAY_SHORT[profile.peak.weekday]} ${hourLabel(profile.peak.hour)}` : '';
-  const since = profile.firstDate ? ` · since ${longDate(profile.firstDate)}` : '';
-  return `${profile.persona ?? ''}${peak}${since}`;
-}
-
-/** The part-of-day label that fits `width` columns: full name, short name, or the percentage alone. */
+/** The label under a six-hour block that fits `width` columns: name and share, short name and share, or the share alone. */
 function dayPartText(part: DayPart, share: number, width: number): string {
-  const pct = `${Math.round(share * 100)}%`;
-  for (const name of [part, DAY_PART_SHORT[part]]) if (`${name} ${pct}`.length <= width) return `${name} ${pct}`;
-  return pct;
+  for (const name of [part, PART_SHORT[part]]) if (`${name} ${percent(share)}`.length <= width) return `${name} ${percent(share)}`;
+  return percent(share);
+}
+
+/** The readout for the selected hour, most important first; the caller drops pieces from the end when the row is too narrow. */
+function hourReadout(profile: HourProfile, hour: number, theme: TuiTheme): { text: string; color: string; bold?: boolean }[] {
+  const detail = hourDetail(profile, hour);
+  const parts: { text: string; color: string; bold?: boolean }[] = [{ text: `‹ ${hourRange(hour)} ›`, color: theme.accent, bold: true }];
+  if (hour === profile.busiest?.hour) parts.push({ text: 'your busiest hour', color: theme.accent });
+  if (detail.weighted > 0) {
+    parts.push({ text: `${formatTokens(detail.weighted)} tokens, ${percent(detail.share)} of all`, color: theme.ink });
+    if (detail.topWeekday !== null) parts.push({ text: `mostly on ${WEEKDAY_NAMES[detail.topWeekday]}s`, color: theme.muted });
+  } else {
+    parts.push({ text: 'nothing in this hour yet', color: theme.muted });
+  }
+  return parts;
 }
 
 /**
- * The coding clock: weekday × hour cells in the year heatmap's colours (the peak cell outlined), an "All" bar per hour,
- * the share of each part of the day and, beside the grid, what it says about you. Too little height gives the compact profile.
+ * When you code: a sentence saying which part of the day you use AI in, one bar per local hour with the six-hour
+ * blocks bracketed under them, and a readout for the selected hour (the busiest until ← → or the mouse picks another).
+ * Returns a hit per hour column, view-relative.
  */
-function drawHours(view: ScreenBuffer, rect: Rect, profile: HourProfile, theme: TuiTheme): void {
-  const inner = drawBox(view, rect, theme, 'Coding clock');
+function drawClock(view: ScreenBuffer, rect: Rect, profile: HourProfile, selected: number, theme: TuiTheme): Hit[] {
+  const inner = drawBox(view, rect, theme, 'When you code');
   const room = inner.width - 2;
-  if (inner.height < 4 || room < 24 || profile.busiest === null) return;
-  const x = inner.x + 1;
-  const layout = clockLayout(room);
-  const faded = mix(theme.accent, theme.bg, MONTH_FADE);
-  const best = profile.busiest.hour;
-  const barColors = profile.byHour.map((_, hour) => (hour === best ? theme.accent : faded));
+  if (inner.height < 3 || room < 24 || profile.busiest === null) return [];
 
-  if (layout === null || inner.height < layout.height - 2) {
-    // Compact: the 24-hour profile, hour labels under it and the one-line summary.
-    const cell = room >= 48 ? 2 : 1;
-    const chartHeight = inner.height - 2; // labels and summary
-    drawColumns(view, { x, y: inner.y, width: 24 * cell, height: chartHeight }, profile.byHour, barColors, cell - 1);
-    const labelEvery = cell === 2 ? 3 : 6;
-    // The busiest hour's label is drawn bold below, so a regular label that would touch it is left out.
-    for (let hour = 0; hour < 24; hour += labelEvery) {
-      if (Math.abs(hour - best) * cell > 2) view.text(x + hour * cell, inner.y + chartHeight, String(hour).padStart(2, '0'), { fg: theme.muted });
-    }
-    view.text(x + best * cell, inner.y + chartHeight, String(best).padStart(2, '0'), { fg: theme.accent, bold: true });
-    view.text(x, inner.y + inner.height - 1, truncate(clockSummary(profile), room), { fg: theme.accent }, room);
-    return;
+  // Rows: headline, bars, hour labels, day parts, readout. Short boxes drop the day parts first, then the headline.
+  let showParts = true;
+  let showHeadline = true;
+  let barRows = inner.height - 4;
+  if (barRows < 3) { showParts = false; barRows += 1; }
+  if (barRows < 2) { showHeadline = false; barRows += 1; }
+  if (barRows < 1) return [];
+
+  const cell = room >= 48 ? Math.min(MAX_HOUR_WIDTH, Math.floor((room + 1) / 24)) : 1;
+  const glyph = cell > 1 ? cell - 1 : 1;
+  const used = 24 * cell - (cell > 1 ? 1 : 0);
+  const x0 = inner.x + 1 + Math.floor((room - used) / 2);
+  const textRoom = inner.x + 1 + room - x0;
+  let y = inner.y;
+
+  if (showHeadline) {
+    const persona = profile.persona ?? '';
+    const since = profile.firstDate ? `since ${longDate(profile.firstDate)}` : '';
+    const sentence = clockHeadline(profile);
+    let x = x0 + view.text(x0, y, truncate(persona, textRoom), { fg: theme.accent, bold: true }, textRoom);
+    const left = x0 + textRoom - x - 2;
+    if (left > 0) x += 2 + view.text(x + 2, y, truncate(sentence, left), { fg: theme.ink }, left);
+    if (since && x + 3 + since.length <= x0 + used) view.text(x0 + used - since.length, y, since, { fg: theme.muted });
+    y += 1;
   }
 
-  const { cell, side } = layout;
-  const gx = x + HOUR_LABEL_WIDTH;
+  const faded = mix(theme.accent, theme.bg, HOUR_FADE);
+  const colors = profile.byHour.map((_, hour) => (hour === selected ? theme.accent : faded));
+  const bars = { x: x0, y, width: used, height: barRows };
+  for (let dx = 0; dx < glyph; dx++) drawColumns(view, { ...bars, x: x0 + dx, width: used - dx }, profile.byHour, colors, cell - 1);
+  // An hour without tokens still shows where it is, so the selection never lands on nothing.
+  profile.byHour.forEach((value, hour) => {
+    if (!(value > 0)) view.text(x0 + hour * cell, y + barRows - 1, '·'.repeat(glyph), { fg: hour === selected ? theme.accent : theme.faint });
+  });
+  const hits: Hit[] = profile.byHour.map((_, hour) => ({ kind: 'hour', hour, rect: { x: x0 + hour * cell, y, width: cell, height: barRows + 1 } }));
+  y += barRows;
+
+  // Hour labels every three hours (six for one-column hours); the selected hour's label is drawn bold and wins over a neighbour.
   const labelEvery = cell === 1 ? 6 : 3;
-  for (let hour = 0; hour < 24; hour += labelEvery) view.text(gx + hour * cell, inner.y, String(hour).padStart(2, '0'), { fg: theme.muted });
-
-  // Same single-colour ramp as the year heatmap; levels come from the person's own non-zero hour cells.
-  const thresholds = computeThresholds(profile.grid.flat());
-  profile.grid.forEach((row, weekday) => {
-    const y = inner.y + 1 + weekday;
-    view.text(x, y, WEEKDAY_SHORT[weekday]!, { fg: theme.muted });
-    row.forEach((value, hour) => {
-      const cx = gx + hour * cell;
-      if (!(value > 0)) {
-        view.set(cx, y, '·', { fg: theme.faint });
-        return;
-      }
-      const color = cellColor(levelFor(value, thresholds), { colorMode: 'single', theme: theme.name, empty: theme.empty });
-      const isPeak = profile.peak?.weekday === weekday && profile.peak.hour === hour;
-      const glyph = Math.max(1, cell - 1);
-      if (isPeak && cell >= 3) {
-        // Outlined across the whole cell: ▐███▌
-        view.text(cx, y, `▐${'█'.repeat(cell - 2)}▌`, { fg: theme.ink, bold: true });
-        view.text(cx + 1, y, '█'.repeat(cell - 2), { fg: color });
-      } else if (isPeak) {
-        view.text(cx, y, cell === 1 ? '◆' : '█▌', { fg: theme.ink, bold: true });
-        if (cell === 2) view.set(cx, y, '█', { fg: color });
-      } else {
-        view.text(cx, y, '█'.repeat(glyph), { fg: color });
-      }
-    });
-  });
-
-  // The "All" row: one eighth-block bar per hour, two rows tall.
-  const barsY = inner.y + 8;
-  const barRect = { x: gx, y: barsY, width: 24 * cell, height: 2 };
-  for (let dx = 0; dx < Math.max(1, cell - 1); dx++) drawColumns(view, { ...barRect, x: gx + dx }, profile.byHour, barColors, cell - 1);
-  view.text(x, barsY + 1, 'All', { fg: theme.muted });
-
-  // Under each six-hour block: its share of the day, the biggest in the accent colour.
-  const partsY = inner.y + 10;
-  const blockWidth = 6 * cell;
-  const top = DAY_PARTS.reduce((a, b) => (profile.parts[b] > profile.parts[a] ? b : a), DAY_PARTS[0]!);
-  DAY_PARTS.forEach((part, i) => {
-    const text = dayPartText(part, profile.parts[part], blockWidth);
-    view.text(gx + i * blockWidth + Math.floor((blockWidth - text.length) / 2), partsY, text, part === top ? { fg: theme.accent, bold: true } : { fg: theme.muted }, blockWidth);
-  });
-
-  if (side) {
-    const sx = gx + 24 * cell + SIDE_GAP;
-    const sideRoom = inner.x + inner.width - 1 - sx;
-    view.text(sx, inner.y + 1, truncate(profile.persona ?? '', sideRoom), { fg: theme.accent, bold: true }, sideRoom);
-    const rows: [string, string][] = [
-      ['Peak', profile.peak ? `${WEEKDAY_SHORT[profile.peak.weekday]} ${hourLabel(profile.peak.hour)}` : '—'],
-      ['Busiest', `${hourRange(best)} · ${Math.round(profile.busiest.share * 100)}%`],
-      ['Since', profile.firstDate ? longDate(profile.firstDate) : '—'],
-    ];
-    rows.forEach(([label, value], i) => {
-      view.text(sx, inner.y + 3 + i, label.padEnd(9), { fg: theme.muted }, sideRoom);
-      view.text(sx + 9, inner.y + 3 + i, truncate(value, Math.max(0, sideRoom - 9)), { fg: theme.ink }, Math.max(0, sideRoom - 9));
-    });
-  } else {
-    view.text(x, inner.y + 11, truncate(clockSummary(profile), room), { fg: theme.accent }, room);
+  for (let hour = 0; hour < 24; hour += labelEvery) {
+    if (Math.abs(hour - selected) * cell >= 3) view.text(x0 + hour * cell, y, String(hour).padStart(2, '0'), { fg: theme.muted });
   }
+  view.text(x0 + selected * cell, y, String(selected).padStart(2, '0'), { fg: theme.accent, bold: true });
+  y += 1;
+
+  if (showParts) {
+    // Each six-hour block bracketed ╰─── night 11% ───╯, the largest share in the accent colour.
+    const top = topPart(profile);
+    DAY_PARTS.forEach((part, i) => {
+      const bx = x0 + i * 6 * cell;
+      const bw = 6 * cell - (cell > 1 ? 1 : 0);
+      const label = dayPartText(part, profile.parts[part], bw);
+      const style = part === top ? { fg: theme.accent, bold: true } : { fg: theme.muted };
+      if (bw >= label.length + 4) {
+        const line = `╰${'─'.repeat(bw - 2)}╯`;
+        view.text(bx, y, line, { fg: part === top ? theme.accent : theme.faint });
+        view.text(bx + Math.floor((bw - label.length - 2) / 2), y, ` ${label} `, style);
+      } else {
+        view.text(bx + Math.floor((bw - label.length) / 2), y, label, style, bw);
+      }
+    });
+  }
+
+  // The readout: what the selected hour holds, pieces dropped from the end until it fits, then the key hint if there is room.
+  const readoutY = inner.y + inner.height - 1;
+  const pieces = hourReadout(profile, selected, theme);
+  const sep = '  ·  ';
+  const width = (list: typeof pieces) => list.reduce((sum, p, i) => sum + [...p.text].length + (i > 0 ? sep.length : 0), 0);
+  while (pieces.length > 1 && width(pieces) > textRoom) pieces.pop();
+  let rx = x0;
+  pieces.forEach((piece, i) => {
+    if (i > 0) rx += view.text(rx, readoutY, sep, { fg: theme.faint });
+    rx += view.text(rx, readoutY, truncate(piece.text, textRoom - (rx - x0)), { fg: piece.color, bold: piece.bold }, textRoom - (rx - x0));
+  });
+  const hint = '← → pick an hour';
+  if (rx + 4 + hint.length <= x0 + textRoom) view.text(x0 + textRoom - hint.length, readoutY, hint, { fg: theme.faint });
+  return hits;
 }
 
 /** "» You've had AI write ≈ 37 novels of output." / "≈ 42% of a novel."; null without any output. */
@@ -255,8 +249,8 @@ function novelsLine(novels: number): string | null {
   return `You've had AI write ≈ ${rounded} ${rounded === 1 ? 'novel' : 'novels'} of output.`;
 }
 
-/** Record cards, the weekday profile, the 12-month chart and the novels callout, filling `rect`. */
-export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): ViewResult {
+/** Record cards, when you code, the weekday profile, the 12-month chart and the novels callout, filling `rect`. `hour` is the selected hour, null for the busiest. */
+export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps & { hour: number | null }): ViewResult {
   const { vm, theme } = props;
   const view = new ScreenBuffer(rect.width, rect.height);
   const data = insights(vm);
@@ -319,15 +313,8 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
   // Everything under the cards: the weekday and months boxes, next to each other on wide screens.
   const boxesY = showCards ? cardHeight * cardRows : 0;
   const availableHeight = remaining - boxesY;
-  // The coding clock sits right under the cards and comes first: the weekday and months boxes get what is left,
-  // and only a clock that cannot fit whole shrinks to the compact profile (or goes).
-  const hoursRoom = view.width - 4;
-  const fullClock = clockLayout(hoursRoom)?.height ?? Infinity;
-  let hoursHeight = 0;
-  if (profile.busiest !== null) {
-    if (availableHeight >= fullClock) hoursHeight = fullClock;
-    else if (availableHeight - HOURS_PROFILE_HEIGHT >= WEEKDAY_MIN_HEIGHT) hoursHeight = HOURS_PROFILE_HEIGHT;
-  }
+  // "When you code" sits right under the cards and comes first: the weekday and months boxes get what is left.
+  const hoursHeight = profile.busiest === null || availableHeight < CLOCK_MIN_HEIGHT ? 0 : Math.min(CLOCK_HEIGHT, availableHeight);
   const hoursY = boxesY;
   const boxesTop = boxesY + hoursHeight;
   const boxesHeight = availableHeight - hoursHeight;
@@ -357,7 +344,13 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
     drawWeekdays(view, { x: 0, y: boxesTop, width: view.width, height: boxesHeight }, data.weekdays, theme);
   }
 
-  if (hoursHeight > 0) drawHours(view, { x: 0, y: hoursY, width: view.width, height: hoursHeight }, profile, theme);
+  const hits: Hit[] = [];
+  if (hoursHeight > 0) {
+    const selected = props.hour ?? profile.busiest!.hour;
+    for (const hit of drawClock(view, { x: 0, y: hoursY, width: view.width, height: hoursHeight }, profile, selected, theme)) {
+      hits.push({ ...hit, rect: { ...hit.rect, x: hit.rect.x + rect.x, y: hit.rect.y + rect.y } });
+    }
+  }
 
   if (novelsHeight > 0 && novels !== null) {
     const y = view.height - 1;
@@ -366,5 +359,5 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps): V
   }
 
   blit(buf, view, rect.x, rect.y);
-  return { hits: [] };
+  return { hits };
 }

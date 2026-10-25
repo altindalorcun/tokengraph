@@ -93,7 +93,7 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 | | |
 | --- | --- |
 | **哪些数据会离开你的电脑** | 发到你账号下的公开 gist：SVG 图表（每日 token 总数，以及用于着色的模型系列名称），以及一个带有嵌入代码和链接的 README。发到你账号下的私密 gist：按天、按模型的 token 数、一个随机的机器 id、形如 `darwin-3f2a1c` 的标签、哈希后的机器指纹、CLI 版本和最近一次更新的时间。两者都只在执行 `tokengraph login` 之后，并且只在 tokengraph 发布时才会发送（`sync`、hook、定时任务或 `login`）。`sync --local`、`story`、`status`、`export` 和 `import` 从不发送；`view` 只有在你于其中亲自选择 Sync（或 login、图表颜色）时才会发送。 |
-| **哪些数据只留在这台电脑上** | 你在一天中的哪个小时使用了各个 agent。tokengraph 把按本地小时统计的加权 token 保存在 `state.json` 中，用于“最繁忙时段”卡片、编码时钟和 `export --hours`；它们绝不会写入机器文件、数据 gist、图表或故事卡片。小时数据只存在于 agent 日志仍保留着的那些天。 |
+| **哪些数据只留在这台电脑上** | 你在一天中的哪个小时使用了各个 agent。tokengraph 把按本地小时统计的加权 token 保存在 `state.json` 中，用于“最繁忙时段”卡片、“When you code”图表和 `export --hours`；它们绝不会写入机器文件、数据 gist、图表或故事卡片。小时数据只存在于 agent 日志仍保留着的那些天。 |
 | **tokengraph 会获取哪些数据** | 仅限 Cursor，并且仅在开启时（登录 Cursor 后默认开启；`tokengraph cursor off` 可关闭）：`sync` 从 Cursor 的本地数据库读取 Cursor 自己的登录 token（只读，仅那一行），并向 cursor.com 请求你自己的用量导出，也就是 Cursor 控制台导出按钮给你的那个文件。token 只会发往 cursor.com，仅在请求期间保存在内存中，绝不会被存储、打印或写入日志。保留下来的是用量记录（时间戳、模型名称、token 数）。`sync --local` 从不这样做。 |
 | **哪些数据绝不会离开** | 提示词、回答、代码、文件名、路径。不会向任何 tokengraph 服务器发送任何东西：根本没有这样的服务器。 |
 | **如何移除** | `tokengraph logout` 会让这台机器忘记登录信息。到 [gist.github.com](https://gist.github.com) 删除这两个 gist，即可移除已发布的内容。 |
@@ -128,7 +128,7 @@ Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code 和 Goose 没有 hook
 
 | 命令 | 作用 |
 | --- | --- |
-| `tokengraph [view]` | 打开实时终端视图：年度热力图、模型、agent、连续天数、显示你一天中何时工作的编码时钟，以及无需离开视图就能管理 hook、每小时定时任务、sync、Cursor、导出和快拍的 Setup 标签页。`:` 或 Ctrl-K 打开命令面板，每个操作都会显示对应的 CLI 命令。`--print` 打印静态快照。在终端中这是默认命令。 |
+| `tokengraph [view]` | 打开实时终端视图：年度热力图、模型、agent、连续天数、显示你一天中何时工作的“When you code”图表（← → 选择某个小时），以及无需离开视图就能管理 hook、每小时定时任务、sync、Cursor、导出和快拍的 Setup 标签页。`:` 或 Ctrl-K 打开命令面板，每个操作都会显示对应的 CLI 命令。`--print` 打印静态快照。在终端中这是默认命令。 |
 | `tokengraph login` | 连接 GitHub，把图表发布到你自己的 gist，并打印 README 代码。如果你已经登录了 GitHub CLI，就会使用它（`--gh`）；也可以用在浏览器中确认的一次性代码（`--device`、`--no-open`）。只申请 gist 权限。 |
 | `tokengraph logout` | 让这台机器忘记 GitHub 登录。本地数据和你的 gist 都保留。 |
 | `tokengraph sync` | 把每个 agent 的日志读入账本，并在已登录时发布。若已登录 Cursor，会先从 cursor.com 获取你的 Cursor 用量（最多每小时一次）。`--since <days>` 设置回溯多久（默认 90 天），`--local` 完全不联网。 |

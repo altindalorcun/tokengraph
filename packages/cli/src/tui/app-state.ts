@@ -3,7 +3,7 @@ import { actionItems, type ActionId, type ActionItem, type SetupStatus } from '.
 import type { AutoSyncStatus } from './auto-sync.js';
 import type { FrameHits } from './frame.js';
 import type { InputEvent } from './input.js';
-import { RANGES, agentBreakdown, modelBreakdown, shiftDate, type RangeKey, type ViewModel } from './model.js';
+import { RANGES, agentBreakdown, hourProfile, modelBreakdown, shiftDate, type RangeKey, type ViewModel } from './model.js';
 import type { OverviewState, TableState } from './views/props.js';
 import { clampSelection, filterEntries, paletteEntries } from './views/palette.js';
 import { hitTest } from './widgets/heatmap.js';
@@ -18,6 +18,8 @@ export interface AppState {
   table: TableState;
   /** The selected row of the Setup tab, an index into `actionItems(...)`. */
   setupSel: number;
+  /** The hour picked on Insights; null shows the busiest hour. */
+  clockHour: number | null;
   colorMode: ColorMode;
   help: boolean;
   /** The command palette while open: what was typed and the highlighted match. */
@@ -58,6 +60,7 @@ export function initialState(vm: ViewModel, mode: string, live = true): AppState
     overview: { cursor: vm.today, yearEnd: vm.today },
     table: { range: '30d', selected: 0 },
     setupSel: 0,
+    clockHour: null,
     colorMode: 'per-model',
     help: false,
     palette: null,
@@ -257,7 +260,15 @@ function onKey(state: AppState, key: string): Reduced {
     if (key === 'left') return stepRange(state, -1);
     if (key === 'right') return stepRange(state, 1);
   }
+  if (state.tab === 'insights' && (key === 'left' || key === 'right')) return { state: stepHour(state, key === 'left' ? -1 : 1), effects: [] };
   return { state, effects: [] };
+}
+
+/** Moves the Insights hour by `step`, wrapping round midnight; starts from the busiest hour; a no-op without hour data. */
+function stepHour(state: AppState, step: number): AppState {
+  const busiest = hourProfile(state.vm).busiest;
+  if (!busiest) return state;
+  return { ...state, clockHour: ((state.clockHour ?? busiest.hour) + step + 24) % 24 };
 }
 
 function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>, hits: FrameHits | null): Reduced {
@@ -275,6 +286,11 @@ function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>,
     const date = heat ? hitTest(heat.layout, heat.grid, x, y) : null;
     if (date && (event.action === 'move' || event.action === 'press')) return { state: setCursor(state, date), effects: [] };
     return { state, effects: [] };
+  }
+  if (state.tab === 'insights') {
+    if (event.action !== 'move' && event.action !== 'press') return { state, effects: [] };
+    const hit = hits.view.hits.find((h) => h.kind === 'hour' && x >= h.rect.x && x < h.rect.x + h.rect.width && y >= h.rect.y && y < h.rect.y + h.rect.height);
+    return hit?.kind === 'hour' ? { state: { ...state, clockHour: hit.hour }, effects: [] } : { state, effects: [] };
   }
   if (event.action !== 'press' || (state.tab !== 'models' && state.tab !== 'agents' && state.tab !== 'setup')) return { state, effects: [] };
   const inside = (r: { x: number; y: number; width: number; height: number }): boolean =>

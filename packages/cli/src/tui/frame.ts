@@ -30,7 +30,7 @@ const HINTS: Record<AppState['tab'], string> = {
   overview: '←↑↓→ day  [ ] year  t today  c colour  s rescan  : actions  ? help  q quit',
   models: '↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit',
   agents: '↑↓ select  ←→ range  c colour  h hooks  s rescan  : actions  ? help  q quit',
-  insights: 'Tab next tab  s rescan  : actions  ? help  q quit',
+  insights: '←→ hour  s rescan  : actions  ? help  q quit',
   setup: '↑↓ select  enter run  s rescan  : actions  ? help  q quit',
 };
 const WIDE_HINTS_WIDTH = 140; // wide screens also list the number keys
@@ -123,7 +123,7 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
     case 'agents':
       return drawAgents(buf, rect, { ...props, state: state.table, autoSync: state.autoSync, detected: state.detected });
     case 'insights':
-      return drawInsights(buf, rect, props);
+      return drawInsights(buf, rect, { ...props, hour: state.clockHour });
     case 'setup':
       return drawSetup(buf, rect, {
         theme,
