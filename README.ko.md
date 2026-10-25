@@ -92,8 +92,8 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 
 | | |
 | --- | --- |
-| **내 컴퓨터를 떠나는 것** | 내 계정의 공개 gist로: SVG 그래프(일별 토큰 합계와, 색을 나누는 데 쓰이는 모델 계열 이름), 그리고 임베드 스니펫과 링크가 담긴 README. 내 계정의 secret gist로: 일별·모델별 토큰 수, 무작위 컴퓨터 id, `darwin-3f2a1c` 같은 레이블, 해시한 컴퓨터 핑거프린트, CLI 버전, 마지막 업데이트 시각. 둘 다 `tokengraph login` 이후에만, 그리고 tokengraph가 게시할 때(`sync`, 훅, 스케줄, `login`)에만 전송됩니다. `sync --local`, `view`, `story`, `status`, `export`, `import`는 절대 전송하지 않습니다. |
-| **이 컴퓨터에 남는 것** | 각 에이전트를 하루 중 몇 시에 썼는지. tokengraph는 가장 바쁜 시간 카드와 `export --hours`를 위해 현지 시각 기준 시간별 가중 토큰 수를 `state.json`에 보관합니다. 이 값은 컴퓨터 파일, 데이터 gist, 그래프, 스토리 카드에 절대 들어가지 않습니다. 시간대 데이터는 에이전트 로그가 아직 남아 있는 날에 대해서만 존재합니다. |
+| **내 컴퓨터를 떠나는 것** | 내 계정의 공개 gist로: SVG 그래프(일별 토큰 합계와, 색을 나누는 데 쓰이는 모델 계열 이름), 그리고 임베드 스니펫과 링크가 담긴 README. 내 계정의 secret gist로: 일별·모델별 토큰 수, 무작위 컴퓨터 id, `darwin-3f2a1c` 같은 레이블, 해시한 컴퓨터 핑거프린트, CLI 버전, 마지막 업데이트 시각. 둘 다 `tokengraph login` 이후에만, 그리고 tokengraph가 게시할 때(`sync`, 훅, 스케줄, `login`)에만 전송됩니다. `sync --local`, `story`, `status`, `export`, `import`는 절대 전송하지 않으며, `view`도 그 안에서 Sync(또는 login, 그래프 색)를 직접 고를 때만 전송합니다. |
+| **이 컴퓨터에 남는 것** | 각 에이전트를 하루 중 몇 시에 썼는지. tokengraph는 가장 바쁜 시간 카드, 'When you code' 차트, `export --hours`를 위해 현지 시각 기준 시간별 가중 토큰 수를 `state.json`에 보관합니다. 이 값은 컴퓨터 파일, 데이터 gist, 그래프, 스토리 카드에 절대 들어가지 않습니다. 시간대 데이터는 에이전트 로그가 아직 남아 있는 날에 대해서만 존재합니다. |
 | **tokengraph가 가져오는 것** | Cursor에 한해, 그리고 켜져 있을 때만(Cursor에 로그인되어 있으면 기본값이며 `tokengraph cursor off`로 끕니다): `sync`가 Cursor의 로컬 데이터베이스에서 Cursor 자체의 로그인 토큰을 읽고(읽기 전용, 그 한 행만) cursor.com에 내 사용량 내보내기, 즉 Cursor 대시보드의 내보내기 버튼이 주는 것과 같은 파일을 요청합니다. 토큰은 cursor.com으로만 전송되고, 요청하는 동안만 메모리에 있으며, 저장되거나 출력되거나 로그에 남지 않습니다. 저장되는 것은 사용량 행(타임스탬프, 모델 이름, 토큰 수)입니다. `sync --local`은 절대 가져오지 않습니다. |
 | **절대 떠나지 않는 것** | 프롬프트, 답변, 코드, 파일 이름, 경로. tokengraph 서버로는 아무것도 전송되지 않습니다. 그런 서버 자체가 없습니다. |
 | **삭제하는 방법** | `tokengraph logout`은 이 컴퓨터에서 로그인 정보를 지웁니다. 게시된 내용을 없애려면 [gist.github.com](https://gist.github.com)에서 두 gist를 삭제하세요. |
@@ -128,7 +128,7 @@ Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose에는 훅이 없습
 
 | 명령어 | 하는 일 |
 | --- | --- |
-| `tokengraph [view]` | 실시간 터미널 뷰를 엽니다: 연간 히트맵, 모델, 에이전트, 연속 일수, 그리고 하루 중 가장 바쁜 시간과 24시간 프로필. `--print`는 정적 스냅샷을 출력합니다. 터미널에서의 기본 명령어입니다. |
+| `tokengraph [view]` | 실시간 터미널 뷰를 엽니다: 연간 히트맵, 모델, 에이전트, 연속 일수, 하루 중 언제 작업하는지 보여 주는 'When you code' 차트(← → 로 시간을 고를 수 있음), 그리고 뷰를 나가지 않고 훅, 매시간 스케줄, sync, Cursor, 내보내기, story를 관리하는 Setup 탭. `:` 또는 Ctrl-K로 명령 팔레트를 열 수 있고, 각 동작에는 해당하는 CLI 명령이 표시됩니다. `--print`는 정적 스냅샷을 출력합니다. 터미널에서의 기본 명령어입니다. |
 | `tokengraph login` | GitHub에 연결하고, 그래프를 내 gist에 게시하고, README 스니펫을 출력합니다. GitHub CLI에 로그인되어 있으면 그것을 사용하고(`--gh`), 아니면 브라우저에서 승인하는 일회용 코드를 사용합니다(`--device`, `--no-open`). gist 권한만 요청합니다. |
 | `tokengraph logout` | 이 컴퓨터에서 GitHub 로그인 정보를 지웁니다. 로컬 데이터와 gist는 그대로 남습니다. |
 | `tokengraph sync` | 모든 에이전트의 로그를 원장에 읽어 들이고, 로그인되어 있으면 게시합니다. Cursor에 로그인되어 있으면 먼저 cursor.com에서 Cursor 사용량을 가져옵니다(최대 한 시간에 한 번). `--since <days>`는 얼마나 과거까지 읽을지 정하며(기본 90), `--local`은 네트워크를 전혀 사용하지 않습니다. |
@@ -156,7 +156,7 @@ Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose에는 훅이 없습
 
 **왜 가중 토큰인가요?** 원시 합계의 대부분은 캐시 읽기이며, 싸지만 양이 많습니다. 10분의 1로 세면 그래프가 실제로 한 작업을 반영합니다. 계산식은 [동작 방식](#동작-방식)에 있습니다.
 
-**오프라인에서 동작하나요?** 네. `view`, `story`, `status`, `export`, `import <file>`, `sync --local`은 네트워크를 쓰지 않습니다. 게시할 때만 GitHub가 필요하고, Cursor 가져오기(`sync`, `cursor fetch`)에는 cursor.com이 필요합니다.
+**오프라인에서 동작하나요?** 네. `view`, `story`, `status`, `export`, `import <file>`, `sync --local`은 네트워크 없이 동작합니다. `view`는 그 안에서 Sync(또는 login, 그래프 색)를 직접 고를 때만 게시합니다. 게시할 때만 GitHub가 필요하고, Cursor 가져오기(`sync`, `cursor fetch`)에는 cursor.com이 필요합니다.
 
 **그만두려면 어떻게 하나요?** `tokengraph uninstall`은 Claude Code, Cursor, Codex, Gemini CLI 훅과 한 시간마다 도는 스케줄을 제거합니다. `--purge`를 더하면 `~/.tokengraph`에 있는 tokengraph 자체 파일(원장, 로그인 정보, 로그, Cursor 이벤트 파일, 가져오기 파일, 가져온 계정 파일)도 삭제합니다. 그 폴더의 나머지는 그대로 남습니다.
 그다음 `npm uninstall -g tokengraph`를 실행하세요. gist는 직접 삭제하기 전까지 GitHub에 남아 있습니다.

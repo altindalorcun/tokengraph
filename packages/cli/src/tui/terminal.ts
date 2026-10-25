@@ -46,6 +46,10 @@ export interface Terminal {
   onResize(listener: (width: number, height: number) => void): void;
   /** Leaves the alternate screen and restores the cursor, mouse and raw mode. Safe to call twice. */
   restore(): void;
+  /** Hands the terminal back to the shell (normal screen, cooked mode, no input delivered) so a command can print and prompt. */
+  suspend(): void;
+  /** Takes the terminal over again after `suspend`. */
+  resume(): void;
 }
 
 /** Takes over the terminal (alternate screen, raw mode, optional mouse) and returns a handle that undoes it. */
@@ -54,16 +58,19 @@ export function openTerminal(io: TerminalIO, options: { mouse?: boolean } = {}):
   const dataListeners: Array<(chunk: string | Buffer) => void> = [];
   const resizeListeners: Array<() => void> = [];
   let restored = false;
+  let suspended = false;
   const decoder = createInputDecoder();
   let escapeTimer: ReturnType<typeof setTimeout> | undefined;
 
   stdin.setEncoding('utf8');
   if (stdin.isTTY) stdin.setRawMode(true);
   stdin.resume();
-  stdout.write(options.mouse === false ? `${ALT_SCREEN_ON}${CLEAR}` : ENTER_SEQUENCE);
+  const enter = options.mouse === false ? `${ALT_SCREEN_ON}${CLEAR}` : ENTER_SEQUENCE;
+  stdout.write(enter);
 
   // Signals that terminate the process skip 'exit' handlers, so restore explicitly and exit with the shell's 128+n code.
   const onSigterm = (): void => { restore(); process.exit(143); };
+  // Also while suspended: Ctrl-C during a command restores the terminal and exits 130, as it always has.
   const onSigint = (): void => { restore(); process.exit(130); };
   const onSighup = (): void => { restore(); process.exit(129); };
 
@@ -82,6 +89,27 @@ export function openTerminal(io: TerminalIO, options: { mouse?: boolean } = {}):
     try { stdout.write(LEAVE_SEQUENCE); } catch { /* terminal already gone */ }
     try { if (stdin.isTTY) stdin.setRawMode(false); } catch { /* ignore */ }
     try { stdin.pause(); } catch { /* ignore */ }
+  }
+  function suspend(): void {
+    if (restored || suspended) return;
+    suspended = true;
+    if (escapeTimer) clearTimeout(escapeTimer);
+    escapeTimer = undefined;
+    decoder.flush(); // a half-read escape sequence must not join the keys typed after the command
+    // A cooked-mode prompt reads stdin itself; the TUI must not see (or swallow) those keystrokes.
+    for (const listener of dataListeners) stdin.off('data', listener);
+    try { stdout.write(LEAVE_SEQUENCE); } catch { /* terminal already gone */ }
+    try { if (stdin.isTTY) stdin.setRawMode(false); } catch { /* ignore */ }
+    try { stdin.pause(); } catch { /* ignore */ }
+  }
+
+  function resume(): void {
+    if (restored || !suspended) return;
+    suspended = false;
+    if (stdin.isTTY) stdin.setRawMode(true);
+    stdin.resume();
+    stdout.write(enter);
+    for (const listener of dataListeners) stdin.on('data', listener);
   }
   process.once('exit', restore);
   process.once('SIGTERM', onSigterm);
@@ -109,7 +137,7 @@ export function openTerminal(io: TerminalIO, options: { mouse?: boolean } = {}):
         }
       };
       dataListeners.push(onData);
-      stdin.on('data', onData);
+      if (!suspended) stdin.on('data', onData);
     },
     onResize(listener) {
       if (restored) return;
@@ -118,5 +146,7 @@ export function openTerminal(io: TerminalIO, options: { mouse?: boolean } = {}):
       stdout.on('resize', onResize);
     },
     restore,
+    suspend,
+    resume,
   };
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
-import { MODEL_FAMILIES } from '@tokengraph/core';
-import { buildViewModel, shiftDate } from '../../src/tui/model.js';
+import { MODEL_FAMILIES, formatTokens } from '@tokengraph/core';
+import { buildViewModel, modelBreakdown, shiftDate } from '../../src/tui/model.js';
+import { shortDate } from '../../src/tui/views/dates.js';
 import { ScreenBuffer, toPlainText } from '../../src/tui/screen.js';
 import { familyColor, tuiTheme } from '../../src/tui/theme.js';
 import { drawAgents } from '../../src/tui/views/agents.js';
@@ -13,7 +14,11 @@ import { drawModels } from '../../src/tui/views/models.js';
 import { blit } from '../../src/tui/views/props.js';
 import { hitTest } from '../../src/tui/widgets/heatmap.js';
 import { drawOverview } from '../../src/tui/views/overview.js';
-import { drawTooSmall } from '../../src/tui/views/too-small.js';
+import { MIN_HEIGHT, MIN_WIDTH, drawTooSmall } from '../../src/tui/views/too-small.js';
+import { actionItems, type SetupStatus } from '../../src/tui/actions.js';
+import { filterEntries, paletteEntries } from '../../src/tui/views/palette.js';
+import { initialState, type AppState } from '../../src/tui/app-state.js';
+import { renderFrame } from '../../src/tui/frame.js';
 
 const TODAY = '2026-10-03';
 const theme = tuiTheme('dark');
@@ -36,9 +41,57 @@ describe('views', () => {
     const buf = new ScreenBuffer(160, 40);
     const result = drawOverview(buf, { x: 0, y: 0, width: 160, height: 40 }, { ...base(), state: { cursor: TODAY, yearEnd: TODAY } });
     const text = toPlainText(buf);
-    for (const s of ['TODAY', 'THIS WEEK', 'STREAK', 'EST. COST', 'CACHE HIT', 'Mon', 'LAST 30 DAYS', 'TOP MODELS', 'Sat 3 Oct 2026']) expect(text).toContain(s);
+    for (const s of ['TODAY', 'THIS WEEK', 'STREAK', 'EST. COST', 'CACHE SAVED', 'Mon', 'LAST 30 DAYS', 'TOP MODELS', 'Sat 3 Oct 2026']) expect(text).toContain(s);
     expect(text).toMatch(/[┏╺]/);
     expect(result.heatmap!.layout.step).toBe(3);
+  });
+
+  it('overview shows cache saved instead of the hit rate, today\'s cost and the delta on This week', () => {
+    for (const [w, h, title] of [[160, 48, 'CACHE SAVED'], [100, 30, 'CACHE SAVED']] as const) {
+      const buf = new ScreenBuffer(w, h);
+      drawOverview(buf, { x: 0, y: 0, width: w, height: h }, { ...base(), state: { cursor: TODAY, yearEnd: TODAY } });
+      const text = toPlainText(buf);
+      expect(text).toContain(title);
+      expect(text).not.toMatch(/cache hit/i);
+      const tileRows = text.split('\n').slice(0, h >= 28 && w >= 140 ? 5 : 3);
+      const top = tileRows[1]!;
+      // The delta glyph sits inside the This week tile, today's cost inside the Today tile.
+      const weekAt = tileRows[0]!.search(/this week/i);
+      const streakAt = tileRows[0]!.search(/streak/i);
+      expect(top.slice(weekAt, streakAt)).toMatch(/[▲▼]/);
+      expect(top.slice(0, weekAt)).not.toMatch(/[▲▼]/);
+    }
+  });
+
+  it('overview keeps the selected day visible at 100×30 and names it in the chart title without the day panel', () => {
+    const cursor = shiftDate(TODAY, -1);
+    const vm = model();
+    const day = vm.byDate.get(cursor)!;
+    for (const [w, h, title] of [[100, 30, false], [80, 24, true], [80, 18, true]] as const) {
+      const buf = new ScreenBuffer(w, h);
+      drawOverview(buf, { x: 0, y: 0, width: w, height: h }, { ...base(), vm, state: { cursor, yearEnd: TODAY } });
+      const text = toPlainText(buf);
+      expect(text.toLowerCase()).toContain(shortDate(cursor).toLowerCase());
+      expect(text).toContain(formatTokens(day.weighted));
+      if (title) expect(text.toLowerCase()).toContain(`${shortDate(cursor)} ${formatTokens(day.weighted)}`.toLowerCase());
+    }
+  });
+
+  it('agents keep full names and models keep their headers and names on narrow terminals', () => {
+    const agents = new ScreenBuffer(100, 30);
+    drawAgents(agents, { x: 0, y: 0, width: 100, height: 30 }, { ...base(), state: table, detected: [], autoSync: null });
+    expect(toPlainText(agents)).toContain('Claude Code');
+    expect(toPlainText(agents)).not.toContain('Claude Co…');
+
+    const wide = new ScreenBuffer(160, 48);
+    drawModels(wide, { x: 0, y: 0, width: 160, height: 48 }, { ...base(), state: table });
+    expect(toPlainText(wide)).toContain('LAST ACTIVE');
+    expect(toPlainText(wide)).toContain('30 DAYS');
+
+    const narrow = new ScreenBuffer(100, 30);
+    drawModels(narrow, { x: 0, y: 0, width: 100, height: 30 }, { ...base(), state: table });
+    const text = toPlainText(narrow);
+    for (const row of modelBreakdown(base().vm, '30d')) expect(text).toContain(row.name);
   });
 
   it('overview uses large heatmap cells in a real 160-column terminal (158-wide content)', () => {
@@ -95,7 +148,7 @@ describe('views', () => {
     const models = drawModels(buf, { x: 0, y: 0, width: 120, height: 30 }, { ...base(), state: table });
     let text = toPlainText(buf);
     expect(text).toContain('30 days');
-    expect(text).toContain('claude-sonnet-4-5');
+    expect(text).toContain('Claude Sonnet 4.5');
     expect(text).toContain('gpt-5');
     expect(models.hits.filter((h) => h.kind === 'range')).toHaveLength(5);
 
@@ -207,11 +260,11 @@ describe('views', () => {
     expect(toPlainText(buf)).not.toContain('TOKENS BY MODEL FAMILY');
   });
 
-  it('insights fills 160×40 with big cards, weekday columns, the 12-month chart and the novels callout', () => {
+  it('insights fills 160×40 with big cards, weekday columns, the months chart and the novels callout', () => {
     const buf = new ScreenBuffer(160, 40);
     drawInsights(buf, { x: 0, y: 0, width: 160, height: 40 }, base());
     const text = toPlainText(buf);
-    for (const s of ['LONGEST STREAK', 'LAST 12 MONTHS', 'BUSIEST WEEKDAY', 'Mon', 'Sun', 'Oct', '» You\'ve had AI write']) expect(text).toContain(s);
+    for (const s of ['LONGEST STREAK', 'LAST 6 MONTHS', 'BUSIEST WEEKDAY', 'Mon', 'Sun', 'Oct', '» You\'ve had AI write']) expect(text).toContain(s);
     expect(text).toMatch(/[┏╺]/);
     expect(text).not.toContain('✎');
     expect(text.split('\n').filter((row) => row.trim() === '').length).toBe(0);
@@ -238,9 +291,18 @@ describe('views', () => {
     expect(toPlainText(buf)).toContain('No AI coding usage found yet');
     drawHelp(buf, { x: 0, y: 0, width: 100, height: 30 }, theme);
     expect(toPlainText(buf)).toContain('quit');
+    expect(toPlainText(buf)).toContain('weighted tokens');
     const small = new ScreenBuffer(40, 10);
     drawTooSmall(small, { x: 0, y: 0, width: 40, height: 10 }, theme);
     expect(toPlainText(small)).toContain('80');
+  });
+
+  it('help drops the glossary on a short screen but keeps the keys', () => {
+    const buf = new ScreenBuffer(100, 18);
+    drawHelp(buf, { x: 0, y: 0, width: 100, height: 18 }, theme);
+    const text = toPlainText(buf);
+    expect(text).toContain('quit');
+    expect(text).not.toContain('weighted tokens');
   });
 
   it('blit keeps the target colours under a cell drawn with only a fg', () => {
@@ -293,37 +355,182 @@ describe('views', () => {
       }
       return buildViewModel(ledger, TODAY);
     }
-    const render = (width: number, height: number, vm = withHours()) => {
+    const render = (width: number, height: number, vm = withHours(), hour: number | null = null) => {
       const buf = new ScreenBuffer(width, height);
-      drawInsights(buf, { x: 0, y: 0, width, height }, { vm, theme, motion: STILL, colorMode: 'per-model' });
-      return toPlainText(buf);
+      const result = drawInsights(buf, { x: 0, y: 0, width, height }, { vm, theme, motion: STILL, colorMode: 'per-model', hour });
+      return { text: toPlainText(buf), hits: result.hits };
     };
 
-    it('shows the busiest-hour card, the 24-hour profile and the weekday × hour grid at 160×44', () => {
-      const text = render(160, 44);
-      for (const s of ['BUSIEST HOUR', '22–23h', 'HOUR OF DAY', 'Mon', 'Sun', '■']) expect(text).toContain(s);
-      expect(text).toContain('50% of your tokens');
-      expect(text).toContain('hour data from');
+    it('says in words when you code, brackets the day parts and reads out the busiest hour at 160×48', () => {
+      const { text } = render(160, 48);
+      for (const s of ['BUSIEST HOUR', '22:00', 'WHEN YOU CODE', 'evening 67%', 'morning 33%', 'night 0%', 'afternoon 0%']) expect(text).toContain(s);
+      expect(text).toContain('Evening coder  67% of your tokens are used in the evening, 18:00–24:00');
+      expect(text).toMatch(/╰─+ evening 67% ─+╯/);
+      expect(text).toContain('‹ 22:00–23:00 ›  ·  your busiest hour  ·  120.0K tokens, 50% of all  ·  mostly on');
+      expect(text).toContain('← → pick an hour');
+      // The old grid and its unexplained peak outline are gone.
+      for (const s of ['CODING CLOCK', '▐', 'Peak']) expect(text).not.toContain(s);
     });
 
-    it('drops the grid but keeps the card and the profile at 100×40', () => {
-      const text = render(100, 40);
-      expect(text).toContain('BUSIEST HOUR');
-      expect(text).toContain('HOUR OF DAY');
-      expect(text).not.toContain('■');
+    it('reads out the picked hour instead of the busiest, and says when an hour is empty', () => {
+      const { text } = render(160, 48, withHours(), 10);
+      expect(text).toContain('‹ 10:00–11:00 ›  ·  80.0K tokens, 33% of all');
+      expect(text).not.toContain('your busiest hour');
+      expect(render(160, 48, withHours(), 4).text).toContain('‹ 04:00–05:00 ›  ·  nothing in this hour yet');
+    });
+
+    it('reports one hit per hour over its bar, in screen coordinates', () => {
+      const { text, hits } = render(160, 48);
+      const hours = hits.filter((h) => h.kind === 'hour');
+      expect(hours.map((h) => (h.kind === 'hour' ? h.hour : -1))).toEqual(Array.from({ length: 24 }, (_, i) => i));
+      const rows = text.split('\n');
+      const labels = rows.find((r) => /^\s*│\s+00\s+03/.test(r))!;
+      // The label row sits right under the bars, inside the hit rect, and the 00 label starts at hour 0's column.
+      expect(labels.indexOf('00')).toBe(hours[0]!.rect.x);
+    });
+
+    it('draws the box above the weekday box at 160×48, and keeps the sentence and readout at 80×24', () => {
+      const rows = render(160, 48).text.split('\n');
+      expect(rows.findIndex((r) => r.includes('BUSIEST WEEKDAY'))).toBeGreaterThan(rows.findIndex((r) => r.includes('WHEN YOU CODE')));
+      const small = render(80, 24).text;
+      for (const s of ['WHEN YOU CODE', 'Evening coder', '‹ 22:00–23:00 ›']) expect(small).toContain(s);
+      expect(small.split('\n').every((row) => row.length <= 80)).toBe(true);
     });
 
     it('keeps the card at 70×24 and never writes outside the rect', () => {
-      const text = render(70, 24);
+      const { text } = render(70, 24);
       expect(text).toContain('BUSIEST HOUR');
       expect(text.split('\n').every((row) => row.length <= 70)).toBe(true);
     });
 
     it('says there is no hour data yet when none exists, and draws no hour box', () => {
-      const text = render(120, 34, model());
+      const { text } = render(120, 34, model());
       expect(text).toContain('BUSIEST HOUR');
       expect(text).toContain('no hour data yet');
-      expect(text).not.toContain('HOUR OF DAY');
+      expect(text).not.toContain('WHEN YOU CODE');
     });
   });
 });
+
+describe('setup tab and confirm modal', () => {
+  const status = (): SetupStatus => ({
+    login: 'orcun',
+    autoSync: { claudeHook: false, cursorHook: false, codexNotify: false, geminiHook: false, schedule: false },
+    cursorFetch: true,
+    graphColors: 'per-model',
+  });
+  const frame = (tab: 'setup' | 'agents' | 'overview', width: number, height: number, extra: Partial<AppState> = {}) =>
+    toPlainText(renderFrame({ ...initialState(model(), 'local only'), tab, setup: status(), autoSync: status().autoSync, ...extra }, { theme: 'dark' }, width, height, STILL).buffer);
+
+  it('lists the sections, the recommended hook and the progress header at 160×48', () => {
+    const text = frame('setup', 160, 48);
+    for (const s of ['ACCOUNT', 'AUTO-SYNC', 'CURSOR', 'YOUR DATA', 'Claude Code hook', 'recommended', 'of 3 recommended steps done', '▸']) expect(text).toContain(s);
+    expect(text.split('\n').find((row) => row.includes('Claude Code hook'))).toContain('recommended');
+  });
+
+  it('draws one progress segment per step and the selected row\'s command under the list', () => {
+    const items = actionItems(status(), model().sources);
+    const text = frame('setup', 160, 48, { setupSel: items.findIndex((i) => i.id === 'hook:cursor') });
+    expect(text).toContain('1 of 3 recommended steps done  ▰▱▱');
+    expect(text).not.toContain('▰▱▱▱');
+    expect(text).toContain('$ tokengraph install-hook --agent cursor');
+    // Scrolled lists have no room for it.
+    expect(frame('setup', 80, 24, { setupSel: items.length - 1 })).not.toContain('$ tokengraph');
+  });
+
+  it('draws 4 of 5 as ▰▰▰▰▱', () => {
+    const done = status();
+    done.autoSync = { claudeHook: true, cursorHook: true, codexNotify: true, geminiHook: false, schedule: false };
+    const text = frame('setup', 160, 48, { setup: done, vm: { ...model(), sources: ['claude-code', 'cursor', 'codex-cli', 'opencode'] } });
+    expect(text).toContain('4 of 5 recommended steps done  ▰▰▰▰▱');
+  });
+
+  it('puts a dot after the Setup tab while a recommended step is open, and drops it when all are done', () => {
+    expect(frame('overview', 160, 48).split('\n')[0]).toMatch(/5 Setup •/);
+    const done = status();
+    done.autoSync = { claudeHook: true, cursorHook: true, codexNotify: true, geminiHook: false, schedule: true };
+    const text = frame('setup', 160, 48, { setup: done });
+    expect(text.split('\n')[0]).not.toContain('•');
+    expect(text).toContain('All set');
+  });
+
+  it('shows no dot and says it is reading until the configuration is known', () => {
+    const text = frame('setup', 160, 48, { setup: null });
+    expect(text.split('\n')[0]).not.toContain('•');
+    expect(text).toContain('reading your configuration');
+  });
+
+  it('scrolls to keep the selected row visible on a short terminal', () => {
+    const items = actionItems(status(), model().sources);
+    const text = frame('setup', 80, 24, { setupSel: items.length - 1 });
+    expect(text).toContain('Uninstall tokengraph');
+    expect(text).toContain('YOUR DATA');
+  });
+
+  it('draws the question and its keys over the view', () => {
+    const text = frame('setup', 160, 48, { confirm: { id: 'hook:claude-code', text: 'Install the Claude Code hook? It edits Claude Code\'s settings.' } });
+    expect(text).toContain('Install the Claude Code hook?');
+    expect(text).toContain('y yes  n no');
+  });
+
+  it('renders Setup, Agents and the confirm modal at the smallest size and at 100×30 without throwing', () => {
+    for (const [w, h] of [[MIN_WIDTH, MIN_HEIGHT], [100, 30]] as const) {
+      for (const tab of ['setup', 'agents'] as const) {
+        expect(() => frame(tab, w, h)).not.toThrow();
+        expect(() => frame(tab, w, h, { setup: null, autoSync: null })).not.toThrow();
+        const asked = frame(tab, w, h, { confirm: { id: 'uninstall', text: 'Remove every tokengraph hook and the hourly sync from this machine, and forget the login?' } });
+        expect(asked).toContain('y yes  n no');
+      }
+    }
+  });
+
+  it('shows the h manage hint with the Agents statuses', () => {
+    expect(frame('agents', 160, 48)).toContain('h manage');
+    expect(frame('agents', 100, 30)).toContain('h manage');
+  });
+});
+
+describe('command palette', () => {
+  const frame = (tab: 'overview' | 'models' | 'agents' | 'insights' | 'setup', width: number, height: number, palette: { query: string; selected: number }) =>
+    toPlainText(renderFrame({ ...initialState(model(), 'local only'), tab, palette }, { theme: 'dark' }, width, height, STILL).buffer);
+
+  it('draws the query line and the matching entries at 160×48', () => {
+    const text = frame('overview', 160, 48, { query: 'hook', selected: 1 });
+    for (const s of ['ACTIONS', '› hook', 'Claude Code hook', 'Cursor hook', 'Auto-sync · sync when a session ends']) expect(text).toContain(s);
+    expect(text.split('\n').find((row) => row.includes('Cursor hook'))).toContain('▸');
+    expect(text.split('\n').find((row) => row.includes('Claude Code hook'))).not.toContain('▸');
+  });
+
+  it('highlights the last row when the selection is beyond the list', () => {
+    const text = frame('overview', 160, 48, { query: 'hook', selected: 99 });
+    const marked = text.split('\n').filter((row) => row.includes('▸'));
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toContain(filterEntries(paletteEntries(initialState(model(), 'local only')), 'hook').at(-1)!.title);
+  });
+
+  it('says no match when nothing fits', () => {
+    expect(frame('overview', 160, 48, { query: 'zzzqx', selected: 0 })).toContain('no match');
+  });
+
+  it('lists the palette keys in the hints and the help', () => {
+    for (const tab of ['overview', 'models', 'agents', 'insights', 'setup'] as const) {
+      const rows = toPlainText(renderFrame({ ...initialState(model(), 'local only'), tab }, { theme: 'dark' }, 160, 48, STILL).buffer).split('\n');
+      expect(rows[rows.length - 1]).toContain(': actions');
+    }
+    const buf = new ScreenBuffer(100, 40);
+    drawHelp(buf, { x: 0, y: 0, width: 100, height: 40 }, theme);
+    expect(toPlainText(buf)).toContain('command palette');
+  });
+
+  it('renders on every tab at the smallest size and at 100×30 without throwing', () => {
+    for (const [w, h] of [[MIN_WIDTH, MIN_HEIGHT], [100, 30]] as const) {
+      for (const tab of ['overview', 'models', 'agents', 'insights', 'setup'] as const) {
+        for (const query of ['', 'hook', 'zzzqx', 'a very long query that does not match anything in the palette at all']) {
+          expect(() => frame(tab, w, h, { query, selected: 3 })).not.toThrow();
+        }
+      }
+      expect(frame('overview', w, h, { query: 'hook', selected: 0 })).toContain('Claude Code hook');
+    }
+  });
+});
+

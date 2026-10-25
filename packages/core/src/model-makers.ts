@@ -184,12 +184,17 @@ export const FAMILY_LOGOS: Partial<Record<ModelFamily, BrandLogoArt>> = {
 /** Cursor records its model picker's "Auto" choice as one of these ids. */
 const CURSOR_AUTO_IDS = new Set(['auto', 'default']);
 
-const CLAUDE_TIER_NAMES: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku' };
+const CLAUDE_TIER_NAMES: Record<string, string> = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable', mythos: 'Mythos' };
+
+/** Id parts that are a suffix, not a tier, when a future tier name is guessed from the id. */
+const NOT_A_TIER = new Set(['latest', 'thinking', 'preview']);
 
 /**
  * A name for showing a model to a person. Claude ids become "Claude" plus tier plus version
- * ("claude-3-5-sonnet-20241022" is "Claude Sonnet 3.5", "claude-opus-5" is "Claude Opus 5"); anything else keeps
- * its recorded id minus a release-date suffix, since guessing prettier names would invent them.
+ * ("claude-3-5-sonnet-20241022" is "Claude Sonnet 3.5", "claude-opus-5" is "Claude Opus 5", "claude-2-1" is
+ * "Claude 2.1"); a tier not listed yet is taken from the first alphabetic part after "claude"
+ * ("claude-nova-6-2" is "Claude Nova 6.2"). Anything else keeps its recorded id minus a release-date suffix,
+ * since guessing prettier names would invent them.
  */
 export function displayModelName(modelId: string): string {
   // Cursor's router ids are a setting, not a model.
@@ -198,12 +203,13 @@ export function displayModelName(modelId: string): string {
     const id = modelId.toLowerCase().trim();
     const fromClaude = id.includes('claude') ? id.slice(id.indexOf('claude')) : id;
     const parts = fromClaude.replace(/-v\d+(?::\d+)?$/, '').split(/-/);
-    const tier = parts.map((part) => CLAUDE_TIER_NAMES[part]).find(Boolean);
-    if (tier) {
-      // One or two digits per part: a date ("20241022") is longer, and so is never a version.
-      const version = parts.filter((part) => /^\d{1,2}(?:\.\d+)?$/.test(part)).join('.');
-      return version ? `Claude ${tier} ${version}` : `Claude ${tier}`;
-    }
+    const known = parts.map((part) => CLAUDE_TIER_NAMES[part]).find(Boolean);
+    const guessed = parts.slice(1).find((part) => /^[a-z]+$/.test(part) && !NOT_A_TIER.has(part));
+    const tier = known ?? (guessed ? guessed[0]!.toUpperCase() + guessed.slice(1) : undefined);
+    // One or two digits per part: a date ("20241022") is longer, and so is never a version.
+    const version = parts.filter((part) => /^\d{1,2}(?:\.\d+)?$/.test(part)).join('.');
+    const name = [tier, version].filter(Boolean).join(' ');
+    if (name) return `Claude ${name}`;
   }
   return modelLabel(modelId);
 }

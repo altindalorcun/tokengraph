@@ -1,14 +1,15 @@
 import { formatTokens } from '@tokengraph/core';
 import type { ColorDepth } from './color.js';
 import { STILL } from './animate.js';
-import { RANGE_LABELS, busiestHourText, formatCost, hourProfile, modelBreakdown, rangeTotals, stats, yearGrid, type ViewModel } from './model.js';
+import { RANGE_LABELS, busiestHourText, hourProfile, modelBreakdown, rangeTotals, stats, yearGrid, type ViewModel } from './model.js';
 import { ScreenBuffer, toAnsiLines } from './screen.js';
 import { tuiTheme, familyColor } from './theme.js';
 import { longDate, truncate } from './views/dates.js';
+import { plainTiles } from './views/overview.js';
 import { drawBar } from './widgets/bars.js';
 import { HEATMAP_FULL_WIDTH, HEATMAP_HEIGHT, drawHeatmap } from './widgets/heatmap.js';
 import { drawHeaderMark } from './widgets/logo.js';
-import { drawTiles, type Tile } from './widgets/tiles.js';
+import { drawTiles } from './widgets/tiles.js';
 import type { Theme } from '@tokengraph/core';
 
 const TILE_HEIGHT = 3;
@@ -37,13 +38,7 @@ export function renderSnapshot(
 
   const s = stats(vm);
   const month = rangeTotals(vm, RANGE);
-  const tiles: Tile[] = [
-    { title: 'Today', value: formatTokens(s.today) },
-    { title: 'This week', value: formatTokens(s.week) },
-    { title: 'Streak', value: `${s.streak} ${s.streak === 1 ? 'day' : 'days'}`, detail: `best ${s.longest?.length ?? 0}` },
-    { title: 'Est. cost', value: formatCost(month.cost), detail: RANGE },
-    { title: 'Cache hit', value: month.cacheHit === null ? '—' : `${Math.round(month.cacheHit * 100)}%` },
-  ];
+  const tiles = plainTiles(vm, s, month, formatTokens(s.today), formatTokens(s.week), theme);
   const inner = width - 2;
   drawTiles(buf, { x: 1, y: 3, width: inner, height: TILE_HEIGHT }, tiles, theme);
 

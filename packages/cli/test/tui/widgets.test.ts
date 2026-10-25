@@ -60,6 +60,10 @@ describe('widgets', () => {
     expect(bigTextWidth('4.2')).toBe(9);
     expect(bigTextWidth('4.2M')).toBe(10);
     expect(bigTextWidth('$12')).toBe(8);
+    expect(bigTextWidth('23:00')).toBe(17);
+    const clock = new ScreenBuffer(2, 3);
+    drawBigText(clock, 0, 0, ':', '#ffffff');
+    expect(toPlainText(clock).split('\n')).toEqual(['', '•', '•']);
     const zero = new ScreenBuffer(3, 3);
     drawBigText(zero, 0, 0, '0', '#ffffff');
     expect(toPlainText(zero)).toBe('┏━┓\n┃ ┃\n┗━┛');

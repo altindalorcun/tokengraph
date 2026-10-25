@@ -2,7 +2,8 @@ import type { Theme } from '@tokengraph/core';
 import type { CollectProgress, LocalCollection } from '../collect-local.js';
 import type { Ledger } from '../ledger.js';
 import { easeOutCubic, MotionController } from './animate.js';
-import { initialState, reduce, withViewModel, type AppState } from './app-state.js';
+import { actionItems, type ActionId, type SetupStatus } from './actions.js';
+import { initialState, reduce, requestAction, withViewModel, type AppState, type Effect } from './app-state.js';
 import type { AutoSyncStatus } from './auto-sync.js';
 import { mix, type ColorDepth } from './color.js';
 import { renderFrame, type FrameHits } from './frame.js';
@@ -34,6 +35,16 @@ export interface AppDeps {
   autoSync: () => Promise<AutoSyncStatus>;
   /** Returns a cancel function. */
   setTimer: (fn: () => void, ms: number) => () => void;
+  /** Config and installed hooks, for the action list. */
+  setupStatus: () => Promise<SetupStatus>;
+  /** Runs a tokengraph command; `screen` ones print and prompt on the real terminal. */
+  runAction: (id: ActionId, kind: 'inline' | 'screen', status: SetupStatus | null) => Promise<{ code: number; lines: string[] }>;
+  /** Resolves when the person presses Enter on the normal screen. */
+  waitForEnter: () => Promise<void>;
+  /** Writes to the normal screen while the terminal is suspended. */
+  write: (text: string) => void;
+  /** Test hook: hands over the means to request an action, as the setup tab and palette will. */
+  onReady?: (controls: { request: (id: ActionId) => void }) => void;
   /** Test hook: called with every composed frame before it is diffed and written. */
   onFrame?: (buffer: ScreenBuffer) => void;
 }
@@ -45,8 +56,11 @@ const TICK_MS = 1000;
 const SAMPLE_WINDOW_MS = 15 * 60_000;
 const MIN_SAMPLE_SPAN_MS = 30_000;
 const PERSIST_GRACE_MS = 2000;
+// Input that arrives this soon after a screen action returns was typed ahead during the command, not meant for the view.
+const SETTLE_MS = 150;
 const FLAME_WIDTH = 8;
 const FLAME_HEIGHT = 6;
+const ANSI = /\x1b\[[0-9;]*m/g;
 
 /** Local midnight `days` before the date key. */
 function sinceDate(today: string, days: number): Date {
@@ -93,6 +107,10 @@ export async function runApp(deps: AppDeps): Promise<number> {
       let nextScan: (() => void) | null = null;
       let samples: { t: number; weighted: number }[] = [];
       let persisting: Promise<unknown> | null = null;
+      let scanTask: Promise<void> = Promise.resolve();
+      // True while a command owns the normal screen: nothing may be painted and typed-ahead input is dropped.
+      let suspended = false;
+      let settling = false;
 
       const finish = (code: number | Error): void => {
         if (finished) return;
@@ -156,6 +174,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
       };
 
       const draw = (): void => {
+        if (suspended) return;
         cancelTimer(frameTimer);
         frameTimer = null;
         paint();
@@ -189,7 +208,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
       };
 
       const scanOnce = async (days: number): Promise<void> => {
-        if (scanning || finished) return;
+        if (scanning || finished || state.running !== null) return;
         scanning = true;
         cancelTimer(nextScan);
         nextScan = null;
@@ -251,10 +270,117 @@ export async function runApp(deps: AppDeps): Promise<number> {
 
       // scanOnce handles its own failures; this only catches a bug in drawing so it cannot become an unhandled rejection.
       const startScan = (days: number): void => {
-        scanOnce(days).catch((error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
+        if (scanning || finished || state.running !== null) return;
+        scanTask = scanOnce(days).catch((error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
+      };
+
+      /** Carries out reducer effects; false once the app has quit. */
+      const applyEffects = (effects: Effect[]): boolean => {
+        for (const effect of effects) {
+          if (effect === 'quit') return finish(0), false;
+          if (effect === 'rescan') startScan(LIVE_SCAN_DAYS);
+          else if (effect === 'bars') motion.startBars();
+          else if (effect === 'wipe') motion.startWipe();
+          else if (typeof effect === 'object') void execute(effect.run);
+        }
+        return true;
+      };
+
+      const refreshSetup = async (): Promise<void> => {
+        try {
+          const setup = await deps.setupStatus();
+          if (!finished) state = { ...state, setup };
+        } catch {
+          // Keep the last known status; the action list shows unknown states without one.
+        }
+      };
+
+      /** Re-reads what an action may have changed: the ledger (screen actions), the mode pill, the hooks and the config. */
+      const reload = async (ledgerChanged: boolean): Promise<void> => {
+        if (ledgerChanged) {
+          try {
+            ledger = await deps.loadLedger();
+            if (!finished) state = withViewModel(state, buildViewModel(ledger, deps.today()));
+          } catch {
+            // The in-memory ledger stays; the next scan merges into it.
+          }
+        }
+        await Promise.all([
+          refreshSetup(),
+          deps.modeLabel().then((mode) => { if (!finished) state = { ...state, mode }; }, () => {}),
+          deps.autoSync().then((autoSync) => { if (!finished) state = { ...state, autoSync }; }, () => {}),
+        ]);
+      };
+
+      const toast = (text: string, tone: 'good' | 'bad'): void => {
+        state = { ...state, toast: { text, tone, at: deps.clock() } };
+      };
+
+      const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+      /** Hands the terminal to a command: normal screen, its output, then a pause so the output can be read. */
+      const runOnScreen = async (id: ActionId, title: string): Promise<void> => {
+        suspended = true;
+        terminal.suspend();
+        try {
+          deps.write(`\n› ${title}\n\n`);
+          let code: number;
+          try {
+            ({ code } = await deps.runAction(id, 'screen', state.setup));
+          } catch (error) {
+            deps.write(`${errorText(error)}\n`);
+            toast(errorText(error), 'bad');
+            code = -1;
+          }
+          if (code > 0) toast(`${title} did not finish`, 'bad');
+          deps.write('\nPress Enter to return to tokengraph.');
+          await deps.waitForEnter();
+        } finally {
+          settling = true;
+          after(() => { settling = false; }, SETTLE_MS);
+          terminal.resume();
+          suspended = false;
+          prev = null;
+        }
+      };
+
+      /** Runs one action. Waits for a scan or ledger write in flight first, so it never meets the sync lock held by us. */
+      const execute = async (id: ActionId): Promise<void> => {
+        if (state.running !== null || finished) return;
+        const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
+        const kind = item?.kind ?? 'screen';
+        state = { ...state, running: id };
+        draw();
+        let ledgerChanged = false;
+        try {
+          cancelTimer(nextScan);
+          nextScan = null;
+          while (scanning) await scanTask;
+          await persisting?.catch(() => {});
+          if (finished) return;
+          if (kind === 'inline') {
+            const { code, lines } = await deps.runAction(id, 'inline', state.setup);
+            // Success reads best as the first line ("Installed ..."), failure as the last (the reason); hints trail the first.
+            const shown = lines.map((line) => line.replace(ANSI, '').trim()).filter(Boolean);
+            const line = code === 0 ? shown[0] : shown.at(-1);
+            toast(line ?? (code === 0 ? 'Done.' : 'Failed.'), code === 0 ? 'good' : 'bad');
+          } else {
+            ledgerChanged = true;
+            await runOnScreen(id, item?.title ?? id);
+          }
+        } catch (error) {
+          if (!finished) toast(errorText(error), 'bad');
+        }
+        if (finished) return;
+        await reload(ledgerChanged);
+        if (finished) return;
+        state = { ...state, running: null };
+        draw();
+        startScan(LIVE_SCAN_DAYS);
       };
 
       const onInput = guard((events: InputEvent[]): void => {
+        if (suspended || settling) return;
         // An Alt+key chord arrives as an escape immediately followed by the key; the escape alone must not quit.
         const list = events.filter((event, i) => !(event.type === 'key' && event.key === 'escape' && i < events.length - 1));
         if (intro) {
@@ -264,17 +390,19 @@ export async function runApp(deps: AppDeps): Promise<number> {
         for (const event of list) {
           const out = reduce(state, event, hits);
           state = out.state;
-          for (const effect of out.effects) {
-            if (effect === 'quit') return finish(0);
-            if (effect === 'rescan') startScan(LIVE_SCAN_DAYS);
-            if (effect === 'bars') motion.startBars();
-            if (effect === 'wipe') motion.startWipe();
-          }
+          if (!applyEffects(out.effects)) return;
         }
         draw();
       });
 
       terminal.onInput(onInput);
+      deps.onReady?.({
+        request: guard((id: ActionId) => {
+          const out = requestAction(state, id);
+          state = out.state;
+          if (applyEffects(out.effects)) draw();
+        }),
+      });
       terminal.onResize(guard(() => {
         prev = null;
         draw();
@@ -282,6 +410,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
 
       motion.startSplash();
       draw();
+      void refreshSetup();
       after(tick, TICK_MS);
       deps.modeLabel().then(
         guard((mode) => {

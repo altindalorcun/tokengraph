@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { dateKey, type Theme } from '@tokengraph/core';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
 import { readConfig } from '../config.js';
+import type { SetupStatus } from '../tui/actions.js';
 import { ledgerToUsage, mergeLedgerAccounts, mergeLedgerHours, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
 import { acquireSyncLock } from '../sync-lock.js';
@@ -10,6 +11,7 @@ import { detectAutoSync } from '../tui/auto-sync.js';
 import { detectColorDepth, openTerminal } from '../tui/terminal.js';
 import { buildViewModel, shiftDate } from '../tui/model.js';
 import { renderSnapshot } from '../tui/print.js';
+import { runAction, waitForEnter } from '../tui/run-action.js';
 
 export interface ViewOptions {
   motion: boolean;
@@ -53,6 +55,17 @@ async function persistLedger(ledger: Ledger): Promise<'saved' | 'busy'> {
 async function modeLabel(): Promise<string> {
   const config = await readConfig();
   return config.github ? `↑ publishing as @${config.github.login}` : 'local only';
+}
+
+/** What the action list needs: the login and colours from the config, the Cursor fetch switch and the installed hooks. */
+async function setupStatus(): Promise<SetupStatus> {
+  const [config, autoSync] = await Promise.all([readConfig(), detectAutoSync()]);
+  return {
+    login: config.github?.login ?? null,
+    autoSync,
+    cursorFetch: config.cursor?.fetch ?? null,
+    graphColors: config.graph?.colors ?? 'model',
+  };
 }
 
 /** Scans with sync's adapter set, so the view matches what sync records. */
@@ -103,6 +116,10 @@ export async function runView(options: ViewOptions): Promise<number> {
     persist: persistLedger,
     modeLabel,
     autoSync: () => detectAutoSync(),
+    setupStatus,
+    runAction,
+    waitForEnter,
+    write: (text) => void process.stdout.write(text),
     setTimer: (fn, ms) => {
       const timer = setTimeout(fn, ms);
       return () => clearTimeout(timer);

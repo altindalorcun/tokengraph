@@ -212,7 +212,7 @@ describe('day panel', () => {
     drawDayPanel(buf, { x: 0, y: 0, width: DAY_PANEL_WIDTH, height: 12 }, { day: model.byDate.get(TODAY) ?? null, date: TODAY, theme });
     const text = toPlainText(buf);
     expect(text).toContain('Sat 3 Oct 2026');
-    expect(text).toContain('claude-sonnet');
+    expect(text).toContain('Claude Sonnet');
     expect(text).toContain('Claude Code');
   });
 

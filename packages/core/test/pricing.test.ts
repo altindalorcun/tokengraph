@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CACHE_READ_COST_MULTIPLIER, costForSplitCounts, currentRates, findRate } from '../src/pricing.js';
+import { CACHE_READ_COST_MULTIPLIER, cacheSavingsForSplitCounts, costForSplitCounts, currentRates, findRate } from '../src/pricing.js';
 import { emptySplitCounts, type SplitTokenCounts } from '../src/tokens.js';
 
 const TODAY = '2026-09-20';
@@ -519,5 +519,30 @@ describe('vendor list prices added 2026-10-21', () => {
       'auto', 'agent_review', 'llama-3.3-70b', 'mistral-large', 'qwen3-coder', // router and open-weight
     ];
     for (const model of unpriced) expect(findRate(model, TODAY), model).toBeNull();
+  });
+});
+
+describe('cacheSavingsForSplitCounts', () => {
+  const MILLION = 1_000_000;
+
+  it('works out what caching saved', () => {
+    const model = 'claude-sonnet-5';
+    const rate = findRate(model, TODAY)!;
+    expect(cacheSavingsForSplitCounts(model, TODAY, counts({ cacheReadTokens: MILLION }))).toBeCloseTo(
+      rate.inputPerMillion * (1 - rate.cacheReadMultiplier),
+    );
+    expect(cacheSavingsForSplitCounts(model, TODAY, counts({ inputTokens: MILLION }))).toBe(0);
+    expect(cacheSavingsForSplitCounts('deepseek-v4.1-flash', TODAY, counts({ cacheReadTokens: MILLION }))).toBeNull();
+    // Priced exactly when costForSplitCounts is: an unknown cache split stays unpriced.
+    const unknownSplit = counts({ cacheReadTokens: MILLION, cacheCreation5mTokens: null, cacheCreation1hTokens: null });
+    expect(cacheSavingsForSplitCounts(model, TODAY, unknownSplit)).toBeNull();
+  });
+
+  it('follows the long-context input rate on a long-context tier', () => {
+    const model = currentRates(TODAY).find((r) => r.longContext)!;
+    const long = model.inputPerMillion * model.longContext!.input;
+    expect(cacheSavingsForSplitCounts(model.model, TODAY, counts({ cacheReadTokens: MILLION }), 'long-context')).toBeCloseTo(
+      long * (1 - model.cacheReadMultiplier),
+    );
   });
 });

@@ -7,7 +7,7 @@ export interface TabHit {
   width: number;
 }
 
-/** "1 Overview  2 Models …" separated by two spaces — the active label (digit included) in accent bold, others muted. Returns hit boxes for mouse clicks. */
+/** "1 Overview  2 Models …" separated by `gap` spaces (two by default) — the active label (digit included) in accent bold, others muted. Returns hit boxes for mouse clicks. */
 export function drawTabs(
   buf: ScreenBuffer,
   x: number,
@@ -15,6 +15,9 @@ export function drawTabs(
   labels: readonly string[],
   active: number,
   theme: TuiTheme,
+  /** Indexes that carry a trailing accent dot: something there wants attention. */
+  badged: readonly number[] = [],
+  gap = 2,
 ): TabHit[] {
   const hits: TabHit[] = [];
   let cx = x;
@@ -22,8 +25,13 @@ export function drawTabs(
     const text = `${index + 1} ${label}`;
     const style = index === active ? { fg: theme.accent, bold: true } : { fg: theme.muted, bold: false };
     buf.text(cx, y, text, style);
-    hits.push({ index, x: cx, width: text.length });
-    cx += text.length + 2;
+    let width = text.length;
+    if (badged.includes(index)) {
+      buf.text(cx + width, y, ' •', { fg: theme.accent, bold: false });
+      width += 2;
+    }
+    hits.push({ index, x: cx, width });
+    cx += width + gap;
   });
   return hits;
 }

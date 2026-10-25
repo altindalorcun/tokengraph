@@ -13,14 +13,14 @@ const DIGITS: Record<string, readonly string[]> = {
   '8': ['┏━┓', '┣━┫', '┗━┛'],
   '9': ['┏━┓', '┗━┫', '╺━┛'],
 };
-// Separators are one column wide; only their bottom row is inked.
-const SEPARATORS: Record<string, string> = { '.': '•', ',': ',' };
+// Separators are one column wide; only their bottom row is inked, except ':' with dots on the middle and bottom rows.
+const SEPARATORS: Record<string, string> = { '.': '•', ',': ',', ':': '•' };
 
 const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch in DIGITS;
 const isSeparator = (ch: string | undefined): boolean => ch !== undefined && ch in SEPARATORS;
 const isBig = (ch: string | undefined): boolean => isDigit(ch) || isSeparator(ch);
 
-/** Columns `text` takes: 3 + 1 gap per digit, 1 + 1 per '.' or ',', 1 per other char (no gap). */
+/** Columns `text` takes: 3 + 1 gap per digit, 1 + 1 per '.', ',' or ':', 1 per other char (no gap). */
 export function bigTextWidth(text: string): number {
   const chars = [...text];
   let width = 0;
@@ -42,6 +42,7 @@ export function drawBigText(buf: ScreenBuffer, x: number, y: number, text: strin
       cx += 3;
     } else if (isSeparator(ch)) {
       buf.set(cx, y + 2, SEPARATORS[ch]!, { fg: color });
+      if (ch === ':') buf.set(cx, y + 1, SEPARATORS[ch]!, { fg: color });
       cx += 1;
     } else {
       buf.set(cx, y + 2, ch, { fg: unitColor ?? color, bold: true });

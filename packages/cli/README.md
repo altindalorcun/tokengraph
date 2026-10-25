@@ -102,8 +102,8 @@ re-reading a big cached context would drown a day of real work. It measures work
 
 | | |
 | --- | --- |
-| **What leaves your machine** | To a public gist on your account: the SVG graphs (daily token totals and the names of the model families they are coloured by) and a README with the embed snippet and a link. To a secret gist on your account: per-day, per-model token counts, a random machine id, a label such as `darwin-3f2a1c`, a hashed machine fingerprint, the CLI version and the time of the last update. Both only after `tokengraph login`, and only when tokengraph publishes (`sync`, a hook, the schedule, or `login`). `sync --local`, `view`, `story`, `status`, `export` and `import` never do. |
-| **What stays on this machine** | Which hour of the day you used each agent. tokengraph keeps weighted tokens per local hour in `state.json` for the busiest-hour card and `export --hours`; they are never put in a machine file, the data gist, the graph or a story card. Hours exist only for days your agents' logs still hold. |
+| **What leaves your machine** | To a public gist on your account: the SVG graphs (daily token totals and the names of the model families they are coloured by) and a README with the embed snippet and a link. To a secret gist on your account: per-day, per-model token counts, a random machine id, a label such as `darwin-3f2a1c`, a hashed machine fingerprint, the CLI version and the time of the last update. Both only after `tokengraph login`, and only when tokengraph publishes (`sync`, a hook, the schedule, or `login`). `sync --local`, `story`, `status`, `export` and `import` never do, and `view` does only when you pick Sync (or login, or graph colours) in it. |
+| **What stays on this machine** | Which hour of the day you used each agent. tokengraph keeps weighted tokens per local hour in `state.json` for the busiest-hour card, the "When you code" chart and `export --hours`; they are never put in a machine file, the data gist, the graph or a story card. Hours exist only for days your agents' logs still hold. |
 | **What tokengraph fetches** | Only for Cursor, and only while it is on (the default once Cursor is signed in; `tokengraph cursor off` stops it): `sync` reads Cursor's own sign-in token from Cursor's local database (read-only, that one row) and asks cursor.com for your own usage export, the file the Cursor dashboard's export button gives you. The token goes to cursor.com only, is held in memory for the request and is never stored, printed or logged. What is kept is the usage rows (timestamps, model names, token counts). `sync --local` never does. |
 | **What never does** | Prompts, answers, code, file names, paths. Nothing is sent to any tokengraph server: there is none. |
 | **How to remove it** | `tokengraph logout` forgets the login on this machine. Delete the two gists on [gist.github.com](https://gist.github.com) to remove what was published. |
@@ -143,7 +143,7 @@ Every command takes `--help`. An unknown option is an error.
 
 | Command | What it does |
 | --- | --- |
-| `tokengraph [view]` | Opens the live terminal view: year heatmap, models, agents, streaks, and your busiest hour of the day with a 24-hour profile. `--print` prints a static snapshot. The default command in a terminal. |
+| `tokengraph [view]` | Opens the live terminal view: year heatmap, models, agents, streaks, a "When you code" chart of the hours you work in (← → picks an hour), and a Setup tab to manage hooks, the hourly schedule, sync, Cursor, export and story without leaving the view. `:` or Ctrl-K opens a command palette; each action shows its CLI equivalent. `--print` prints a static snapshot. The default command in a terminal. |
 | `tokengraph login` | Connects GitHub, publishes your graph to your own gist, prints the README snippet. Uses your GitHub CLI login if you have one (`--gh`), or a one-time code you approve in the browser (`--device`, `--no-open`). Asks for gist access only. |
 | `tokengraph logout` | Forgets the GitHub login on this machine. Local data and your gists stay. |
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. With Cursor signed in it first fetches your Cursor usage from cursor.com (at most once an hour). `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
@@ -185,7 +185,7 @@ model whose vendor does not publish one (retired models, previews, Cursor's Auto
 **Why weighted tokens?** Raw totals are mostly cache reads, which are cheap and large. Counting
 them at a tenth keeps the graph about work done. The formula is under [How it works](#how-it-works).
 
-**Does it work offline?** Yes. `view`, `story`, `status`, `export`, `import <file>` and `sync --local` never use the network.
+**Does it work offline?** Yes. `view`, `story`, `status`, `export`, `import <file>` and `sync --local` work without the network. `view` publishes only if you pick Sync (or login / colours) in it.
 Only publishing needs GitHub, and the Cursor fetch (`sync`, `cursor fetch`) needs cursor.com.
 
 **How do I stop?** `tokengraph uninstall` removes the Claude Code, Cursor, Codex and Gemini CLI hooks and the hourly

@@ -1,4 +1,5 @@
 import { agentName } from '@tokengraph/core';
+import type { ActionId } from '../actions.js';
 import type { AutoSyncStatus } from '../auto-sync.js';
 import { mix } from '../color.js';
 import { RANGE_LABELS, agentBreakdown, agentBuckets, rangeBuckets } from '../model.js';
@@ -13,25 +14,30 @@ import { drawBreakdownTable, type FooterPart } from './table.js';
 const AGENT_FADE = [0.12, 0.35, 0.55, 0.7, 0.8, 0.88];
 
 /** `name ✓` / `name —` / `name ?` for installed / not installed / unknown. */
-function status(label: string, value: boolean | null, theme: TuiTheme): FooterPart[] {
+function status(label: string, value: boolean | null, action: ActionId, theme: TuiTheme): FooterPart[] {
   const mark = value === null ? { text: '?', color: theme.muted } : value ? { text: '✓', color: theme.good } : { text: '—', color: theme.muted };
-  return [{ text: `${label} `, color: theme.muted }, mark];
+  return [{ text: `${label} `, color: theme.muted, action }, { ...mark, action }];
 }
 
-function autoSyncFooter(autoSync: AutoSyncStatus, theme: TuiTheme): FooterPart[] {
+/** The statuses, each clickable to its Setup row, then `h manage`; the `auto-sync` lead-in goes when the line would not fit. */
+function autoSyncFooter(autoSync: AutoSyncStatus, theme: TuiTheme, width: number): FooterPart[] {
   const gap = { text: '  ', color: theme.muted };
-  return [
-    { text: 'auto-sync  ', color: theme.ink },
-    ...status('Claude Code hook', autoSync.claudeHook, theme),
+  const parts: FooterPart[] = [
+    ...status('Claude Code hook', autoSync.claudeHook, 'hook:claude-code', theme),
     gap,
-    ...status('Cursor hook', autoSync.cursorHook, theme),
+    ...status('Cursor hook', autoSync.cursorHook, 'hook:cursor', theme),
     gap,
-    ...status('Codex notify', autoSync.codexNotify, theme),
+    ...status('Codex notify', autoSync.codexNotify, 'hook:codex', theme),
     gap,
-    ...status('Gemini hook', autoSync.geminiHook, theme),
+    ...status('Gemini hook', autoSync.geminiHook, 'hook:gemini-cli', theme),
     gap,
-    ...status('hourly schedule', autoSync.schedule, theme),
+    ...status('hourly schedule', autoSync.schedule, 'schedule', theme),
+    gap,
+    { text: 'h manage', color: theme.accent },
   ];
+  const lead: FooterPart = { text: 'auto-sync  ', color: theme.ink };
+  const length = (list: readonly FooterPart[]) => list.reduce((sum, part) => sum + [...part.text].length, 0);
+  return length([lead, ...parts]) <= width ? [lead, ...parts] : parts;
 }
 
 /** Agents ranked by weighted tokens, with last activity, a 30-day sparkline, detected-but-unused agents and the auto-sync state. */
@@ -50,7 +56,7 @@ export function drawAgents(
     color: (row) => agentColor(row.key),
     extras: true,
     idle,
-    footer: autoSync ? autoSyncFooter(autoSync, theme) : undefined,
+    footer: autoSync ? autoSyncFooter(autoSync, theme, rect.width) : undefined,
     chart: (view, area) => {
       const buckets = agentBuckets(vm, rangeBuckets(vm, state.range));
       const present = new Set(buckets.flatMap((b) => b.agents.map((a) => a.source)));
