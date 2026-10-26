@@ -1,4 +1,5 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import {
   addSplitCounts,
   costForSplitCounts,
@@ -182,6 +183,8 @@ export async function runExport(options: ExportOptions, overrides: Partial<Expor
     return 0;
   }
   try {
+    // Like `story --out`, a folder that does not exist yet is created.
+    await mkdir(dirname(options.out), { recursive: true });
     await writeFile(options.out, text, 'utf8');
   } catch (error) {
     console.error(`Could not write ${options.out}: ${error instanceof Error ? error.message : String(error)}`);

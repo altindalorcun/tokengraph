@@ -34,9 +34,9 @@
 ## 快速开始
 
 ```bash
-npx tokengraph            # your graph, right in the terminal
-npx tokengraph login      # publish it to your GitHub gist and get the README snippet
-npx tokengraph story      # turn today into story cards and send them to your phone
+npx tokengraph            # 直接在终端里查看你的图表
+npx tokengraph login      # 发布到你的 GitHub gist，并获取 README 代码
+npx tokengraph story      # 把你的用量变成快拍卡片，并发送到你的手机
 ```
 
 需要 Node.js 22 或更新版本。想让 README 里的图表自动保持最新，运行：
@@ -62,10 +62,10 @@ npx tokengraph story      # turn today into story cards and send them to your ph
 ## 分享你的一天
 
 <p align="center">
-  <img alt="Three story cards: a 3D skyline of the month, a receipt of the day's models, and a sticker with the day's total" src="docs/assets/story-strip.png" width="760">
+  <img alt="Three story cards: a 3D skyline of the recent weeks, a receipt of the day's models, and a sticker with the day's total" src="docs/assets/story-strip.png" width="760">
 </p>
 
-`tokengraph story` 会画出三张卡片（天际线、小票和贴纸），保存为适合 Instagram 和 TikTok 快拍尺寸的 PNG 文件，然后显示一个二维码。用同一 Wi-Fi 下的手机扫码，就能把卡片直接存进相册。
+`tokengraph story` 会画出三张卡片（天际线、小票和贴纸），保存为适合 Instagram 和 TikTok 快拍尺寸的 PNG 文件，然后提议通过二维码把它们发送到你的手机。用同一 Wi-Fi 下的手机扫码，就能把卡片直接存进相册。
 不会上传任何东西：你的电脑会把文件提供给手机，直到你保存完卡片，或闲置 10 分钟后停止。
 它会询问要统计哪个时间段（今天、7 天、30 天或 12 个月）；用 `--range today|7d|30d|1y` 可以跳过这个问题，用 `--no-cost` 可以不显示估算费用。
 
@@ -92,13 +92,13 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 
 | | |
 | --- | --- |
-| **哪些数据会离开你的电脑** | 发到你账号下的公开 gist：SVG 图表（每日 token 总数，以及用于着色的模型系列名称），以及一个带有嵌入代码和链接的 README。发到你账号下的私密 gist：按天、按模型的 token 数、一个随机的机器 id、形如 `darwin-3f2a1c` 的标签、哈希后的机器指纹、CLI 版本和最近一次更新的时间。两者都只在执行 `tokengraph login` 之后，并且只在 tokengraph 发布时才会发送（`sync`、hook、定时任务或 `login`）。`sync --local`、`story`、`status`、`export` 和 `import` 从不发送；`view` 只有在你于其中亲自选择 Sync（或 login、图表颜色）时才会发送。 |
+| **哪些数据会离开你的电脑** | 发到你账号下的公开 gist：SVG 图表（每日 token 总数，以及用于着色的模型系列名称），以及一个带有嵌入代码和链接的 README。发到你账号下的私密 gist：每台机器一个文件，内含按 agent、模型和定价档位统计的每日 token 数、一个随机的机器 id、形如 `darwin-3f2a1c` 的标签、哈希后的机器指纹、CLI 版本和最近一次更新的时间；如果你使用 Cursor 获取功能，还有你的 Cursor 账号按模型统计的每日计数，存放在一个哈希后的账号键下；以及一个简短的 README。两者都只在执行 `tokengraph login` 之后，并且只在 tokengraph 发布时才会发送（`sync`、hook、定时任务、`login` 或 `readme --colors`）。`sync --local`、`story`、`status`、`export` 和 `import` 从不发送；`view` 只有在你于其中亲自选择 Sync（或 login、图表颜色）时才会发送。 |
 | **哪些数据只留在这台电脑上** | 你在一天中的哪个小时使用了各个 agent。tokengraph 把按本地小时统计的加权 token 保存在 `state.json` 中，用于“最繁忙时段”卡片、“When you code”图表和 `export --hours`；它们绝不会写入机器文件、数据 gist、图表或故事卡片。小时数据只存在于 agent 日志仍保留着的那些天。 |
 | **tokengraph 会获取哪些数据** | 仅限 Cursor，并且仅在开启时（登录 Cursor 后默认开启；`tokengraph cursor off` 可关闭）：`sync` 从 Cursor 的本地数据库读取 Cursor 自己的登录 token（只读，仅那一行），并向 cursor.com 请求你自己的用量导出，也就是 Cursor 控制台导出按钮给你的那个文件。token 只会发往 cursor.com，仅在请求期间保存在内存中，绝不会被存储、打印或写入日志。保留下来的是用量记录（时间戳、模型名称、token 数）。`sync --local` 从不这样做。 |
 | **哪些数据绝不会离开** | 提示词、回答、代码、文件名、路径。不会向任何 tokengraph 服务器发送任何东西：根本没有这样的服务器。 |
 | **如何移除** | `tokengraph logout` 会让这台机器忘记登录信息。到 [gist.github.com](https://gist.github.com) 删除这两个 gist，即可移除已发布的内容。 |
 
-私密 gist 是“不公开列出”，不是“私有”：任何拿到它网址的人都能读取。它只包含上面列出的字段，绝不包含主机名。在你运行 `tokengraph login` 之前，不会向任何地方发送任何东西。
+私密 gist 是“不公开列出”，不是“私有”：任何拿到它网址的人都能读取。它包含上面列出的字段，绝不包含主机名、用户名或电子邮件地址。在你运行 `tokengraph login` 之前，不会发布任何东西；在此之前唯一的网络请求是向 cursor.com 获取 Cursor 用量，而且只有在这台机器上登录了 Cursor 并且你运行 `sync` 时才会发生（`tokengraph cursor off` 可关闭它）。
 
 ## 支持的 agent
 
@@ -106,19 +106,19 @@ weighted tokens = input + output + cache writes + 0.1 × cache reads
 | --- | --- | --- |
 | Claude Code | `~/.claude/projects/**/*.jsonl` 和 `transcripts`（也包括 `$CLAUDE_CONFIG_DIR`），以及 Claude 桌面应用的 Code 和 Cowork 会话（`~/Library/Application Support/Claude`、`%APPDATA%\Claude`、`~/.config/Claude`） | Claude Code 会删除旧的对话记录，所以至少每隔几周同步一次。`tokengraph install-hook --agent claude-code` 会在会话结束时同步。 |
 | Codex CLI | `~/.codex/sessions` 和 `archived_sessions`（也包括 `$CODEX_HOME`） | `tokengraph install-hook --agent codex` 会在一轮对话结束后同步，最多每 10 分钟一次。它不会覆盖不属于自己的 `notify` 设置。 |
-| Cursor | 你在 cursor.com 上的用量历史，借助这台电脑上 Cursor 的登录状态获取（`cursor-account-*.jsonl`）；实时数据来自 Cursor 的 `stop` hook 写入的 `~/.tokengraph/cursor-events.jsonl` | Cursor 没有在磁盘上保存可用的 token 数。登录 Cursor 后，`tokengraph sync` 会自动从 cursor.com 获取你的全部用量历史，最多每小时一次（所有机器、IDE、CLI 和云端 agent；用 `tokengraph cursor off` 关闭）。hook（`tokengraph install-hook --agent cursor`，然后重启 Cursor）用来补上 cursor.com 还没有的最近几个小时；用量 CSV（`tokengraph import cursor <csv>`）适合关闭了自动获取的人。 |
+| Cursor | 你在 cursor.com 上的用量历史，借助这台电脑上 Cursor 的登录状态获取（`cursor-account-*.jsonl`）；实时数据来自 Cursor 的 `stop` hook 写入的 `~/.tokengraph/cursor-events.jsonl` | Cursor 没有在磁盘上保存可用的 token 数。登录 Cursor 后，`tokengraph sync` 会自动从 cursor.com 获取你的全部用量历史，最多每小时一次（所有机器、IDE、CLI 和云端 agent；用 `tokengraph cursor off` 关闭）。hook（`tokengraph install-hook --agent cursor`，然后重启 Cursor）用来补上 cursor.com 还没有的最近几个小时；用量 CSV（`tokengraph import cursor <csv>`）适合关闭了自动获取的人。读取 Cursor 的登录状态需要 Node 22.13 或更新版本。 |
 | Gemini CLI | `~/.gemini/tmp/*/chats`，以及 macOS 沙盒使用的 `~/.cache/.gemini/tmp`（两者也都会在 `$GEMINI_CLI_HOME` 下查找） | `tokengraph install-hook --agent gemini-cli` 会在会话结束时同步（写入 Gemini CLI 的设置，同样支持 `$GEMINI_CLI_HOME`）；`tokengraph schedule` 仍然会覆盖它。Gemini CLI 默认在 30 天后删除会话，所以至少每月同步一次。它不会记录某些附带调用，所以总数是下限。 |
 | Cline | VS Code 系编辑器（VS Code、Cursor、VSCodium、Windsurf、Positron、Trae、Kiro、Antigravity 等；Linux 上是 `$XDG_CONFIG_HOME`，Windows 上是 `%APPDATA%`；远程服务器上是 `~/.vscode-server` 等）中的 `saoudrizwan.claude-dev/tasks`，以及 `~/.cline/data`（也包括 `$CLINE_DIR`、`$CLINE_DATA_DIR`、`$CLINE_SESSION_DATA_DIR`） | Cline 通过 Claude Code provider 发出的请求会被跳过，因为 Claude Code 适配器已经计过它们。 |
 | OpenCode | `~/.local/share/opencode/opencode*.db` 和较旧的 `storage/` 文件夹（也会在 `$XDG_DATA_HOME` 下查找；`$OPENCODE_DB` 会再加入一个数据库） | 读取数据库需要 Node 22.13 或更新版本。OpenCode 1.3.16 之前、无法确定读取结果的记录会被跳过并报告。 |
 | Kilo CLI | `~/.local/share/kilo/kilo*.db`（也会在 `$XDG_DATA_HOME` 下查找；`$KILO_DB` 会再加入一个数据库） | VS Code 中的 Kilo Code 7.x 写入同一个数据库，所以这里也会计入。读取数据库需要 Node 22.13 或更新版本。Kilo 7.2.6 之前、无法确定读取结果的记录会被跳过并报告。 |
 | Copilot CLI | `~/.copilot/session-store.db`（也包括 `$COPILOT_HOME`） | 需要 Copilot CLI 1.0.70 或更新版本，以及 Node 22.13 或更新版本。只读取 CLI 自己的数据库，不读取 VS Code 里的 Copilot Chat 扩展。布局无法识别的数据库会被跳过并报告。 |
 | pi | `~/.pi/agent/sessions`（也包括 `$PI_CODING_AGENT_DIR`，若设置了 `$PI_CODING_AGENT_SESSION_DIR` 则同样读取） | `@mariozechner/pi-coding-agent` 和它的后继包 `@earendil-works/pi-coding-agent` 以相同方式写入。分叉的会话共享之前的请求，这些请求只计一次。压缩和分支摘要调用没有指明模型，会被跳过并报告。 |
-| Qwen Code | `~/.qwen/projects`（`$QWEN_HOME`、`$QWEN_RUNTIME_DIR`），包括对话和后台子 agent | 用 `/branch` 分叉的对话会复制之前的请求，这些请求只计一次。Qwen Code 不单独记录缓存写入，所以它们按普通输入计算。它默认在 30 天后删除后台子 agent 的对话记录，所以至少每月同步一次。它的用量账本是记忆提取器（memory extractor）请求在本地的唯一记录，只有在 `privacy.usageStatisticsEnabled` 为 true（默认）时才会写入；关闭后，这些请求不会出现在任何本地文件里，只会统计对话请求。 |
+| Qwen Code | `~/.qwen/projects`（`$QWEN_HOME`、`$QWEN_RUNTIME_DIR`），包括对话和后台子 agent，以及 Qwen Code 自己位于 `~/.qwen/usage` 的用量账本 | 用 `/branch` 分叉的对话会复制之前的请求，这些请求只计一次。Qwen Code 不单独记录缓存写入，所以它们按普通输入计算。它默认在 30 天后删除后台子 agent 的对话记录，所以至少每月同步一次。它的用量账本是记忆提取器（memory extractor）请求在本地的唯一记录，只有在 `privacy.usageStatisticsEnabled` 为 true（默认）时才会写入；关闭后，这些请求不会出现在任何本地文件里，只会统计对话请求。 |
 | Goose | `~/.local/share/goose/sessions/sessions.db`（也会在 `$XDG_DATA_HOME` 或 `$GOOSE_PATH_ROOT/data` 下查找；Windows 上是 `%APPDATA%\Block\goose\data`；找到的每个数据库都会读取） | 读取按请求记录的用量账本，所以需要带有该账本的 Goose 版本，以及 Node 22.13 或更新版本。账本出现之前的用量没有确切的日期和模型，会被跳过并报告。通过 Goose 驱动 Claude Code、Codex、Gemini CLI、Cursor、Copilot CLI 或 pi 的会话不会计入，因为这些 agent 自己的日志已经计过它们（对 Cursor 而言，仅当其 hook 会在 Goose 的运行中触发时才成立，这一点尚未验证）。 |
 
 每个 agent 的计数都用 [`scripts/e2e`](https://github.com/altindalorcun/tokengraph/blob/main/scripts/e2e/README.md) 做过核对：对 Claude Code 2.1.304, Codex CLI 0.163.0, Gemini CLI 0.64.0, Cline 3.0.73, OpenCode 1.19.3, Kilo 7.8.15, Copilot CLI 1.0.100, pi 0.73.1, Qwen Code 0.25.3 和 Goose 1.55.0 进行真实运行，并覆盖它们支持的每种协议。Cursor 无法离线驱动；它的 CSV 解析器用真实导出文件核对过，获取功能用本地的模拟服务器核对过，hook 格式则依据 Cursor 的文档。Cline 保存输出 token 时不含某些 provider 算在输出里的推理（reasoning）token，所以这部分不会被计入。
 
-每个 agent 除了默认文件夹，还会读取其环境变量指向的文件夹。tokengraph 在命令第一次带着该变量运行时，会把这个文件夹记在 `config.json` 里，这样拿不到你 shell 环境的每小时同步和 hook 也会读取它。`tokengraph status` 会列出它扫描的文件夹，以及这些文件夹是否存在。
+每个 agent 除了默认文件夹，还会读取其环境变量指向的文件夹。tokengraph 在 `sync`、`view`、`status`、`schedule` 或 `install-hook` 第一次带着该变量运行时，会把这个文件夹记在 `config.json` 里，这样拿不到你 shell 环境的每小时同步和 hook 也会读取它。`tokengraph status` 会列出它扫描的文件夹，以及这些文件夹是否存在。
 
 Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code 和 Goose 没有 hook（Gemini CLI 的 hook 是可选的）：`tokengraph schedule` 每小时同步它们一次。不支持 Aider，因为它的本地历史会对 token 数做取整。
 
@@ -128,15 +128,15 @@ Cline、OpenCode、Kilo CLI、Copilot CLI、pi、Qwen Code 和 Goose 没有 hook
 
 | 命令 | 作用 |
 | --- | --- |
-| `tokengraph [view]` | 打开实时终端视图：年度热力图、模型、agent、连续天数、显示你一天中何时工作的“When you code”图表（← → 选择某个小时），以及无需离开视图就能管理 hook、每小时定时任务、sync、Cursor、导出和快拍的 Setup 标签页。`:` 或 Ctrl-K 打开命令面板，每个操作都会显示对应的 CLI 命令。`--print` 打印静态快照。在终端中这是默认命令。 |
+| `tokengraph [view]` | 打开实时终端视图：年度热力图、模型、agent、连续天数、显示你一天中何时工作的“When you code”图表（← → 选择某个小时），以及无需离开视图就能管理 hook、每小时定时任务、sync、Cursor、导出和快拍的 Setup 标签页。`:` 或 Ctrl-K 打开命令面板，每个操作都会显示对应的 CLI 命令。`--print` 打印静态快照，`--no-motion` 关闭动画，`--no-live` 在打开期间不再重新扫描，`--theme auto\|dark\|light` 选择主题。在终端中这是默认命令。 |
 | `tokengraph login` | 连接 GitHub，把图表发布到你自己的 gist，并打印 README 代码。如果你已经登录了 GitHub CLI，就会使用它（`--gh`）；也可以用在浏览器中确认的一次性代码（`--device`、`--no-open`）。只申请 gist 权限。 |
 | `tokengraph logout` | 让这台机器忘记 GitHub 登录。本地数据和你的 gist 都保留。 |
 | `tokengraph sync` | 把每个 agent 的日志读入账本，并在已登录时发布。若已登录 Cursor，会先从 cursor.com 获取你的 Cursor 用量（最多每小时一次）。`--since <days>` 设置回溯多久（默认 90 天），`--local` 完全不联网。 |
 | `tokengraph readme` | 打印 README 代码并复制到剪贴板。可用 `--compact`、`--colors model\|single`。 |
-| `tokengraph story` | 绘制快拍卡片，保存 PNG（默认存到“下载”文件夹，可用 `--out <dir>` 指定），并询问是否发送到手机。可用 `--template skyline\|receipt\|sticker\|all`、`--range today\|7d\|30d\|1y`、`--no-cost`、`--qr` / `--no-qr`、`--no-preview`、`--handle <name>`。 |
-| `tokengraph status [--json]` | 显示 GitHub 账号、账本、你的各台机器、已安装且运行正常的后台同步，各个 agent 的读取文件夹（以及它们是否存在），以及 Claude Code、Gemini CLI 和 Qwen Code 保留日志的时长；若保留期过短、历史有丢失风险，会给出警告。`--json` 把结果输出为一个 JSON 对象，供脚本和 AI agent 使用。 |
-| `tokengraph install-hook --agent <claude-code\|cursor\|codex\|gemini-cli>` | 让该 agent 在结束时启动一次后台同步。`--remove` 卸载，`--dry-run` 显示将要做的改动。 |
-| `tokengraph schedule` | 安装每小时一次的后台同步：macOS 用 launchd，Linux 用 cron，Windows 用任务计划程序。`schedule --remove` 关闭它。 |
+| `tokengraph story` | 绘制快拍卡片，保存 PNG（默认存到“下载”文件夹，可用 `--out <dir>` 指定），并询问是否发送到手机。可用 `--template skyline\|receipt\|sticker\|all`、`--range today\|7d\|30d\|1y`、`--no-cost`、`--qr` / `--no-qr`、`--no-preview`、`--handle <name>`（默认是你的 GitHub 登录名；未登录时是你电脑上的用户名）。 |
+| `tokengraph status [--json]` | 显示 GitHub 账号、账本、你的各台机器、已安装且运行正常的后台同步，各个 agent 的读取文件夹（以及它们是否存在），以及 Claude Code、Gemini CLI 和 Qwen Code 保留日志的时长；若保留期过短、历史有丢失风险，会给出警告。`--json` 把结果输出为一个 JSON 对象，供脚本和 AI agent 使用；其中包含私密 gist 的地址和本地路径，所以不要把它公开粘贴出来。 |
+| `tokengraph install-hook --agent <claude-code\|cursor\|codex\|gemini-cli>` | 让该 agent 在结束时启动一次后台同步。`--remove` 卸载，`--dry-run` 显示将要做的改动。对 Claude Code，`--event SessionEnd\|Stop\|SubagentStop` 选择 hook 事件（默认 `SessionEnd`）。 |
+| `tokengraph schedule` | 安装每小时一次的后台同步：macOS 用 launchd，Linux 用 cron，Windows 用任务计划程序。`schedule --remove` 关闭它，`--dry-run` 显示将要安装的内容。 |
 | `tokengraph export` | 把你的每日用量写成 CSV 或 JSON，每个日期、agent、模型和定价档位一行，附带加权 token 数和估算费用。可用 `--format csv\|json`、`--out <file>`、`--since <date>`、`--all-machines`。`--hours` 则改为每个日期、本地小时和 agent 一行（日期、小时、来源、加权 token 数；仅限这台机器）。只读取账本。 |
 | `tokengraph cursor fetch\|on\|off` | 立即从 cursor.com 获取你的 Cursor 用量（忽略每小时一次的间隔），或开启、关闭自动获取。`tokengraph import cursor --fetch` 与 `cursor fetch` 作用相同。`status` 会显示其状态。如果 Cursor 的登录已过期，请先打开一次 Cursor。 |
 | `tokengraph import cursor <file.csv>` | 手动补入 Cursor 历史，适用于关闭了自动获取的情况：从 Cursor 控制台下载用量 CSV（Usage，导出 CSV）并传给它。重复导入同一个或有重叠的文件，不会重复计数。只在一台机器上导入：各台机器的数据会相加，所以同一个文件在两台机器上导入会被计两次。从不发布。 |
@@ -152,7 +152,7 @@ hook 和定时任务会记录已安装程序的路径，所以使用它们之前
 
 **为什么用 gist？** 它们免费，属于你自己，GitHub 负责提供并缓存图片，而且没有任何人需要运行、信任或关停的服务器。即使 tokengraph 明天消失，你的图表依然能用。
 
-**费用是真实的吗？** 它是按公开 API 标价、依据带日期的价格表算出的估算值，不是你实际被收取的金额，那取决于你的套餐。没有已知价格的模型会被排除在总额之外并标为“未定价”，绝不当作 $0 计入，所以总额只可能是下限。价格是各厂商公布的标价：Claude（Anthropic）、GPT 和 o 系列（OpenAI）、Gemini（Google）、Grok（xAI）以及 Cursor 的 Composer 2.5。开源权重模型（DeepSeek、Qwen、Llama、Mistral、MiniMax 等）因为没有统一的标价而被有意不定价，厂商没有公布价格的模型（已下线的模型、预览版、Cursor 的 Auto）也一样。
+**费用是真实的吗？** 它是按公开 API 标价、依据带日期的价格表算出的估算值，不是你实际被收取的金额，那取决于你的套餐。没有已知价格的模型会被排除在总额之外并标为“未定价”，绝不当作 $0 计入，所以总额只可能是下限。价格是各厂商公布的标价：Claude（Anthropic）、GPT 和 o 系列（OpenAI）、Gemini（Google）、Grok（xAI）以及 Cursor 的 Composer 2.5。开源权重模型（DeepSeek、Qwen、Llama、Mistral、MiniMax 等）因为没有统一的标价而被有意不定价，厂商没有公布价格的模型（已下线的模型、没有定价的预览版、Cursor 的 Auto）也一样。
 
 **为什么用加权 token？** 原始总数里大部分是缓存读取，它们便宜但数量庞大。按十分之一计算，能让图表反映实际完成的工作。公式见[工作原理](#工作原理)。
 

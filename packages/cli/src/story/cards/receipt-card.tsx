@@ -6,10 +6,11 @@ import {
   FAMILY_RAMPS,
   fitFont,
   formatTokens,
+  formatTokensExact,
   heatmapSvg,
   logoLockupSvg,
   periodDateLabel,
-  shareLabel,
+  shareLabels,
   shortHandle,
   svgUri,
   topModels,
@@ -62,6 +63,8 @@ const TITLES = { today: 'DAILY TOKEN BURN', '7d': 'WEEKLY TOKEN BURN', '30d': 'M
 export function ReceiptCard({ data, showCost, cta }: CardContext) {
   const ramp = FAMILY_RAMPS[data.family];
   const { shown, rest } = topModels(data.models, 6);
+  // Every model is on the receipt, so its percentages add up to 100.
+  const labels = shareLabels([...shown.map((model) => model.share), ...(rest ? [rest.share] : [])]);
   const cost = showCost ? costLabel(data.cost) : null;
   // The sample account is nobody's handle.
   const profile = data.demo ? 'SAMPLE ACCOUNT' : `@${shortHandle(data.handle, 30)}`;
@@ -72,7 +75,8 @@ export function ReceiptCard({ data, showCost, cta }: CardContext) {
     ['CACHE WRITE', data.counts.cacheCreationTokens],
     ['CACHE READ', data.counts.cacheReadTokens],
   ] as const;
-  const discount = data.counts.cacheReadTokens * (1 - CACHE_READ_WEIGHT);
+  // Exact digits, so the lines add up to the total as printed (rounded to one decimal they can be off by 100K).
+  const discount = Math.round(data.counts.cacheReadTokens * (1 - CACHE_READ_WEIGHT));
   // The person's own recent weeks, huge and tilted, as the table the receipt lies on.
   const table = heatmapSvg(data.weeks, 118, 16, (family, level) => (level === 0 ? '#1c1a19' : (FAMILY_RAMPS[family ?? 'other'][Math.max(2, level)] ?? '#1c1a19')));
 
@@ -129,18 +133,18 @@ export function ReceiptCard({ data, showCost, cta }: CardContext) {
           <Rule />
           <Line left="QTY  ITEM" right="TOKENS" size={24} weight={400} color={FADED} />
           <Column style={{ gap: 4, marginTop: 6 }}>
-            {shown.map((model) => (
-              <Line key={model.name} left={`${shareLabel(model.share).padEnd(5)}${clip(model.name.toUpperCase(), 21)}`} right={formatTokens(model.weighted)} />
+            {shown.map((model, index) => (
+              <Line key={model.name} left={`${labels[index]!.padEnd(5)}${clip(model.name.toUpperCase(), 21)}`} right={formatTokens(model.weighted)} />
             ))}
-            {rest && <Line left={`${shareLabel(rest.share).padEnd(5)}+${rest.count} MORE`} right={formatTokens(rest.weighted)} />}
+            {rest && <Line left={`${labels[shown.length]!.padEnd(5)}+${rest.count} MORE`} right={formatTokens(rest.weighted)} />}
           </Column>
 
           <Rule />
           <Column style={{ gap: 2 }}>
             {types.map(([label, value]) => (
-              <Line key={label} left={label} right={formatTokens(value)} size={26} weight={400} />
+              <Line key={label} left={label} right={formatTokensExact(value)} size={26} weight={400} />
             ))}
-            <Line left="  CACHE READ @ 0.1×" right={`-${formatTokens(discount)}`} size={26} weight={400} color={FADED} />
+            <Line left="  CACHE READ @ 0.1×" right={`${discount > 0 ? '-' : ''}${formatTokensExact(discount)}`} size={26} weight={400} color={FADED} />
           </Column>
 
           <Rule char="=" />

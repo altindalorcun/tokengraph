@@ -158,6 +158,8 @@ describe('UsageAggregator filtering', () => {
     aggregator.addLine(line({ id: 'new', timestamp: '2026-09-05T12:00:00.000Z' }));
     expect(aggregator.result('claude-code').usage).toHaveLength(1);
     expect(aggregator.result('claude-code').usage[0]!.date).toBe('2026-09-05');
+    // Requests are counted in the window too, so sync's "distinct API requests read" matches its days.
+    expect(aggregator.result('claude-code').requestCount).toBe(1);
   });
 
   it('survives malformed lines', () => {

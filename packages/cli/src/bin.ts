@@ -2,6 +2,7 @@
 import { parseArgs, type ParseArgsConfig } from 'node:util';
 import { rememberRootsForCommand } from './agent-roots-store.js';
 import { cliVersion } from './bin-path.js';
+import { CLAUDE_SYNC_EVENTS, checkHookEvent, friendlyParseError, parseSinceDays } from './cli-args.js';
 import { parseCursorArgs, runCursor, runCursorFetchNow } from './commands/cursor.js';
 import { runCursorHook } from './commands/cursor-hook.js';
 import { parseExportArgs, runExport } from './commands/export.js';
@@ -56,6 +57,8 @@ interface Command {
   options: Options;
   /** Hidden commands are run by other programs and must never fail on an argument they did not expect. */
   lenient?: boolean;
+  /** Takes positional arguments (`cursor fetch`, `import cursor <file>`); every other command rejects them. */
+  positionals?: boolean;
   run: (values: Values, positionals: string[]) => Promise<number> | number;
 }
 
@@ -70,7 +73,8 @@ const VIEW_OPTIONS: Options = {
 
 const VIEW_HELP = `Usage: tokengraph view [options]
 
-Opens an interactive view of your usage. Reads local data only; it never publishes.
+Opens an interactive view of your usage. Reads local data only; it publishes only when you pick
+Sync, Connect GitHub or Graph colours in its Setup tab or command palette (: or Ctrl-K).
 
 Options:
   --print              Print a static snapshot and exit (the default when not in a terminal)
@@ -103,8 +107,8 @@ Reads every supported agent's local data into the ledger (~/.tokengraph/state.js
 are logged in, publishes your graph to your gist. \`--local\` never touches the network. Background
 syncs (hooks, schedule) do the same.
 
-When Cursor is signed in on this machine, sync also fetches your Cursor usage from cursor.com, at most once
-an hour (turn it off with \`tokengraph cursor off\`; \`--local\` never fetches).
+When Cursor is signed in on this machine, sync also fetches your Cursor usage from cursor.com, at
+most once an hour (turn it off with \`tokengraph cursor off\`; \`--local\` never fetches).
 
 Options:
   --since <days>       How far back to read, 1-400 (default: 90)
@@ -120,8 +124,8 @@ Options:
       trigger: { type: 'string', default: 'manual' },
     },
     run: (values) => {
-      const sinceDays = Number.parseInt(String(values['since']), 10);
-      if (!Number.isInteger(sinceDays) || sinceDays < 1 || sinceDays > 400) {
+      const sinceDays = parseSinceDays(String(values['since']));
+      if (sinceDays === null) {
         console.error('--since must be a whole number of days between 1 and 400.');
         return 1;
       }
@@ -205,12 +209,13 @@ and your gists stay on GitHub.
   status: {
     help: `Usage: tokengraph status [options]
 
-Shows the account, the local ledger, the state of the Cursor history fetch, which background syncs are installed on this machine, and how long
-Claude Code, Gemini CLI and Qwen Code keep their logs (with a warning when history is at risk).
+Shows the account, the local ledger, the state of the Cursor history fetch, which background syncs
+are installed on this machine, the folders each agent is read from, and how long Claude Code,
+Gemini CLI and Qwen Code keep their logs (with a warning when history is at risk).
 
-Note: --json includes the secret data-gist URL and local paths, so don't paste it publicly.
-
-  --json               Print one JSON object instead of text, for scripts and AI agents
+Options:
+  --json               Print one JSON object instead of text, for scripts and AI agents. It
+                       includes the secret data-gist URL and local paths: don't paste it publicly.
 `,
     options: { json: { type: 'boolean', default: false } },
     run: (values) => runStatus({}, { json: values['json'] === true }),
@@ -220,15 +225,17 @@ Note: --json includes the secret data-gist URL and local paths, so don't paste i
     help: `Usage: tokengraph export [options]
 
 Writes your daily usage, one row per day, agent, model and pricing tier, from the local ledger.
-It reads the ledger only; run \`tokengraph sync --local\` first for the newest numbers. Never publishes.
+It reads the ledger only; run \`tokengraph sync --local\` first for the newest numbers. Never
+publishes.
 
 Options:
   --format <csv|json>  Output format (default: csv)
   --out <file>         Write to a file instead of standard output
   --since <date>       Only days on or after this date (YYYY-MM-DD)
   --all-machines       Add your other machines, as of the last publish
-  --hours              Hour-of-day rows (date, hour, source, weighted tokens) instead of daily rows.
-                       This machine only: hour data is never published and not merged across machines.
+  --hours              Hour-of-day rows (date, hour, source, weighted tokens) instead of daily
+                       rows. This machine only: hour data is never published and not merged
+                       across machines.
 `,
     options: {
       format: { type: 'string', default: 'csv' },
@@ -256,7 +263,8 @@ Options:
   --agent <name>       claude-code, cursor, codex or gemini-cli (required)
   --remove             Uninstall the hook
   --dry-run            Show the resulting settings without writing them
-  --event <name>       Claude Code hook event (default: ${DEFAULT_HOOK_EVENT})
+  --event <name>       Claude Code hook event: ${CLAUDE_SYNC_EVENTS.join(', ')}
+                       (default: ${DEFAULT_HOOK_EVENT})
 `,
     options: {
       agent: { type: 'string' },
@@ -276,6 +284,11 @@ Options:
         console.error('--event only applies to --agent claude-code.');
         return 1;
       }
+      const eventError = event === undefined ? null : checkHookEvent(event, values['remove'] === true);
+      if (eventError) {
+        console.error(eventError);
+        return 1;
+      }
       return runInstallHook({
         agent: resolved.agent,
         event: event ?? DEFAULT_HOOK_EVENT,
@@ -288,8 +301,10 @@ Options:
   schedule: {
     help: `Usage: tokengraph schedule [options]
 
-Runs a sync every hour in the background (launchd on macOS, cron on Linux, Task Scheduler on Windows).
-Use it for agents without a hook (Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code, Goose) or to pick up Cursor's recorded turns and, when Cursor fetching is on, your Cursor history from cursor.com.
+Runs a sync every hour in the background (launchd on macOS, cron on Linux, Task Scheduler on
+Windows). Use it for agents without a hook (Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code,
+Goose) or to pick up Cursor's recorded turns and, when Cursor fetching is on, your Cursor history
+from cursor.com.
 
 Options:
   --remove             Remove the hourly sync
@@ -317,7 +332,8 @@ Options:
   --qr                 Send to the phone without asking
   --no-qr              Only save the files
   --no-preview         Do not draw the cards in the terminal
-  --handle <name>      The name on the cards (default: your GitHub login)
+  --handle <name>      The name on the cards (default: your GitHub login, or your computer's user
+                       name when you are not logged in)
 `,
     options: {
       template: { type: 'string' },
@@ -343,11 +359,13 @@ Options:
     help: `Usage: tokengraph cursor <fetch|on|off>
 
 Cursor keeps no token counts on your machine, so tokengraph can fetch your own usage history from
-cursor.com: it reads Cursor's sign-in from Cursor's local database (read-only, never stored or printed),
-asks cursor.com for the same usage CSV the dashboard exports, and keeps the rows in ~/.tokengraph. It is
-on by default when Cursor is signed in; \`tokengraph sync\` fetches at most once an hour.
+cursor.com: it reads Cursor's sign-in from Cursor's local database (read-only, never stored or
+printed), asks cursor.com for the same usage CSV the dashboard exports, and keeps the rows in
+~/.tokengraph. It is on by default when Cursor is signed in; \`tokengraph sync\` fetches at most
+once an hour.
 
-  fetch                Fetch now (ignores the hourly pause, not a back-off after a failed sign-in or a rate limit)
+  fetch                Fetch now (ignores the hourly pause, not a back-off after a failed sign-in
+                       or a rate limit)
   on                   Let \`sync\` fetch (the default)
   off                  Never read Cursor's sign-in or call cursor.com. Already fetched usage stays;
                        hook events and \`tokengraph import cursor <file.csv>\` keep working
@@ -356,6 +374,7 @@ If Cursor's sign-in has expired, open Cursor once and run \`tokengraph cursor fe
 \`tokengraph import cursor --fetch\` does the same as \`cursor fetch\`.
 `,
     options: {},
+    positionals: true,
     run: (_values, positionals) => {
       const action = parseCursorArgs(positionals);
       if (action !== 'fetch' && action !== 'on' && action !== 'off') {
@@ -370,19 +389,21 @@ If Cursor's sign-in has expired, open Cursor once and run \`tokengraph cursor fe
     help: `Usage: tokengraph import cursor <file.csv>
        tokengraph import cursor --fetch
 
-Adds your Cursor history from a usage CSV you download yourself from the Cursor dashboard (Usage, then
-export CSV). Use it when automatic fetching is off (\`tokengraph cursor off\`) or unavailable. With
---fetch it does not read a file: it fetches your history from cursor.com, exactly like
-\`tokengraph cursor fetch\`.
+Adds your Cursor history from a usage CSV you download yourself from the Cursor dashboard (Usage,
+then export CSV). Use it when automatic fetching is off (\`tokengraph cursor off\`) or
+unavailable. With --fetch it does not read a file: it fetches your history from cursor.com,
+exactly like \`tokengraph cursor fetch\`.
 
-Importing the same or an overlapping file again adds nothing twice. Rows from the moment the Cursor hook
-first ran are skipped, because the hook already counts them; once an account has been fetched, its history
-replaces imported rows on the days it covers. The ledger is updated; nothing is published.
+Importing the same or an overlapping file again adds nothing twice. Rows from the moment the Cursor
+hook first ran are skipped, because the hook already counts them; once an account has been fetched,
+its history replaces imported rows on the days it covers. The ledger is updated; nothing is
+published.
 
 Import on one machine only: machines are added together, so importing the same file on two machines
 counts it twice.
 `,
     options: { fetch: { type: 'boolean', default: false } },
+    positionals: true,
     run: (values, positionals) => {
       if (values['fetch'] === true) {
         if (positionals.length > 1 || (positionals[0] !== undefined && positionals[0] !== 'cursor')) {
@@ -403,12 +424,13 @@ counts it twice.
   uninstall: {
     help: `Usage: tokengraph uninstall [options]
 
-Removes everything tokengraph installed on this machine: the Claude Code, Cursor, Codex and Gemini CLI hooks and the
-hourly schedule. Your gists and your agents' own data are never touched.
+Removes everything tokengraph installed on this machine: the Claude Code, Cursor, Codex and Gemini
+CLI hooks and the hourly schedule. Your gists and your agents' own data are never touched.
 
 Options:
-  --purge              Also delete tokengraph's own files in ~/.tokengraph (or $TOKENGRAPH_HOME): ledger,
-                       login, logs, the Cursor event, import and fetched-account files; anything else in that folder is kept
+  --purge              Also delete tokengraph's own files in ~/.tokengraph (or $TOKENGRAPH_HOME):
+                       ledger, login, logs, the Cursor event, import and fetched-account files;
+                       anything else in that folder is kept
   --yes                Don't ask before deleting (needed for --purge outside a terminal)
   --dry-run            Show what would change and change nothing
 `,
@@ -424,7 +446,7 @@ Options:
   // Run by Cursor's stop hook (see `install-hook --agent cursor`); not meant to be run by hand.
   'cursor-hook': { options: {}, lenient: true, run: () => runCursorHook() },
 
-  // Run by the Claude Code and Codex hooks (see `install-hook`); not meant to be run by hand. Launches a detached
+  // Run by the Claude Code, Codex and Gemini CLI hooks (see `install-hook`); not meant to be run by hand. Launches a detached
   // `sync` and returns at once, since Claude Code cancels slow hooks. Codex's notify passes one extra JSON
   // argument; it is ignored, and so is an invalid --min-interval, since a hook must never fail.
   'hook-sync': {
@@ -458,12 +480,22 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (first === 'help') {
-    const topic = rest[0] === undefined ? undefined : COMMANDS[rest[0]]?.help;
-    console.log(topic ?? USAGE);
+    if (rest[0] === undefined) {
+      console.log(USAGE);
+      return 0;
+    }
+    const topic = COMMANDS[rest[0]]?.help;
+    if (!topic) {
+      console.error(`Unknown command: ${rest[0]}\n`);
+      console.error(USAGE);
+      return 1;
+    }
+    console.log(topic);
     return 0;
   }
+  // The view needs a terminal; piped, bare `tokengraph` explains itself on stderr (`tokengraph view` prints a snapshot).
   if (first === undefined && !(process.stdin.isTTY && process.stdout.isTTY)) {
-    console.log(USAGE);
+    console.error(USAGE);
     return 1;
   }
 
@@ -473,7 +505,7 @@ async function main(argv: string[]): Promise<number> {
   const command = COMMANDS[name];
   if (!command) {
     console.error(`Unknown command: ${name}\n`);
-    console.log(USAGE);
+    console.error(USAGE);
     return 1;
   }
 
@@ -481,15 +513,18 @@ async function main(argv: string[]): Promise<number> {
   try {
     parsed = parse(command, args);
   } catch (error) {
-    // Node appends advice about `--` to unknown-option errors; for a command with known flags it only confuses.
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(message.replace(/\. To specify a positional argument[\s\S]*$/, '.'));
+    console.error(friendlyParseError(error instanceof Error ? error.message : String(error), command.help));
     console.error(`Run \`tokengraph ${name} --help\` for its options.`);
     return 1;
   }
   if (parsed.values['help'] === true && command.help) {
     console.log(command.help);
     return 0;
+  }
+  if (!command.positionals && !command.lenient && parsed.positionals.length > 0) {
+    console.error(`Unexpected argument '${parsed.positionals[0]}'.`);
+    console.error(`Run \`tokengraph ${name} --help\` for its options.`);
+    return 1;
   }
   // A run whose environment names an agent folder the default scan does not know (CLAUDE_CONFIG_DIR, CODEX_HOME,
   // XDG_DATA_HOME, ...) records it, so the hourly schedule and the hooks, which lack that environment, still read it.

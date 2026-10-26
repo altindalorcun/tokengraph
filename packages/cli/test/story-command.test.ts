@@ -296,7 +296,8 @@ describe('runStory', () => {
       loadData: async (range, handle) => ({ ...demoStory(range, new Date('2026-10-11T12:00:00Z')), handle: handle ?? 'octocat', demo: false, total: 0 }),
     });
     await runStory(parseStoryArgs({ 'no-qr': true, template: 'skyline' }) as never, empty.deps);
-    expect(empty.output.join('\n')).toContain('No usage in this range yet. Run `tokengraph sync` first, or try --range 30d.');
+    // The demo data's range is today; the hint names the next longer one.
+    expect(empty.output.join('\n')).toContain("No usage in this range yet, so the cards show 0. Try --range 7d, or run `tokengraph sync` to read your agents' newest logs.");
     expect(empty.written).toHaveLength(1);
 
     const full = deps();

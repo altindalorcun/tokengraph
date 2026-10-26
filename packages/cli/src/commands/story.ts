@@ -125,6 +125,9 @@ const STOP_MESSAGES = {
   stopped: 'Stopped sharing.',
 } as const;
 
+/** The next longer range to suggest when one has no usage. */
+const WIDER_RANGE: Record<StoryRange, StoryRange | null> = { today: '7d', '7d': '30d', '30d': '1y', '1y': null };
+
 export async function runStory(options: StoryCommandOptions, overrides: Partial<StoryDeps> = {}): Promise<number> {
   const deps = { ...defaultDeps(), ...overrides };
   const tty = deps.isTTY;
@@ -140,7 +143,10 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   deps.out('');
   deps.out(`  ${bold('tokengraph story', tty)}  ${dim(`${range} · @${data.handle}`, tty)}`);
   if (data.total === 0) {
-    deps.out('  No usage in this range yet. Run `tokengraph sync` first, or try --range 30d.');
+    const wider = WIDER_RANGE[range];
+    deps.out(
+      `  No usage in this range yet, so the cards show 0. ${wider ? `Try --range ${wider}, or run` : 'Run'} \`tokengraph sync\` to read your agents' newest logs.`,
+    );
   }
   deps.out('');
 

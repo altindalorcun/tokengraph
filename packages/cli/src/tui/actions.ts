@@ -85,7 +85,7 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
   const items: ActionItem[] = [];
   if (login === null) {
     items.push({ ...screen('login', 'Account', 'Connect GitHub', 'publish your graph to your own gist'), recommended: true });
-    items.push(screen('sync', 'Account', 'Sync now', 'read your agents; local only'));
+    items.push(screen('sync', 'Account', 'Sync now', 'read your agents; publishes nothing'));
   } else {
     items.push(screen('sync', 'Account', 'Sync and publish now', 'update your gist graph'));
     items.push(screen('readme', 'Account', 'Copy the README snippet', 'show your graph in a GitHub README'));

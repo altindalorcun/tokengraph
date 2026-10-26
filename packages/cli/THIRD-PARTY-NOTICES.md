@@ -1,16 +1,17 @@
 # Third-party notices
 
 The `tokengraph` package contains the third-party software listed below. `bundle/bin.js` inlines the JavaScript
-libraries (esbuild bundles them from their npm releases, unmodified), `assets/resvg.wasm` is the resvg WebAssembly
-binary, and `assets/fonts/` holds the IBM Plex fonts. tokengraph itself is MIT licensed (see `LICENSE`).
+libraries (esbuild bundles them from their npm releases, unmodified), including satori's layout engine, a WebAssembly
+binary satori ships inside its JavaScript. `assets/resvg.wasm` is the resvg WebAssembly binary, and `assets/fonts/`
+holds the IBM Plex fonts. The Rust crates compiled into the two WebAssembly binaries are listed at the end.
+tokengraph itself is MIT licensed (see `LICENSE`).
 
 | Component | Version | Licence | Source |
 | --- | --- | --- | --- |
-| satori | 0.25.0 | MPL-2.0 | https://github.com/vercel/satori |
+| satori | 0.63.0 | MPL-2.0 | https://github.com/vercel/satori |
 | @resvg/resvg-wasm | 2.6.2 | MPL-2.0 | https://github.com/yisibl/resvg-js |
-| react | 19.2.8 | MIT | https://github.com/facebook/react |
+| react | 19.3.1 | MIT | https://github.com/facebook/react |
 | qrcode-generator | 2.0.4 | MIT | https://github.com/kazuhikoarase/qrcode-generator |
-| yoga-layout | 3.2.1 | MIT | https://github.com/facebook/yoga |
 | @shuding/opentype.js | 1.4.0-beta.0 | MIT | https://github.com/opentypejs/opentype.js |
 | base64-js | 0.0.8 | MIT | https://github.com/beatgammit/base64-js |
 | camelize | 1.0.1 | MIT | https://github.com/ljharb/camelize |
@@ -26,16 +27,22 @@ binary, and `assets/fonts/` holds the IBM Plex fonts. tokengraph itself is MIT l
 | postcss-value-parser | 4.2.0 | MIT | https://github.com/TrySound/postcss-value-parser |
 | tiny-inflate | 1.0.3 | MIT | https://github.com/devongovett/tiny-inflate |
 | unicode-trie | 2.0.0 | MIT | https://github.com/devongovett/unicode-trie |
+| fflate | 0.7.3 | MIT | https://github.com/101arrowz/fflate |
+| cssesc (inside satori's `dist`) | 3.0.0 | MIT | https://github.com/mathiasbynens/cssesc |
 | css-color-keywords | 1.0.0 | ISC | https://github.com/sonicdoe/css-color-keywords |
 | IBM Plex Sans and IBM Plex Mono | as shipped in `assets/fonts` | OFL-1.1 | https://github.com/IBM/plex |
+| Rust crates in the WebAssembly binaries | see [the list below](#rust-crates-compiled-into-the-webassembly-binaries) | MIT, Apache-2.0, BSD-3-Clause, Zlib, MPL-2.0 | see the list below |
 
 ## Mozilla Public License 2.0 components
 
-### satori 0.25.0
+### satori 0.63.0
 
 Satori is licensed under the Mozilla Public License 2.0 and is included in `bundle/bin.js` without modification.
-Its source code is available at https://github.com/vercel/satori (tag v0.25.0) and in the
-`satori` package on npm. The yoga layout engine (yoga-layout 3.2.1, MIT, listed below) is compiled into satori's distribution.
+Its source code is available at https://github.com/vercel/satori (tag 0.63.0) and in the
+`satori` package on npm. Satori's distribution carries its layout engine, `satori-layout` (MPL-2.0, source in the
+same repository under `crates/layout`), compiled to WebAssembly and inlined into its JavaScript; the Rust crates in it,
+among them a patched Taffy layout library, are listed at the end. Satori's distribution also inlines cssesc 3.0.0
+(MIT, listed below).
 
 ### @resvg/resvg-wasm 2.6.2
 
@@ -44,7 +51,8 @@ unmodified WebAssembly build of resvg-js, which wraps the Rust resvg renderer
 (https://github.com/RazrFalcon/resvg). Source code: https://github.com/yisibl/resvg-js (the `@resvg/resvg-wasm`
 package on npm, version 2.6.2).
 
-The full text of the Mozilla Public License 2.0, which applies to both components above:
+The full text of the Mozilla Public License 2.0, which applies to both components above and to the MPL-2.0 Rust
+crates listed at the end:
 
 ```text
 Mozilla Public License Version 2.0
@@ -525,7 +533,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ## MIT licensed components
 
-### react 19.2.8
+### react 19.3.1
 
 Source: https://github.com/facebook/react
 
@@ -563,24 +571,6 @@ The package ships no licence file; the MIT text below uses the copyright holder 
 MIT License
 
 Copyright (c) Kazuhiko Arase
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### yoga-layout 3.2.1
-
-Source: https://github.com/facebook/yoga
-
-The package ships no licence file; the MIT text below uses the copyright holder named in its package metadata or source header.
-
-```text
-MIT License
-
-Copyright (c) Meta Platforms, Inc. and affiliates
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -960,6 +950,61 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### fflate 0.7.3
+
+Source: https://github.com/101arrowz/fflate
+
+```text
+MIT License
+
+Copyright (c) 2020 Arjun Barrett
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### cssesc 3.0.0
+
+Inlined into satori's distribution (named in satori's `dist/*.LEGAL.txt`). Source: https://github.com/mathiasbynens/cssesc
+
+```text
+Copyright Mathias Bynens <https://mathiasbynens.be/>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ## ISC licensed components
 
 ### css-color-keywords 1.0.0
@@ -982,4 +1027,460 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+## Rust crates compiled into the WebAssembly binaries
+
+Two WebAssembly binaries in the package contain compiled Rust code: `assets/resvg.wasm`, the unmodified build from
+`@resvg/resvg-wasm` 2.6.2, which is built from resvg 0.34; and satori's layout engine (`satori-layout`), which satori
+0.63.0 compiles to WebAssembly and inlines into its JavaScript, so it ships inside `bundle/bin.js`. The crates below
+were taken from the crate paths embedded in each binary, resvg-js 2.6.2's `Cargo.toml` and satori 0.63.0's
+`crates/layout/Cargo.lock` (build-time-only crates such as procedural macros are left out), so the list is as complete
+as those sources. Where only `Cargo.toml` gives a crate, its version is the requirement written there. Licences are
+the ones each crate publishes on crates.io; where a crate offers a choice, it is used here under the licence in the
+"Used here under" column. Source code for every crate is on crates.io and at the address given.
+
+### In satori's layout engine (inside `bundle/bin.js`)
+
+Satori patches Taffy and woff2-patched before compiling them; the patches are in satori's repository under
+`crates/layout/patches`.
+
+| Crate | Version | Licence (crates.io) | Used here under | Source |
+| --- | --- | --- | --- | --- |
+| taffy (patched by satori) | 0.14.0 | MIT | MIT | https://github.com/DioxusLabs/taffy |
+| woff2-patched (patched by satori) | 0.4.0 | Apache-2.0 | Apache-2.0 | https://github.com/zimond/woff2-rs |
+| cssparser | 0.38.0 | MPL-2.0 | MPL-2.0 | https://github.com/servo/rust-cssparser |
+| dtoa-short | 0.3.5 | MPL-2.0 | MPL-2.0 | https://github.com/upsuper/dtoa-short |
+| dtoa | 1.0.11 | MIT OR Apache-2.0 | MIT | https://github.com/dtolnay/dtoa |
+| itoa | 1.0.18 | MIT OR Apache-2.0 | MIT | https://github.com/dtolnay/itoa |
+| smallvec | 1.16.2 | MIT OR Apache-2.0 | MIT | https://github.com/servo/rust-smallvec |
+| slotmap | 1.1.1 | Zlib | Zlib | https://github.com/orlp/slotmap |
+| arrayvec | 0.7.8 | MIT OR Apache-2.0 | MIT | https://github.com/bluss/arrayvec |
+| serde | 1.0.229 | MIT OR Apache-2.0 | MIT | https://github.com/serde-rs/serde |
+| serde_core | 1.0.229 | MIT OR Apache-2.0 | MIT | https://github.com/serde-rs/serde |
+| thiserror | 1.0.69 | MIT OR Apache-2.0 | MIT | https://github.com/dtolnay/thiserror |
+| brotli | 7.0.0 | BSD-3-Clause AND MIT | BSD-3-Clause and MIT | https://github.com/dropbox/rust-brotli |
+| brotli-decompressor | 4.0.3 | BSD-3-Clause/MIT | BSD-3-Clause | https://github.com/dropbox/rust-brotli-decompressor |
+| alloc-no-stdlib | 2.0.4 | BSD-3-Clause | BSD-3-Clause | https://github.com/dropbox/rust-alloc-no-stdlib |
+| alloc-stdlib | 0.2.4 | BSD-3-Clause | BSD-3-Clause | https://github.com/dropbox/rust-alloc-no-stdlib |
+| bitvec | 1.1.1 | MIT | MIT | https://github.com/bitvecto-rs/bitvec |
+| bytes | 1.12.1 | MIT | MIT | https://github.com/tokio-rs/bytes |
+| four-cc | 0.4.0 | MIT/Apache-2.0 | MIT | https://github.com/dholroyd/four-cc |
+| funty | 2.0.0 | MIT | MIT | https://github.com/myrrlyn/funty |
+| radium | 0.7.0 | MIT | MIT | https://github.com/bitvecto-rs/radium |
+| safer-bytes | 0.2.0 | MIT | MIT | https://github.com/danieleades/safer-bytes |
+| tap | 1.0.1 | MIT | MIT | https://github.com/myrrlyn/tap |
+
+### In `assets/resvg.wasm`
+
+| Crate | Version | Licence (crates.io) | Used here under | Source |
+| --- | --- | --- | --- | --- |
+| resvg | 0.34 | MPL-2.0 | MPL-2.0 | https://github.com/RazrFalcon/resvg |
+| usvg | 0.34 | MPL-2.0 | MPL-2.0 | https://github.com/RazrFalcon/resvg |
+| usvg-parser | 0.34 | MPL-2.0 | MPL-2.0 | https://github.com/RazrFalcon/resvg |
+| usvg-tree | 0.34 | MPL-2.0 | MPL-2.0 | https://github.com/RazrFalcon/resvg |
+| usvg-text-layout | 0.34 | MPL-2.0 | MPL-2.0 | https://github.com/RazrFalcon/resvg |
+| wasm-bindgen | 0.2 (0.2.87 or later) | MIT/Apache-2.0 | MIT | https://github.com/rustwasm/wasm-bindgen |
+| js-sys | 0.3 (0.3.64 or later) | MIT/Apache-2.0 | MIT | https://github.com/rustwasm/wasm-bindgen |
+| woff2 | 0.3.0 | Apache-2.0 | Apache-2.0 | https://github.com/Cimpress-MCP/woff2-rs |
+| pathfinder_content | 0.5.0 | MIT/Apache-2.0 | MIT | https://github.com/servo/pathfinder |
+| pathfinder_geometry | 0.5.1 | MIT/Apache-2.0 | MIT | https://github.com/servo/pathfinder |
+| pathfinder_simd | 0.5.2 | MIT/Apache-2.0 | MIT | https://github.com/servo/pathfinder |
+| serde | 1 | MIT OR Apache-2.0 | MIT | https://github.com/serde-rs/serde |
+| serde_json | 1.0.115 | MIT OR Apache-2.0 | MIT | https://github.com/serde-rs/json |
+| thiserror | 1 (1.0.37 or later) | MIT OR Apache-2.0 | MIT | https://github.com/dtolnay/thiserror |
+| log | 0.4 | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/log |
+| env_logger | 0.11 | MIT OR Apache-2.0 | MIT | https://github.com/rust-cli/env_logger |
+| futures | 0.3 (0.3.21 or later) | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/futures-rs |
+| adler32 | 1.2.0 | Zlib | Zlib | https://github.com/remram44/adler32-rs |
+| alloc-no-stdlib | 2.0.4 | BSD-3-Clause | BSD-3-Clause | https://github.com/dropbox/rust-alloc-no-stdlib |
+| arrayvec | 0.7.4 | MIT OR Apache-2.0 | MIT | https://github.com/bluss/arrayvec |
+| base64 | 0.21.7 | MIT OR Apache-2.0 | MIT | https://github.com/marshallpierce/rust-base64 |
+| bitvec | 1.0.1 | MIT | MIT | https://github.com/bitvecto-rs/bitvec |
+| brotli-decompressor | 2.5.1 | BSD-3-Clause/MIT | BSD-3-Clause | https://github.com/dropbox/rust-brotli-decompressor |
+| bytemuck | 1.15.0 | Zlib OR Apache-2.0 OR MIT | MIT | https://github.com/Lokathor/bytemuck |
+| bytes | 1.6.0 | MIT | MIT | https://github.com/tokio-rs/bytes |
+| data-url | 0.2.0 | MIT OR Apache-2.0 | MIT | https://github.com/servo/rust-url |
+| deflate | 1.0.0 | MIT/Apache-2.0 | MIT | https://github.com/image-rs/deflate-rs |
+| flate2 | 1.0.28 | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/flate2-rs |
+| fontdb | 0.14.1 | MIT | MIT | https://github.com/RazrFalcon/fontdb |
+| gif | 0.12.0 | MIT/Apache-2.0 | MIT | https://github.com/image-rs/image-gif |
+| imagesize | 0.12.0 | MIT | MIT | https://github.com/Roughsketch/imagesize |
+| jpeg-decoder | 0.3.1 | MIT OR Apache-2.0 | MIT | https://github.com/image-rs/jpeg-decoder |
+| kurbo | 0.9.5 | MIT/Apache-2.0 | MIT | https://github.com/linebender/kurbo |
+| miniz_oxide | 0.5.4 and 0.7.2 | MIT OR Zlib OR Apache-2.0 | MIT | https://github.com/Frommi/miniz_oxide |
+| png | 0.17.5 | MIT OR Apache-2.0 | MIT | https://github.com/image-rs/image-png |
+| rctree | 0.5.0 | MIT | MIT | https://github.com/RazrFalcon/rctree |
+| roxmltree | 0.18.1 | MIT OR Apache-2.0 | MIT | https://github.com/RazrFalcon/roxmltree |
+| rustybuzz | 0.7.0 | MIT | MIT | https://github.com/RazrFalcon/rustybuzz |
+| simplecss | 0.2.1 | MIT/Apache-2.0 | MIT | https://github.com/RazrFalcon/simplecss |
+| slotmap | 1.0.7 | Zlib | Zlib | https://github.com/orlp/slotmap |
+| smallvec | 1.13.2 | MIT OR Apache-2.0 | MIT | https://github.com/servo/rust-smallvec |
+| svgtypes | 0.11.0 and 0.14.0 | MIT/Apache-2.0 | MIT | https://github.com/RazrFalcon/svgtypes |
+| tiny-skia | 0.10.0 | BSD-3-Clause | BSD-3-Clause | https://github.com/RazrFalcon/tiny-skia |
+| tiny-skia-path | 0.10.0 | BSD-3-Clause | BSD-3-Clause | https://github.com/RazrFalcon/tiny-skia |
+| tinyvec | 1.6.0 | Zlib OR Apache-2.0 OR MIT | Zlib | https://github.com/Lokathor/tinyvec |
+| ttf-parser | 0.18.1 | MIT OR Apache-2.0 | MIT | https://github.com/RazrFalcon/ttf-parser |
+| unicode-bidi | 0.3.15 | MIT OR Apache-2.0 | MIT | https://github.com/servo/unicode-bidi |
+| unicode-general-category | 0.6.0 | Apache-2.0 | Apache-2.0 | https://github.com/yeslogic/unicode-general-category |
+| weezl | 0.1.8 | MIT OR Apache-2.0 | MIT | https://github.com/image-rs/lzw |
+| xmlparser | 0.13.6 | MIT/Apache-2.0 | MIT | https://github.com/RazrFalcon/xmlparser |
+| xmlwriter | 0.1.0 | MIT | MIT | https://github.com/RazrFalcon/xmlwriter |
+
+### MPL-2.0 crates
+
+resvg, usvg, usvg-parser, usvg-tree, usvg-text-layout, cssparser and dtoa-short are licensed under the Mozilla Public
+License 2.0, whose full text is under [Mozilla Public License 2.0 components](#mozilla-public-license-20-components).
+They are included without modification; their source code is at the addresses above and in the crates of the same
+name and version on crates.io.
+
+- cssparser 0.38.0 (satori layout): Cargo.toml authors: Simon Sapin
+- dtoa-short 0.3.5 (satori layout): Cargo.toml authors: Xidorn Quan
+- resvg 0.34 (resvg): Cargo.toml authors: Yevhenii Reizner
+- usvg 0.34 (resvg): Cargo.toml authors: Yevhenii Reizner
+- usvg-parser 0.34 (resvg): Cargo.toml authors: Yevhenii Reizner
+- usvg-tree 0.34 (resvg): Cargo.toml authors: Yevhenii Reizner
+- usvg-text-layout 0.34 (resvg): Cargo.toml authors: Yevhenii Reizner
+
+### MIT crates
+
+Copyright holders, from each crate's licence file unless noted:
+
+- taffy (patched by satori) 0.14.0 (satori layout): Copyright (c) 2018 Visly Inc.; Copyright (c) 2026 Taffy Authors; (the crate ships no licence file; holders from the LICENSE file in its repository)
+- dtoa 1.0.11 (satori layout): The licence file names no holder; Cargo.toml authors: David Tolnay
+- itoa 1.0.18 (satori layout): The licence file names no holder; Cargo.toml authors: David Tolnay
+- smallvec 1.16.2 (satori layout): Copyright (c) 2018 The Servo Project Developers
+- arrayvec 0.7.8 (satori layout): Copyright (c) Ulrik Sverdrup "bluss" 2015-2023
+- serde 1.0.229 (satori layout): The licence file names no holder; Cargo.toml authors: Erick Tryzelaar, David Tolnay
+- serde_core 1.0.229 (satori layout): The licence file names no holder; Cargo.toml authors: Erick Tryzelaar, David Tolnay
+- thiserror 1.0.69 (satori layout): The licence file names no holder; Cargo.toml authors: David Tolnay
+- brotli 7.0.0 (satori layout): Copyright (c) 2016 Dropbox, Inc. (BSD-3-Clause); Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors. (MIT)
+- bitvec 1.1.1 (satori layout): Copyright (c) 2018 myrrlyn (Alexander Payne)
+- bytes 1.12.1 (satori layout): Copyright (c) 2018 Carl Lerche
+- four-cc 0.4.0 (satori layout): Copyright (c) 2020 David Holroyd
+- funty 2.0.0 (satori layout): Copyright (c) 2020 myrrlyn (Alexander Payne)
+- radium 0.7.0 (satori layout): Copyright (c) 2019 kneecaw (Nika Layzell)
+- safer-bytes 0.2.0 (satori layout): Neither the crate nor its repository ships a licence file or names authors; the crate is published as MIT by Daniel Eades (crates.io)
+- tap 1.0.1 (satori layout): Copyright (c) 2017 Elliot Linder <darfink@gmail.com>
+- wasm-bindgen 0.2 (0.2.87 or later) (resvg): Copyright (c) 2014 Alex Crichton
+- js-sys 0.3 (0.3.64 or later) (resvg): Copyright (c) 2014 Alex Crichton
+- pathfinder_content 0.5.0 (resvg): Copyright (c) 2010 The Rust Project Developers; (the crate ships no licence file; holder from the LICENSE-MIT file in its repository)
+- pathfinder_geometry 0.5.1 (resvg): Copyright (c) 2010 The Rust Project Developers; (the crate ships no licence file; holder from the LICENSE-MIT file in its repository)
+- pathfinder_simd 0.5.2 (resvg): Copyright (c) 2010 The Rust Project Developers; (the crate ships no licence file; holder from the LICENSE-MIT file in its repository)
+- serde 1 (resvg): The licence file names no holder; Cargo.toml authors: Erick Tryzelaar, David Tolnay
+- serde_json 1.0.115 (resvg): The licence file names no holder; Cargo.toml authors: Erick Tryzelaar, David Tolnay
+- thiserror 1 (1.0.37 or later) (resvg): The licence file names no holder; Cargo.toml authors: David Tolnay
+- log 0.4 (resvg): Copyright (c) 2014 The Rust Project Developers
+- env_logger 0.11 (resvg): Copyright (c) Individual contributors
+- futures 0.3 (0.3.21 or later) (resvg): Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+- arrayvec 0.7.4 (resvg): Copyright (c) Ulrik Sverdrup "bluss" 2015-2023
+- base64 0.21.7 (resvg): Copyright (c) 2015 Alice Maz
+- bitvec 1.0.1 (resvg): Copyright (c) 2018 myrrlyn (Alexander Payne)
+- bytemuck 1.15.0 (resvg): Copyright (c) 2019 Daniel "Lokathor" Gee.
+- bytes 1.6.0 (resvg): Copyright (c) 2018 Carl Lerche
+- data-url 0.2.0 (resvg): Copyright (c) 2013-2022 The rust-url developers
+- deflate 1.0.0 (resvg): The licence file names no holder ("Copyright (c) 2016"); Cargo.toml authors: oyvindln
+- flate2 1.0.28 (resvg): Copyright (c) 2014 Alex Crichton
+- fontdb 0.14.1 (resvg): Copyright (c) 2020 Yevhenii Reizner
+- gif 0.12.0 (resvg): Copyright (c) 2015 nwin
+- imagesize 0.12.0 (resvg): Copyright (c) 2017 Maiddog
+- jpeg-decoder 0.3.1 (resvg): Copyright (c) 2016 The jpeg-decoder Developers
+- kurbo 0.9.5 (resvg): Copyright (c) 2018 Raph Levien
+- miniz_oxide 0.5.4 and 0.7.2 (resvg): Copyright (c) 2017 Frommi
+- png 0.17.5 (resvg): Copyright (c) 2015 nwin
+- rctree 0.5.0 (resvg): Copyright (c) 2018 Simon Sapin; Copyright (c) 2018 Yevhenii Reizner
+- roxmltree 0.18.1 (resvg): Copyright (c) 2018 Yevhenii Reizner
+- rustybuzz 0.7.0 (resvg): Copyright (c) HarfBuzz developers; Copyright (c) 2020 Evgeniy Reizner
+- simplecss 0.2.1 (resvg): Copyright (c) 2018 Reizner Evgeniy
+- smallvec 1.13.2 (resvg): Copyright (c) 2018 The Servo Project Developers
+- svgtypes 0.11.0 and 0.14.0 (resvg): Copyright (c) 2018 Yevhenii Reizner
+- ttf-parser 0.18.1 (resvg): Copyright (c) 2018 Yevhenii Reizner
+- unicode-bidi 0.3.15 (resvg): Copyright (c) 2015 The Rust Project Developers; This project is copyright 2015, The Servo Project Developers
+- weezl 0.1.8 (resvg): Copyright (c) HeroicKatora 2020
+- xmlparser 0.13.6 (resvg): Copyright (c) 2018 Reizner Evgeniy
+- xmlwriter 0.1.0 (resvg): Copyright (c) 2019 Reizner Evgeniy
+
+The MIT licence text, which applies to each crate above with its copyright notice:
+
+```text
+MIT License
+
+Copyright (c) <the holders listed above>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### Apache-2.0 crates
+
+- woff2-patched (patched by satori) 0.4.0 (satori layout): The licence file names no holder; Cargo.toml authors: Brian Hanechak, Emily Crandall Fleischman, Zimon Tai
+- woff2 0.3.0 (resvg): The licence file names no holder; Cargo.toml authors: Brian Hanechak, Emily Crandall Fleischman
+- unicode-general-category 0.6.0 (resvg): The licence file names no holder; Cargo.toml authors: YesLogic Pty. Ltd.
+
+None of these crates ships a NOTICE file. The Apache License 2.0:
+
+```text
+Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
+### BSD-3-Clause crates
+
+- brotli 7.0.0 (satori layout): Copyright (c) 2016 Dropbox, Inc. (BSD-3-Clause); Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors. (MIT)
+- brotli-decompressor 4.0.3 (satori layout): Copyright (c) 2016 Dropbox, Inc.
+- alloc-no-stdlib 2.0.4 (satori layout): Copyright (c) 2016 Dropbox, Inc.
+- alloc-stdlib 0.2.4 (satori layout): Copyright (c) 2016 Dropbox, Inc.; (the crate ships no licence file; holder from alloc-no-stdlib, the same repository)
+- alloc-no-stdlib 2.0.4 (resvg): Copyright (c) 2016 Dropbox, Inc.
+- brotli-decompressor 2.5.1 (resvg): Copyright (c) 2016 Dropbox, Inc.
+- tiny-skia 0.10.0 (resvg): Copyright (c) 2011 Google Inc. All rights reserved.; Copyright (c) 2020 Yevhenii Reizner All rights reserved.
+- tiny-skia-path 0.10.0 (resvg): Copyright (c) 2011 Google Inc. All rights reserved.; Copyright (c) 2020 Yevhenii Reizner All rights reserved.
+
+The BSD 3-Clause licence text, which applies to each crate above with its copyright notice:
+
+```text
+Copyright (c) <the holders listed above>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### Zlib crates
+
+- slotmap 1.1.1 (satori layout): Copyright (c) 2021 Orson Peters <orsonpeters@gmail.com>
+- adler32 1.2.0 (resvg): (C) 2016 Remi Rampin and adler32-rs contributors; (C) 1995-2017 Jean-loup Gailly and Mark Adler (the original zlib C code)
+- slotmap 1.0.7 (resvg): Copyright (c) 2021 Orson Peters <orsonpeters@gmail.com>
+- tinyvec 1.6.0 (resvg): Copyright (c) 2019 Daniel "Lokathor" Gee.
+
+The zlib licence text, which applies to each crate above with its copyright notice:
+
+```text
+Copyright (c) <the holders listed above>
+
+This software is provided 'as-is', without any express or implied warranty. In
+no event will the authors be held liable for any damages arising from the use of
+this software.
+
+Permission is granted to anyone to use this software for any purpose, including
+commercial applications, and to alter it and redistribute it freely, subject to
+the following restrictions:
+
+ 1. The origin of this software must not be misrepresented; you must not claim
+    that you wrote the original software. If you use this software in a product,
+    an acknowledgment in the product documentation would be appreciated but is
+    not required.
+
+ 2. Altered source versions must be plainly marked as such, and must not be
+    misrepresented as being the original software.
+
+ 3. This notice may not be removed or altered from any source distribution.
 ```

@@ -59,7 +59,8 @@ function dollarsText(month: RangeTotals): string {
 export function plainCost(month: RangeTotals): string {
   const { dollars, pricedWeighted, unpricedWeighted } = month.cost;
   if (pricedWeighted === 0) return unpricedWeighted > 0 ? 'cost unknown' : '$0.00';
-  return `≈ ${moneyText(dollars)}`;
+  // With unpriced models in the range the sum is a floor, the way the story cards print it.
+  return `${unpricedWeighted > 0 ? '≥' : '≈'} ${moneyText(dollars)}`;
 }
 
 function plainCostDetail(month: RangeTotals): string {
@@ -69,7 +70,7 @@ function plainCostDetail(month: RangeTotals): string {
 /** Today's cost as a tile detail; undefined when today has no priced usage. */
 function todayCostText(vm: ViewModel): string | undefined {
   const cost = vm.byDate.get(vm.today)?.cost;
-  return cost && cost.pricedWeighted > 0 ? `≈ ${moneyText(cost.dollars)}` : undefined;
+  return cost && cost.pricedWeighted > 0 ? `${cost.unpricedWeighted > 0 ? '≥' : '≈'} ${moneyText(cost.dollars)}` : undefined;
 }
 
 /** What caching saved over the range; a dash when nothing in it was priced. */
@@ -80,8 +81,11 @@ function cacheSavedText(month: RangeTotals): string {
 /** The week-over-week change as a tile detail, coloured good or bad. */
 function weekDeltaDetail(s: Stats, theme: TuiTheme): { detail?: string; detailColor?: string } {
   if (s.weekDelta === null) return {};
-  const up = s.weekDelta >= 0;
-  return { detail: `${up ? '▲' : '▼'} ${Math.round(Math.abs(s.weekDelta) * 100)}%`, detailColor: up ? theme.good : theme.bad };
+  const percent = Math.round(Math.abs(s.weekDelta) * 100);
+  // A change that rounds to 0% gets no arrow, so "▼ 0%" never reads as a drop.
+  if (percent === 0) return { detail: '= 0%', detailColor: theme.muted };
+  const up = s.weekDelta > 0;
+  return { detail: `${up ? '▲' : '▼'} ${percent}%`, detailColor: up ? theme.good : theme.bad };
 }
 
 function bigTiles(vm: ViewModel, s: Stats, month: RangeTotals, today: string, week: string, theme: TuiTheme): BigTile[] {

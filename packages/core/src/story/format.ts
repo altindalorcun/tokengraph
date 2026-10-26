@@ -85,6 +85,25 @@ export function shareLabel(share: number): string {
   return rounded === 0 && share > 0 ? '<1%' : `${rounded}%`;
 }
 
+/**
+ * Labels for shares that together make a whole (every model of a receipt), rounded so they add up to 100%:
+ * each is floored and the leftover points go to the largest remainders. A real share that ends up at 0 reads "<1%".
+ */
+export function shareLabels(shares: readonly number[]): string[] {
+  const total = shares.reduce((sum, share) => sum + share, 0);
+  if (total <= 0) return shares.map(() => '0%');
+  const exact = shares.map((share) => (share / total) * 100);
+  const points = exact.map(Math.floor);
+  let left = 100 - points.reduce((sum, point) => sum + point, 0);
+  const order = exact.map((value, index) => ({ index, remainder: value - Math.floor(value) })).sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  for (const { index } of order) {
+    if (left <= 0) break;
+    points[index]! += 1;
+    left -= 1;
+  }
+  return points.map((point, index) => (point === 0 && shares[index]! > 0 ? '<1%' : `${point}%`));
+}
+
 /** The top `count` models by name, with everything after them folded into one "+N more" row. */
 export function topModels<T extends { weighted: number; share: number }>(
   models: readonly T[],

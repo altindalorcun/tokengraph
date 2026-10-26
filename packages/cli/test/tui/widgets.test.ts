@@ -18,6 +18,12 @@ describe('widgets', () => {
     expect(toPlainText(buf)).toBe('╭─ TODAY ──╮\n│          │\n│          │\n╰──────────╯');
   });
 
+  it('moves a title that only fits closer to the corner in by one instead of clipping it', () => {
+    const buf = new ScreenBuffer(15, 2);
+    drawBox(buf, { x: 0, y: 0, width: 15, height: 2 }, theme, 'Cache saved');
+    expect(toPlainText(buf).split('\n')[0]).toBe('╭ CACHE SAVED ╮');
+  });
+
   it('draws tabs and reports hit boxes', () => {
     const buf = new ScreenBuffer(40, 1);
     const hits = drawTabs(buf, 0, 0, ['Overview', 'Models'], 1, theme);

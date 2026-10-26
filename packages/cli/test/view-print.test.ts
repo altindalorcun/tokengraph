@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptyLedger, mergeHours, mergeUsage } from '../src/ledger.js';
 import { buildViewModel, shiftDate } from '../src/tui/model.js';
+import { printWidth } from '../src/commands/view.js';
 import { renderSnapshot } from '../src/tui/print.js';
 
 const TODAY = '2026-10-03';
@@ -58,5 +59,14 @@ describe('renderSnapshot', () => {
 
   it('says there is no hour data yet when no adapter has reported any', () => {
     expect(renderSnapshot(vm, { width: 80, theme: 'dark', depth: 'none', mode: 'local only' })).toContain('Busiest hour no hour data yet');
+  });
+});
+
+describe('printWidth', () => {
+  it('takes the terminal width, then $COLUMNS for a pipe, then 100', () => {
+    expect(printWidth(132, '80')).toBe(132);
+    expect(printWidth(undefined, '80')).toBe(80);
+    expect(printWidth(undefined, 'wide')).toBe(100);
+    expect(printWidth(undefined, undefined)).toBe(100);
   });
 });

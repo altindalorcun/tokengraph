@@ -158,6 +158,13 @@ describe('tokengraph export', () => {
     expect((await readFile(file, 'utf8')).startsWith(HEADER)).toBe(true);
   });
 
+  it('creates the folder --out names when it does not exist yet', async () => {
+    await seed();
+    const file = join(dir, 'new', 'deeper', 'usage.csv');
+    expect(await runExport({ format: 'csv', out: file })).toBe(0);
+    expect((await readFile(file, 'utf8')).startsWith(HEADER)).toBe(true);
+  });
+
   it('gives a header-only CSV and empty rows for an empty ledger', async () => {
     await runExport({ format: 'csv' });
     expect(out).toBe(`${HEADER}\n`);

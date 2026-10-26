@@ -56,8 +56,6 @@ function readCount(value: unknown): number {
  * output count regardless of which copy the scan happens to see first.
  */
 export class UsageAggregator {
-  /** Every distinct message.id seen, including ones `since` later excludes — used only for requestCount. */
-  private readonly seenMessageIds = new Set<string>();
   private readonly records = new Map<string, MessageRecord>();
   private readonly options: AggregatorOptions;
 
@@ -101,9 +99,6 @@ export class UsageAggregator {
     const instant = new Date(timestamp);
     if (Number.isNaN(instant.getTime())) return;
 
-    // Counted as a distinct request only once the record is known to be well-formed usage,
-    // so a malformed copy of an id can never suppress a later, valid copy of it.
-    this.seenMessageIds.add(messageId);
     if (this.options.since && instant < this.options.since) return;
 
     const cacheCreationTokens = readCount(usageFields['cache_creation_input_tokens']);
@@ -172,6 +167,6 @@ export class UsageAggregator {
         a.model.localeCompare(b.model) ||
         PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
     );
-    return { source, usage, hours: hours.toList(), requestCount: this.seenMessageIds.size };
+    return { source, usage, hours: hours.toList(), requestCount: this.records.size }; // distinct requests in the window, like every other adapter
   }
 }

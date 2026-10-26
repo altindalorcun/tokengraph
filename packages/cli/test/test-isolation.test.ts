@@ -37,8 +37,8 @@ describe('test isolation', () => {
   });
 
   it('clears every environment variable the source reads to locate data', () => {
-    // Not locators: HOME-like variables handled by setup-home.ts itself, the test flag, UI toggles, user names.
-    const allowed = new Set(['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TOKENGRAPH_HOME', 'VITEST', 'TOKENGRAPH_NO_MOTION', 'USER', 'USERNAME']);
+    // Not locators: HOME-like variables handled by setup-home.ts itself, the test flag, UI toggles, user names, the print width.
+    const allowed = new Set(['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TOKENGRAPH_HOME', 'VITEST', 'TOKENGRAPH_NO_MOTION', 'USER', 'USERNAME', 'COLUMNS']);
     const srcDir = join(__dirname, '..', 'src');
     const names = new Set<string>();
     const walk = (dir: string): void => {

@@ -740,7 +740,7 @@ export function renderGraphSvg(days: readonly GraphDay[], options: RenderOptions
   const baseline = layout.top + layout.totalSize * 0.8;
   const tracking = -0.025 * layout.totalSize;
   const total = options.title !== undefined ? '—' : formatTokens(grid.total);
-  const caption = options.title ?? (empty ? 'No tokens yet, last 12 months' : 'tokens, last 12 months');
+  const caption = options.title ?? (empty ? 'No tokens yet, last 52 weeks' : 'tokens, last 52 weeks');
   const totalWidth = textWidth(total, layout.totalSize, 500, tracking);
   const meta = layout.showLabels ? rangeLabel(stats) : plural(stats.activeDays, 'active day');
 

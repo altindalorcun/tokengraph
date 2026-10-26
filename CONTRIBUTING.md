@@ -33,7 +33,7 @@ CLI by hand.
 | `docs/agents/` | One note per agent describing how it stores usage locally. |
 | `docs/architecture.md` | How the pieces fit together: data flow, machines, story cards, the QR hand-off. |
 | `docs/specs/` | Design rules for the story cards. |
-| `scripts/` | Samples generator and font builders. |
+| `scripts/` | The samples generator, the embed-font builder, the npm README sync, the package and story smoke checks, and `e2e/`, which runs the real agents against a fake model server. |
 
 The boundary rule: if code needs the file system, sockets, Satori or resvg, it belongs in
 `packages/cli`. If it is a calculation, it belongs in `packages/core`.
@@ -72,6 +72,15 @@ An agent can be supported when its token usage sits in local files we can read r
 6. **Never count usage another adapter already counts.** If the tool can run another agent as a
    subprocess or import its sessions (as Cline does with Claude Code), skip those records and
    explain how in the format note.
+7. **Register its folders.** If the tool's files can move (an environment variable, an XDG
+   folder, a per-OS location), write a `roots.ts` next to the adapter and add it to `ROOT_SPECS`
+   in `packages/cli/src/agent-root-specs.ts`, so `status` lists the folders and the schedule
+   reads the ones remembered from your shell.
+8. **Run it for real** if the tool can talk to a local endpoint: add it to `scripts/e2e`
+   (`versions.json` and `run.mjs`, see `scripts/e2e/README.md`) so its counts are checked against
+   what the fake model server sent.
+9. **Document it** in the README's Supported agents table, the agent list at the top of the README
+   and in `package.json`, and the `schedule` help text in `packages/cli/src/bin.ts` if it has no hook.
 
 ## Invariants
 

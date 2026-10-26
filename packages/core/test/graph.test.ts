@@ -83,13 +83,13 @@ describe('renderGraphSvg', () => {
     expect(light).toContain('fill="#ffffff"');
     expect(dark).toContain('rx="14"');
     expect(dark).not.toContain('>token-graph<');
-    expect(dark).not.toContain('last 12 months —');
+    expect(dark).not.toContain('last 52 weeks —');
   });
 
   it('writes the header like the dashboard: total, caption, active days', () => {
     const svg = renderGraphSvg(daysEndingAt(END, 3, () => 47_531_939), { endDate: END });
     expect(svg).toMatch(/font-weight="500"[^>]*>142\.6M<\/text>/);
-    expect(svg).toContain('>tokens, last 12 months</text>');
+    expect(svg).toContain('>tokens, last 52 weeks</text>');
     expect(svg).toMatch(/text-anchor="end"[^>]*>Sep 2025 to Sep 2026<\/text>/);
     expect(renderGraphSvg([{ date: END, weighted: 5 }], { endDate: END, compact: true })).toContain('>1 active day</text>');
   });

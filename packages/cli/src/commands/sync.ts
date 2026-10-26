@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import {
   addCounts,
-  addDays,
   agentName,
   dateKey,
   emptyCounts,
   formatTokens,
   renderPublishedGraphs,
+  shiftDate,
   weightedTokens,
   type DailyModelUsage,
   type Theme,
@@ -106,8 +106,11 @@ export async function runSync(options: SyncOptions): Promise<number> {
 }
 
 async function runSyncLocked(options: SyncOptions, spinner: Spinner): Promise<number> {
-  const since = addDays(new Date(), -options.sinceDays);
-  const sinceKey = dateKey(since);
+  // From local midnight, so the window is whole days: `--since 7` is today and the six days before it, and no
+  // day at its start is half read (which would look like history surviving only in the ledger). Calendar days,
+  // not 24-hour blocks, so a daylight-saving change never moves the start by a day.
+  const sinceKey = shiftDate(dateKey(new Date()), -(options.sinceDays - 1));
+  const since = new Date(`${sinceKey}T00:00:00`);
 
   const say = (line: string): void => {
     if (options.quiet) return;
@@ -149,7 +152,7 @@ async function runSyncLocked(options: SyncOptions, spinner: Spinner): Promise<nu
     say(`  distinct API requests read: ${result.requestCount}`);
     say(`  active days: ${days.length}`);
     if (hadHistory && recovered > 0) {
-      say(`  (${recovered} of them survive only in the local ledger — their transcripts have been pruned)`);
+      say(`  (${recovered} of them ${recovered === 1 ? 'survives' : 'survive'} only in the local ledger — their transcripts have been pruned)`);
     }
     for (const note of result.notes ?? []) say(`  note: ${note}`);
   }

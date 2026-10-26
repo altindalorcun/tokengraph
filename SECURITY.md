@@ -22,6 +22,10 @@ and fix confirmed problems as quickly as we can. There is no bug bounty.
   hold SVGs and a README only; model ids and raw counts belong to the secret data gist).
 - **The QR share server** behind `tokengraph story`: it should bind to one private LAN address,
   serve only the rendered cards from memory under a random token, and always stop.
+- **The Cursor sign-in token.** While the Cursor fetch is on, tokengraph reads Cursor's sign-in
+  token from Cursor's local database (read-only) and sends it to `cursor.com` / `www.cursor.com`
+  only, for one request, checking every redirect itself. It should never be stored, logged,
+  printed, published or sent anywhere else, and neither should the Cursor user id or e-mail.
 - **Hooks and the schedule** that `install-hook` and `schedule` add to your agents and your
   system, and the files tokengraph reads from agents' local directories (a crafted log should not
   be able to run code or write outside `~/.tokengraph`).
@@ -32,7 +36,9 @@ and fix confirmed problems as quickly as we can. There is no bug bounty.
   itself, or in Node.js.
 - Anything that needs an attacker who already controls your user account or your machine.
 - The secret data gist being "unlisted, not private": that is how GitHub secret gists work, and
-  the data in it is token counters only. It is documented in the README.
+  the data in it is token counters plus the machine fields the README lists (a random machine id,
+  a label, a hashed fingerprint, the CLI version and a hashed Cursor account key). It is documented
+  in the README.
 
 ## Supported versions
 

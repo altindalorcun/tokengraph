@@ -46,8 +46,9 @@ an agent prunes its logs, is worse than no graph. So:
 - **Local-first and free to run.** Nothing the project pays for scales with its users.
 - **Token counts only.** tokengraph never reads, stores or sends prompts, answers or code. The
   public gist holds an SVG graph with family colours and names, never model ids or per-model counts (only daily totals).
-- **Publishing is opt-in and goes to you.** The only thing that leaves your machine is what you
-  choose to publish, and it goes to gists on your own GitHub account.
+- **Publishing is opt-in and goes to you.** Your usage leaves your machine only when you choose
+  to publish it, and it goes to gists on your own GitHub account. The one other network call is
+  the Cursor fetch, which asks cursor.com for your own Cursor usage and can be turned off.
 
 ## Non-goals
 

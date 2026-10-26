@@ -95,6 +95,10 @@ export function schtasksCreateArgs(args: readonly string[]): string[] {
   return ['/Create', '/F', '/SC', 'HOURLY', '/TN', WINDOWS_TASK_NAME, '/TR', commandText(args)];
 }
 
+export function schtasksQueryArgs(): string[] {
+  return ['/Query', '/TN', WINDOWS_TASK_NAME];
+}
+
 export function schtasksDeleteArgs(): string[] {
   return ['/Delete', '/F', '/TN', WINDOWS_TASK_NAME];
 }

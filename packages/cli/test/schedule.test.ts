@@ -5,7 +5,7 @@ import { CRON_MARKER } from '../src/schedule-entries.js';
 type RunResult = { code: number; stdout: string; stderr: string };
 const ok: RunResult = { code: 0, stdout: '', stderr: '' };
 
-function harness(platform: NodeJS.Platform, respond: (command: string, args: string[]) => RunResult = () => ok) {
+function harness(platform: NodeJS.Platform, respond: (command: string, args: string[]) => RunResult = () => ok, installed = true) {
   const calls: Array<{ command: string; args: string[]; stdin?: string }> = [];
   const written = new Map<string, string>();
   const removed: string[] = [];
@@ -19,6 +19,7 @@ function harness(platform: NodeJS.Platform, respond: (command: string, args: str
     },
     writeFile: async (path, text) => void written.set(path, text),
     removeFile: async (path) => void removed.push(path),
+    exists: async () => installed,
     ensureDir: async (path) => void dirs.push(path),
     uid: () => 501,
     home: () => '/Users/me',
@@ -101,6 +102,31 @@ describe('runSchedule', () => {
       expect(await runSchedule({ remove: true, dryRun: true }, h.deps)).toBe(0);
       expect(h.calls).toEqual([]);
       expect(h.removed).toEqual([]);
+    });
+
+    const notLoaded = (_command: string, args: string[]) => (args[0] === 'print' ? { code: 113, stdout: '', stderr: 'Could not find service' } : ok);
+
+    it('remove with no plist and no loaded job only asks launchd, and says so', async () => {
+      const h = harness('darwin', notLoaded, false);
+      expect(await runSchedule({ remove: true, dryRun: false }, h.deps)).toBe(0);
+      expect(h.calls.map((c) => c.args)).toEqual([['print', 'gui/501/dev.tokengraph.sync']]);
+      expect(h.removed).toEqual([]);
+      expect(out.join('\n')).toContain('No hourly sync is installed');
+      expect(out.join('\n')).not.toContain('Removed');
+    });
+
+    it('remove --dry-run with no plist does not claim a delete', async () => {
+      const h = harness('darwin', notLoaded, false);
+      expect(await runSchedule({ remove: true, dryRun: true }, h.deps)).toBe(0);
+      expect(out.join('\n')).not.toContain('Would delete');
+    });
+
+    it('remove boots out a job still loaded after its plist was deleted by hand', async () => {
+      const h = harness('darwin', () => ok, false);
+      expect(await runSchedule({ remove: true, dryRun: false }, h.deps)).toBe(0);
+      expect(h.calls.map((c) => c.args[0])).toEqual(['print', 'bootout']);
+      expect(h.removed).toEqual([]);
+      expect(out.join('\n')).toContain('Removed the hourly sync.');
     });
   });
 
@@ -194,7 +220,19 @@ describe('runSchedule', () => {
     it('removes the task', async () => {
       const h = harness('win32');
       expect(await runSchedule({ remove: true, dryRun: false }, h.deps)).toBe(0);
-      expect(h.calls.map((c) => [c.command, ...c.args])).toEqual([['schtasks', '/Delete', '/F', '/TN', 'tokengraph-sync']]);
+      expect(h.calls.map((c) => [c.command, ...c.args])).toEqual([
+        ['schtasks', '/Query', '/TN', 'tokengraph-sync'],
+        ['schtasks', '/Delete', '/F', '/TN', 'tokengraph-sync'],
+      ]);
+    });
+
+    it('remove with no task deletes nothing and succeeds', async () => {
+      const h = harness('win32', (_command, args) =>
+        args[0] === '/Query' ? { code: 1, stdout: '', stderr: 'ERROR: The system cannot find the file specified.' } : ok,
+      );
+      expect(await runSchedule({ remove: true, dryRun: false }, h.deps)).toBe(0);
+      expect(h.calls.map((c) => c.args[0])).toEqual(['/Query']);
+      expect(out.join('\n')).toContain('No hourly sync is installed');
     });
 
     it('dry-run runs nothing', async () => {

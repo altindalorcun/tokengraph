@@ -4,8 +4,9 @@ How tokengraph is put together. For what it is for and what it will not do, see
 [product.md](product.md). For the rules that are easy to break when changing it, see
 [CLAUDE.md](../CLAUDE.md). For how each agent stores its usage, see [agents/](agents/).
 
-tokengraph has no server. Everything runs on the user's machine, and the only thing that leaves it
-is what the user chooses to publish to their own GitHub gists.
+tokengraph has no server. Everything runs on the user's machine. Usage leaves it only when the user
+chooses to publish it to their own GitHub gists; the one other network call is the Cursor fetch,
+which asks cursor.com for the user's own usage (see Privacy below).
 
 ## What runs where
 
@@ -64,8 +65,9 @@ Network errors, a revoked token and rate limits never touch the local ledger.
 
 ## Machines
 
-A machine file is `{ schema, machineId, label, fingerprint, cliVersion, updatedAt, sources }`,
-where `sources` is the ledger body.
+A machine file is `{ schema, machineId, label, fingerprint, cliVersion, updatedAt, sources, accounts? }`,
+where `sources` is the ledger body and `accounts` the Cursor accounts this machine fetched from
+cursor.com (`accounts.cursor[accountKey] = { coveredThrough, days }`).
 
 - **Machine id** is a random UUID kept in `config.json`. `logout` keeps it, so a machine never
   comes back under a new id and has its logs counted twice.
@@ -193,7 +195,7 @@ Codex rollouts that carry no `response_id`. Each adapter's dedup key (see CLAUDE
 session copied between roots from counting twice.
 
 `agent-roots-store.ts` writes `agentRoots`: whenever `sync`, `view`, `status`, `schedule`, `install-hook` or
-the Claude Code and Codex hook (`hook-sync`, which runs with the agent's own environment) runs with an
+the Claude Code, Codex and Gemini CLI hook (`hook-sync`, which runs with the agent's own environment) runs with an
 override in its environment that points at something that exists and is not already a default, the root is
 added (atomically, mode 0600; never removed automatically). `status` and `status --json` list, per adapter,
 every folder scanned, where the root came from (`default`, `env`, `remembered`) and whether it exists. Claude

@@ -4,7 +4,7 @@ import { isAbsolute, join, parse, relative } from 'node:path';
 import { readConfig, type CliConfig } from '../config.js';
 import { configHome } from '../paths.js';
 import { askYesNo } from '../prompt.js';
-import { DEFAULT_HOOK_EVENT, runInstallHook, type HookAgent } from './install-hook.js';
+import { DEFAULT_HOOK_EVENT, removeAllClaudeHooks, runInstallHook, type HookAgent } from './install-hook.js';
 import { runSchedule } from './schedule.js';
 
 export interface UninstallOptions {
@@ -30,7 +30,9 @@ export interface UninstallDeps {
 }
 
 const DEFAULT_DEPS: UninstallDeps = {
-  removeHook: (agent, dryRun) => runInstallHook({ agent, event: DEFAULT_HOOK_EVENT, remove: true, dryRun }),
+  // Claude Code's hook can sit on any of its events (`--event`); the others have one place.
+  removeHook: (agent, dryRun) =>
+    agent === 'claude-code' ? removeAllClaudeHooks(dryRun) : runInstallHook({ agent, event: DEFAULT_HOOK_EVENT, remove: true, dryRun }),
   removeSchedule: (dryRun) => runSchedule({ remove: true, dryRun }),
   readConfig: () => readConfig(),
   dataHome: () => configHome(),
@@ -129,7 +131,9 @@ export async function runUninstall(options: UninstallOptions, overrides: Partial
   }
   console.log(
     failed === 0
-      ? `${options.dryRun ? 'Dry run: would remove' : 'Removed'} the Claude Code, Cursor, Codex and Gemini CLI hooks and the hourly schedule.`
+      ? options.dryRun
+        ? 'Dry run: nothing was changed. The lines above show what uninstall would remove.'
+        : 'No tokengraph hook (Claude Code, Cursor, Codex, Gemini CLI) or hourly schedule is left on this machine.'
       : `${failed} of 5 removals failed.`,
   );
 

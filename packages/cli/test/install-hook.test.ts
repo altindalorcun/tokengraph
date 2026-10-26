@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { hookCommand, runInstallHook } from '../src/commands/install-hook.js';
+import { hookCommand, removeAllClaudeHooks, runInstallHook } from '../src/commands/install-hook.js';
 
 describe('install-hook (claude-code)', () => {
   const saved = { dir: process.env['CLAUDE_CONFIG_DIR'], home: process.env['TOKENGRAPH_HOME'] };
@@ -86,5 +86,25 @@ describe('install-hook (claude-code)', () => {
   it('does not write on a dry run', async () => {
     await runInstallHook(options({ dryRun: true }));
     await expect(readFile(settingsFile, 'utf8')).rejects.toThrow();
+  });
+
+  it('removes the hook from every event for uninstall, keeping other hooks', async () => {
+    await runInstallHook(options({ event: 'Stop' }));
+    await runInstallHook(options({ event: 'SubagentStop' }));
+    const before = await read();
+    await writeFile(settingsFile, JSON.stringify({ ...before, hooks: { ...before.hooks, PreToolUse: [{ hooks: [{ type: 'command', command: 'lint' }] }] } }));
+    expect(await removeAllClaudeHooks(false)).toBe(0);
+    const written = await read();
+    expect(Object.keys(written.hooks)).toEqual(['PreToolUse']);
+    expect(out.join('\n')).toContain('Removed the tokengraph hook from Stop, SubagentStop.');
+  });
+
+  it('says so when no event carries the hook, and writes nothing on a dry run', async () => {
+    expect(await removeAllClaudeHooks(false)).toBe(0);
+    expect(out.join('\n')).toContain('No tokengraph Claude Code hook found. Nothing to do.');
+    await runInstallHook(options({ event: 'Stop' }));
+    const before = await readFile(settingsFile, 'utf8');
+    expect(await removeAllClaudeHooks(true)).toBe(0);
+    expect(await readFile(settingsFile, 'utf8')).toBe(before);
   });
 });

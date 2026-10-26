@@ -117,7 +117,7 @@ describe('views', () => {
     }
     const plain = new ScreenBuffer(80, 22);
     drawOverview(plain, { x: 0, y: 0, width: 80, height: 22 }, { vm, theme, motion: STILL, colorMode: 'per-model', state: { cursor: TODAY, yearEnd: TODAY } });
-    expect(toPlainText(plain).split('\n')[1]).toMatch(/≈ \$\d+(?!\.)/);
+    expect(toPlainText(plain).split('\n')[1]).toMatch(/≥ \$\d+(?!\.)/);
   });
 
   it('overview at 120×30 keeps the compact heatmap beside the day panel and still draws the chart', () => {

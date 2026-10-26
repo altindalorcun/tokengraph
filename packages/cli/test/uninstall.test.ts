@@ -65,6 +65,9 @@ describe('tokengraph uninstall', () => {
     expect(schedules).toEqual([false]);
     expect(existsSync(data)).toBe(true);
     expect(out).toContain('To remove the program too: npm uninstall -g tokengraph');
+    // The summary states the end state, never a removal that may not have happened.
+    expect(out).toContain('No tokengraph hook (Claude Code, Cursor, Codex, Gemini CLI) or hourly schedule is left on this machine.');
+    expect(out).not.toContain('Removed the Claude Code');
   });
 
   it('dry-run passes dryRun to every remover and deletes nothing, even with --purge', async () => {
@@ -75,6 +78,7 @@ describe('tokengraph uninstall', () => {
     expect(removeFile).not.toHaveBeenCalled();
     expect(existsSync(data)).toBe(true);
     expect(out).toContain('cursor-events.jsonl');
+    expect(out).toContain('Dry run: nothing was changed.');
   });
 
   it('runs every remover when one fails and exits 1', async () => {

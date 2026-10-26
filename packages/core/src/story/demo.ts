@@ -8,11 +8,13 @@ import { shiftDate } from './range.js';
 
 /** How far back the demo looks for a day worth showing off as "today". */
 const LOOKBACK = 14;
+/** The streak that day must end, so the sample graph's streak is not a lone day after a weekend off. */
+const MIN_STREAK = 3;
 
 /**
  * The made-up demo account as story rows (used for the sample cards in the README). The demo year skips days at random, so its
- * real today is often empty; the whole year is slid forward so the heaviest of its last two weeks
- * lands on today, and the sample card is always worth showing. Still never real data.
+ * real today is often empty; the whole year is slid forward so the heaviest of its last two weeks that ends a streak of at
+ * least three days lands on today, and the sample card is always worth showing. Still never real data.
  */
 export function demoStoryRows(now: Date): { rows: ModelDayRow[]; costRows: CostRow[]; todayUtc: string } {
   const todayUtc = dateKey(now, 'UTC');
@@ -25,8 +27,10 @@ export function demoStoryRows(now: Date): { rows: ModelDayRow[]; costRows: CostR
   const since = shiftDate(todayUtc, -(LOOKBACK - 1));
   let best = todayUtc;
   let bestWeight = -1;
+  const endsStreak = (date: string): boolean =>
+    Array.from({ length: MIN_STREAK }, (_, back) => totals.get(shiftDate(date, -back)) ?? 0).every((weighted) => weighted > 0);
   for (const [date, weighted] of totals) {
-    if (date >= since && date <= todayUtc && weighted > bestWeight) {
+    if (date >= since && date <= todayUtc && weighted > bestWeight && endsStreak(date)) {
       best = date;
       bestWeight = weighted;
     }

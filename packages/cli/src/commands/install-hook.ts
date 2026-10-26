@@ -136,7 +136,8 @@ async function installCursorHook(options: InstallHookOptions): Promise<number> {
   if (!options.remove) {
     console.log('\nRestart Cursor so it picks the hook up. From now on each agent turn is recorded locally;');
     console.log('run `tokengraph sync` (for example once at the end of the day) to add it to your graph.');
-    console.log('Cursor keeps no usable token counts on disk, so usage from before now cannot be recovered.');
+    console.log('Earlier usage comes from the cursor.com fetch (`tokengraph sync`, on by default when Cursor is signed in)');
+    console.log('or from a usage CSV: `tokengraph import cursor <file.csv>`.');
   }
   return hasCursorHook(next, command) === !options.remove ? 0 : 1;
 }
@@ -229,6 +230,27 @@ async function installCodexHook(options: InstallHookOptions): Promise<number> {
   return 0;
 }
 
+/** For `uninstall`: removes tokengraph's Claude Code hook from every event it is on, not only the default one. */
+export async function removeAllClaudeHooks(dryRun: boolean): Promise<number> {
+  const path = settingsPath();
+  const settings = await readSettings(path);
+  const events = eventsWithHook(settings, isTokenGraphHookCommand);
+  if (events.length === 0) {
+    console.log('No tokengraph Claude Code hook found. Nothing to do.');
+    return 0;
+  }
+  const next = events.reduce((current, event) => removeHook(current, event, isTokenGraphHookCommand), settings);
+  if (dryRun) {
+    console.log(`Would write ${path}:\n`);
+    console.log(JSON.stringify(next, null, 2));
+    return 0;
+  }
+  await writeJsonFile(path, next);
+  console.log(`Removed the tokengraph hook from ${events.join(', ')}.`);
+  console.log(`settings: ${path}`);
+  return 0;
+}
+
 export async function runInstallHook(options: InstallHookOptions): Promise<number> {
   const ephemeral = options.remove ? null : ephemeralInstallError(`tokengraph install-hook --agent ${options.agent}`);
   if (ephemeral) {
@@ -281,7 +303,9 @@ export async function runInstallHook(options: InstallHookOptions): Promise<numbe
     const log = join(configHome(), 'hook-sync.log');
     console.log(`\nThe hook starts a background sync; its output goes to ${log}.`);
     console.log(`Run /hooks inside Claude Code to confirm it is registered.`);
-    console.log(`If ${options.event} is not a supported event there, run: tokengraph install-hook --agent claude-code --event Stop`);
+    if (options.event !== 'Stop') {
+      console.log(`If ${options.event} is not a supported event there, run: tokengraph install-hook --agent claude-code --event Stop`);
+    }
   }
   return hasHook(next, options.event, command) === !options.remove ? 0 : 1;
 }

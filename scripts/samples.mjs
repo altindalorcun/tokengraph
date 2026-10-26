@@ -119,7 +119,7 @@ const og = h(
     'div',
     { style: { display: 'flex', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' } },
     h('div', { style: { ...mono, fontWeight: 500, fontSize: 30, color: '#eef0f2' } }, STORY_CTA),
-    h('div', { style: { ...sans, fontWeight: 400, fontSize: 24, color: '#a3aab3' } }, 'Claude Code, Codex, Cursor, Gemini CLI, Cline, OpenCode'),
+    h('div', { style: { ...sans, fontWeight: 400, fontSize: 24, color: '#a3aab3' } }, 'Claude Code, Codex, Cursor, Gemini CLI and 7 more'),
   ),
 );
 writeFileSync(join(out, 'og.png'), (await renderer.rasterize(og, { width: OG_WIDTH, height: OG_HEIGHT }, OG_WIDTH)).png);

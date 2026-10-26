@@ -28,6 +28,7 @@ export {
   periodDateLabel,
   periodPhrase,
   shareLabel,
+  shareLabels,
   shortHandle,
   storyStats,
   topModels,

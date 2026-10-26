@@ -89,7 +89,7 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
     // The snapshot is still correct; a read-only home directory should not fail a print.
   }
   const out = renderSnapshot(vm, {
-    width: process.stdout.columns ?? DEFAULT_PRINT_WIDTH,
+    width: printWidth(process.stdout.columns, process.env['COLUMNS']),
     theme: resolveTheme(options.theme, process.env),
     depth: detectColorDepth(process.env, process.stdout.isTTY === true),
     mode: await modeLabel(),
@@ -99,6 +99,13 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
 }
 
 /** Opens the terminal dashboard, or prints a static snapshot when asked to or when stdout is not a terminal. */
+/** The terminal's width, else `$COLUMNS` (a pipe has no width of its own), else the default. */
+export function printWidth(columns: number | undefined, env: string | undefined): number {
+  if (columns) return columns;
+  const fromEnv = env !== undefined && /^\d+$/.test(env) ? Number(env) : 0;
+  return fromEnv > 0 ? fromEnv : DEFAULT_PRINT_WIDTH;
+}
+
 export async function runView(options: ViewOptions): Promise<number> {
   // Raw mode needs a TTY on both ends; without stdin the user could not even quit with Ctrl-C cleanly.
   if (options.print || !process.stdout.isTTY || !process.stdin.isTTY) return printSnapshot(options);

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomInt } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, posix, win32 } from 'node:path';
 import { binPath, ephemeralInstallError } from '../bin-path.js';
@@ -13,6 +13,7 @@ import {
   SCHEDULE_LABEL,
   schtasksCreateArgs,
   schtasksDeleteArgs,
+  schtasksQueryArgs,
   scheduledArgs,
   withCronEntry,
   withoutCronEntry,
@@ -29,6 +30,7 @@ export interface ScheduleDeps {
   run: (command: string, args: string[], stdin?: string) => Promise<RunResult>;
   writeFile: (path: string, text: string) => Promise<void>;
   removeFile: (path: string) => Promise<void>;
+  exists: (path: string) => Promise<boolean>;
   /** Creates a directory (and parents). Needed so the scheduler can open the log file. */
   ensureDir: (path: string) => Promise<void>;
   uid: () => number;
@@ -67,6 +69,7 @@ const defaultDeps: ScheduleDeps = {
     await writeFile(path, text, 'utf8');
   },
   removeFile: (path) => rm(path, { force: true }),
+  exists: (path) => access(path).then(() => true, () => false),
   ensureDir: async (path) => void (await mkdir(path, { recursive: true })),
   uid: () => process.getuid?.() ?? 0,
   home: () => homedir(),
@@ -77,6 +80,7 @@ const defaultDeps: ScheduleDeps = {
 const BOOTSTRAP_RETRY_MS = 500;
 /** Printed after every install, so turning the schedule off is never a guess. */
 const TURN_OFF_HINT = 'Turn it off any time with: tokengraph schedule --remove';
+const NOTHING_TO_REMOVE = 'No hourly sync is installed. Nothing to do.';
 
 function failure(what: string, result: RunResult): number {
   console.error(`${what} failed (exit ${result.code}): ${result.stderr.trim() || result.stdout.trim() || 'no output'}`);
@@ -101,6 +105,21 @@ async function scheduleDarwin(options: ScheduleOptions, deps: ScheduleDeps, args
   const bootout = () => deps.run('launchctl', ['bootout', `${target}/${SCHEDULE_LABEL}`]);
 
   if (options.remove) {
+    // Without our plist there is nothing to delete, but a job can still be loaded from one removed by hand.
+    if (!(await deps.exists(plistPath))) {
+      const loaded = (await deps.run('launchctl', ['print', `${target}/${SCHEDULE_LABEL}`])).code === 0;
+      if (!loaded) {
+        console.log(NOTHING_TO_REMOVE);
+        return 0;
+      }
+      if (options.dryRun) {
+        console.log(`Would run: launchctl bootout ${target}/${SCHEDULE_LABEL}`);
+        return 0;
+      }
+      await bootout();
+      console.log('Removed the hourly sync.');
+      return 0;
+    }
     if (options.dryRun) {
       console.log(`Would run: launchctl bootout ${target}/${SCHEDULE_LABEL}`);
       console.log(`Would delete ${plistPath}`);
@@ -184,6 +203,11 @@ async function scheduleCron(options: ScheduleOptions, deps: ScheduleDeps, args: 
 }
 
 async function scheduleWindows(options: ScheduleOptions, deps: ScheduleDeps, args: string[]): Promise<number> {
+  // schtasks /Delete fails on a task that does not exist, which would make `uninstall` report a failure.
+  if (options.remove && (await deps.run('schtasks', schtasksQueryArgs())).code !== 0) {
+    console.log(NOTHING_TO_REMOVE);
+    return 0;
+  }
   const schtasksArgs = options.remove ? schtasksDeleteArgs() : schtasksCreateArgs(args);
   if (options.dryRun) {
     console.log(`Would run: schtasks ${schtasksArgs.join(' ')}`);
