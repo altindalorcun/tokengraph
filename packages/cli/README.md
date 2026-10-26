@@ -19,7 +19,11 @@
 </p>
 
 <p align="center">
-  <b>English</b> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.zh-CN.md">简体中文</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ja.md">日本語</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ko.md">한국어</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.tr.md">Türkçe</a>
+  <a href="https://tokengraph.app">Website</a> · <a href="https://tokengraph.app/docs/">Docs</a> · <a href="https://www.npmjs.com/package/tokengraph">npm</a>
+</p>
+
+<p align="center">
+  <b>English</b> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
@@ -140,7 +144,7 @@ not supported, because its local history rounds token counts.
 
 ## Commands
 
-Every command takes `--help`. An unknown option is an error.
+Every command takes `--help`. An unknown option is an error. The full guide is at [tokengraph.app/docs](https://tokengraph.app/docs/).
 
 | Command | What it does |
 | --- | --- |
@@ -210,3 +214,5 @@ If tokengraph made your profile better, a ⭐ helps other people find it.
 
 MIT, see [LICENSE](https://github.com/altindalorcun/tokengraph/blob/main/LICENSE). Bundled third-party components: see
 [THIRD-PARTY-NOTICES.md](https://github.com/altindalorcun/tokengraph/blob/main/packages/cli/THIRD-PARTY-NOTICES.md).
+
+tokengraph is a [goldenbranch.dev](https://goldenbranch.dev) project.

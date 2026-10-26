@@ -19,7 +19,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.md">English</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.zh-CN.md">简体中文</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ja.md">日本語</a> · <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.ko.md">한국어</a> · <b>Türkçe</b>
+  <a href="https://tokengraph.app">Web sitesi</a> · <a href="https://tokengraph.app/docs/">Belgeler (İngilizce)</a> · <a href="https://www.npmjs.com/package/tokengraph">npm</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/altindalorcun/tokengraph/blob/main/README.md">English</a> · <b>Türkçe</b>
 </p>
 
 > Kaynak metin İngilizce README'dir; bu çeviri güncel olmayabilir.
@@ -135,7 +139,7 @@ desteklenmez, çünkü yerel geçmişi token sayılarını yuvarlar.
 
 ## Komutlar
 
-Her komut `--help` alır. Bilinmeyen bir seçenek hata verir.
+Her komut `--help` alır. Bilinmeyen bir seçenek hata verir. Ayrıntılı kılavuz (İngilizce): [tokengraph.app/docs](https://tokengraph.app/docs/).
 
 | Komut | Ne yapar |
 | --- | --- |
@@ -189,3 +193,5 @@ tokengraph profilinizi güzelleştirdiyse, bir ⭐ başkalarının onu bulmasın
 
 MIT, bkz. [LICENSE](https://github.com/altindalorcun/tokengraph/blob/main/LICENSE). Pakete dahil üçüncü taraf bileşenler için:
 [THIRD-PARTY-NOTICES.md](https://github.com/altindalorcun/tokengraph/blob/main/packages/cli/THIRD-PARTY-NOTICES.md).
+
+tokengraph bir [goldenbranch.dev](https://goldenbranch.dev) projesidir.

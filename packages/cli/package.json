@@ -27,7 +27,7 @@
     "url": "git+https://github.com/altindalorcun/tokengraph.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/altindalorcun/tokengraph#readme",
+  "homepage": "https://tokengraph.app",
   "bugs": {
     "url": "https://github.com/altindalorcun/tokengraph/issues"
   },
