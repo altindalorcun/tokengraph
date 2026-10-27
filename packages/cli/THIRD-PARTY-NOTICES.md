@@ -29,6 +29,7 @@ tokengraph itself is MIT licensed (see `LICENSE`).
 | unicode-trie | 2.0.0 | MIT | https://github.com/devongovett/unicode-trie |
 | fflate | 0.7.3 | MIT | https://github.com/101arrowz/fflate |
 | cssesc (inside satori's `dist`) | 3.0.0 | MIT | https://github.com/mathiasbynens/cssesc |
+| Lobe Icons (agent and model-maker marks, adapted) | as adapted in `packages/core` | MIT | https://github.com/lobehub/lobe-icons |
 | css-color-keywords | 1.0.0 | ISC | https://github.com/sonicdoe/css-color-keywords |
 | IBM Plex Sans and IBM Plex Mono | as shipped in `assets/fonts` | OFL-1.1 | https://github.com/IBM/plex |
 | Rust crates in the WebAssembly binaries | see [the list below](#rust-crates-compiled-into-the-webassembly-binaries) | MIT, Apache-2.0, BSD-3-Clause, Zlib, MPL-2.0 | see the list below |
@@ -1003,6 +1004,38 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### Lobe Icons
+
+Source: https://github.com/lobehub/lobe-icons
+
+The agent and model-maker marks in `packages/core` (`agent-logos.ts`, `maker-logos.ts`), which `bundle/bin.js`
+includes, are adapted from Lobe Icons. The product names and marks themselves belong to their owners and are used only
+to identify the tools tokengraph reads.
+
+```text
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ## ISC licensed components
