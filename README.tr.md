@@ -35,6 +35,10 @@
   </picture>
 </p>
 
+<p align="center">
+  <img alt="tokengraph terminal görünümü: npx tokengraph yazınca yıllık ısı haritası, ardından Insights ve Setup sekmeleri açılıyor" src="docs/assets/demo.gif" width="720">
+</p>
+
 ## Hızlı başlangıç
 
 ```bash
@@ -165,6 +169,12 @@ Hook'lar ve zamanlama, kurulu programın yolunu saklar; bu yüzden onları kulla
 Her makine, kendi dosyasını (`machine-<id>.json`) gizli veri gist'ine yazar. Senkronize ettiğinizde grafik, bu makine ile diğer tüm makinelerin dosyalarının gün ve model bazında toplanmasıyla oluşturulur; böylece bir dizüstü ve bir masaüstü tek bir grafik olarak görünür. Aynı dosyalar aynı zamanda bir yedektir: yeniden kurulumdan veya `~/.tokengraph` silindikten sonra `tokengraph login` makinenizi tanır, geçmişini geri yükler ve hiçbir şeyi iki kez saymaz.
 
 ## SSS
+
+**ccusage veya tokscale'den farkı ne?** İkisi de iyi araçlar. [ccusage](https://github.com/ryoppippi/ccusage),
+terminalde ayrıntılı günlük, haftalık, aylık ve oturum raporları için doğru tercih.
+[tokscale](https://github.com/junhoyeo/tokscale) herkese açık bir liderlik tablosu ve profiller sunuyor; bunlara giriş
+yapıp kullanımınızı göndererek katılıyorsunuz. tokengraph ise yılınızı GitHub profilinizde göstermek için: grafik kendi
+gist'inizde duruyor, birden çok makine kendi gizli gist'iniz üzerinden birleşiyor ve tokengraph sunucusu ya da hesabı yok.
 
 **Neden gist?** Ücretsizdirler, size aittirler, görselleri GitHub sunar ve önbelleğe alır, ayrıca kimsenin çalıştırması, güvenmesi ya da kapatması gereken bir sunucu yoktur. tokengraph yarın ortadan kalksa bile grafiğiniz çalışmaya devam eder.
 

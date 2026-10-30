@@ -33,6 +33,10 @@
   </picture>
 </p>
 
+<p align="center">
+  <img alt="The tokengraph terminal view: typing npx tokengraph opens a year heatmap, then the Insights and Setup tabs" src="https://raw.githubusercontent.com/altindalorcun/tokengraph/main/docs/assets/demo.gif" width="720">
+</p>
+
 ## Quick start
 
 ```bash
@@ -174,6 +178,12 @@ wiped `~/.tokengraph`, `tokengraph login` recognises your machine, restores its 
 nothing twice.
 
 ## FAQ
+
+**How is this different from ccusage or tokscale?** Both are good tools. [ccusage](https://github.com/ryoppippi/ccusage)
+is the one for detailed daily, weekly, monthly and session reports in your terminal.
+[tokscale](https://github.com/junhoyeo/tokscale) has a public leaderboard and profiles, which you join by logging in and
+submitting your usage. tokengraph is for showing your year on your GitHub profile: the graph lives in your own gist,
+several machines merge through your own secret gist, and there is no tokengraph server or account.
 
 **Why gists?** They are free, they belong to you, GitHub serves and caches the images, and there
 is no server for anyone to run, trust or shut down. If tokengraph disappears tomorrow, your graph
