@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-10-30
+
+- The npm page now links to [tokengraph.app](https://tokengraph.app).
+- The README shows the terminal view in a short demo, and the FAQ explains how tokengraph differs
+  from ccusage and tokscale.
+
 ## 0.1.0 — 2026-10-26
 
 The first public release.

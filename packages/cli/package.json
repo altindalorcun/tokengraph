@@ -1,6 +1,6 @@
 {
   "name": "tokengraph",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A GitHub-style graph of the tokens your AI coding agents burn each day: Claude Code, Codex CLI, Cursor, Gemini CLI, Cline, OpenCode, Kilo CLI, Copilot CLI, pi, Qwen Code and Goose.",
   "keywords": [
     "ai",
@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
-    "@tokengraph/core": "0.1.0",
+    "@tokengraph/core": "0.1.1",
     "@types/react": "^19.3.0",
     "esbuild": "0.28.2",
     "qrcode-generator": "^2.0.4",
