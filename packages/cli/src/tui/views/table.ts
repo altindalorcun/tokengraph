@@ -37,7 +37,7 @@ export interface FooterPart {
 
 /** What a ranked table shows; the models and agents tabs differ only in this. */
 export interface TableSpec {
-  label: 'MODEL' | 'AGENT';
+  label: 'MODEL' | 'AGENT' | 'PROJECT';
   rows: readonly Breakdown[];
   /** Swatch, bar and detail colour of a row. */
   color: (row: Breakdown) => string;
@@ -46,6 +46,10 @@ export interface TableSpec {
   /** Muted lines listed after the ranked rows, drawn as given. */
   idle?: readonly string[];
   footer?: readonly FooterPart[];
+  /** A muted line under the selected row's detail. */
+  footnote?: (row: Breakdown) => string | null;
+  /** The shortest space worth drawing `chart` in; a chart's axes need more than a list does. */
+  chartMinHeight?: number;
   /** Draws a chart into the space left under the table and its detail (view-relative rect); the table is capped to leave room for it. */
   chart?: (view: ScreenBuffer, rect: Rect) => void;
 }
@@ -180,8 +184,9 @@ export function drawBreakdownTable(buf: ScreenBuffer, rect: Rect, props: ViewPro
   const avail = view.height - FIRST_ROW_Y;
   const wanted = Math.min(rows.length, 3);
   let reserve = 0;
-  const showDetail = rows.length > 0 && avail - DETAIL_HEIGHT >= wanted;
-  if (showDetail) reserve += DETAIL_HEIGHT;
+  const detailHeight = DETAIL_HEIGHT + (spec.footnote ? 1 : 0);
+  const showDetail = rows.length > 0 && avail - detailHeight >= wanted;
+  if (showDetail) reserve += detailHeight;
   const showFooter = !!spec.footer && avail - reserve - FOOTER_HEIGHT >= wanted;
   if (showFooter) reserve += FOOTER_HEIGHT;
   let tableRows = Math.max(0, avail - reserve);
@@ -190,7 +195,7 @@ export function drawBreakdownTable(buf: ScreenBuffer, rect: Rect, props: ViewPro
   let chartCapped = false;
   if (spec.chart && rows.length > 0) {
     const capped = Math.min(tableRows, rows.length + (spec.idle?.length ?? 0), Math.max(MIN_TABLE_ROWS, Math.floor(tableRows * TABLE_SHARE)));
-    if (bottom - (FIRST_ROW_Y + capped + (showDetail ? DETAIL_HEIGHT : 0) + 1) >= CHART_MIN_HEIGHT) {
+    if (bottom - (FIRST_ROW_Y + capped + (showDetail ? detailHeight : 0) + 1) >= (spec.chartMinHeight ?? CHART_MIN_HEIGHT)) {
       tableRows = capped;
       chartCapped = true;
     }
@@ -219,9 +224,14 @@ export function drawBreakdownTable(buf: ScreenBuffer, rect: Rect, props: ViewPro
   if (form === 2 && rows.some((r) => r.cost.pricedWeighted > 0 && r.cost.unpricedWeighted > 0)) {
     view.text(cols.nameX, FIRST_ROW_Y + used, '+ includes models without a known price', { fg: theme.muted });
   }
-  if (showDetail) drawDetail(view, FIRST_ROW_Y + used + 1, rows[selected]!, spec.color(rows[selected]!), theme);
+  if (showDetail) {
+    const y = FIRST_ROW_Y + used + 1;
+    drawDetail(view, y, rows[selected]!, spec.color(rows[selected]!), theme);
+    const note = spec.footnote?.(rows[selected]!);
+    if (note) view.text(2, y + 2, truncate(note, view.width - 2), { fg: theme.muted });
+  }
   if (chartCapped) {
-    const top = FIRST_ROW_Y + used + (showDetail ? DETAIL_HEIGHT : 0) + 1;
+    const top = FIRST_ROW_Y + used + (showDetail ? detailHeight : 0) + 1;
     spec.chart!(view, { x: 0, y: top, width: view.width, height: bottom - top });
   }
   if (showFooter) {

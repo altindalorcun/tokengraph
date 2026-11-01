@@ -21,6 +21,8 @@ export interface UsageEventRow {
   cacheRead: unknown;
   cacheWrite: unknown;
   createdAt: unknown;
+  /** `sessions.cwd`, the session's working folder; null when the sessions table, the column or the session row is missing. */
+  folder: unknown;
 }
 
 export type StoreReadResult = { kind: 'rows'; rows: UsageEventRow[] } | { kind: 'unsupported'; reason: string };
@@ -40,8 +42,10 @@ function schemaVersionProblem(db: DatabaseSyncType): string | null {
 
 /**
  * Reads Copilot CLI's `session-store.db` read-only. Only the usage counters, ids, model names and
- * the timestamp of `assistant_usage_events` are selected — never the `sessions` table (working
- * directory, branch, summary) or any prompt text. A schema that is not recognised is reported as
+ * the timestamp of `assistant_usage_events` are selected, plus each session's working folder
+ * (`sessions.cwd`, read for per-project totals; it stays on this machine and never reaches a gist).
+ * The branch, repository, summary and any prompt text are never selected, and a store without a
+ * `sessions` table or a `cwd` column simply has no folder. A schema that is not recognised is reported as
  * `unsupported` instead of being guessed at. Throws on open or query failure; the caller notes
  * it as an unreadable source.
  */
@@ -60,11 +64,13 @@ export function readUsageEvents(DatabaseSync: typeof DatabaseSyncType, path: str
     if (versionProblem) return { kind: 'unsupported', reason: versionProblem };
 
     const usageModel = names.has('copilot_usage_model') ? 'copilot_usage_model' : 'NULL';
+    const sessionColumns = new Set((db.prepare('PRAGMA table_info(sessions)').all() as Row[]).map((column) => column['name']));
+    const hasFolder = sessionColumns.has('id') && sessionColumns.has('cwd');
     const rows = db
       .prepare(
-        `SELECT id, session_id, model, ${usageModel} AS usage_model, input_tokens, output_tokens,
-                cache_read_tokens, cache_write_tokens, created_at
-         FROM assistant_usage_events ORDER BY id`,
+        `SELECT e.id, e.session_id, e.model, ${usageModel === 'NULL' ? 'NULL' : 'e.' + usageModel} AS usage_model, e.input_tokens, e.output_tokens,
+                e.cache_read_tokens, e.cache_write_tokens, e.created_at, ${hasFolder ? 's.cwd' : 'NULL'} AS folder
+         FROM assistant_usage_events e ${hasFolder ? 'LEFT JOIN sessions s ON s.id = e.session_id' : ''} ORDER BY e.id`,
       )
       .all() as Row[];
     return {
@@ -79,6 +85,7 @@ export function readUsageEvents(DatabaseSync: typeof DatabaseSyncType, path: str
         cacheRead: row['cache_read_tokens'],
         cacheWrite: row['cache_write_tokens'],
         createdAt: row['created_at'],
+        folder: row['folder'],
       })),
     };
   } finally {

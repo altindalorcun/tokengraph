@@ -28,6 +28,8 @@ export interface AppDeps {
   /** Date key in the local time zone. */
   today: () => string;
   loadLedger: () => Promise<Ledger>;
+  /** The names the user gave projects (`tokengraph projects name`). */
+  projectNames: () => Promise<Record<string, string>>;
   scan: (ledger: Ledger, since: Date, onProgress: (p: CollectProgress) => void) => Promise<LocalCollection>;
   persist: (ledger: Ledger) => Promise<'saved' | 'busy'>;
   /** 'local only' | '↑ publishing as @user' */
@@ -37,8 +39,10 @@ export interface AppDeps {
   setTimer: (fn: () => void, ms: number) => () => void;
   /** Config and installed hooks, for the action list. */
   setupStatus: () => Promise<SetupStatus>;
+  /** Asks npm for the latest version in the background; the answer arrives through `setupStatus`. */
+  checkForUpdate: () => Promise<void>;
   /** Runs a tokengraph command; `screen` ones print and prompt on the real terminal. */
-  runAction: (id: ActionId, kind: 'inline' | 'screen', status: SetupStatus | null) => Promise<{ code: number; lines: string[] }>;
+  runAction: (id: ActionId, kind: 'inline' | 'screen', status: SetupStatus | null) => Promise<{ code: number; lines: string[]; reopen?: boolean }>;
   /** Resolves when the person presses Enter on the normal screen. */
   waitForEnter: () => Promise<void>;
   /** Writes to the normal screen while the terminal is suspended. */
@@ -93,9 +97,11 @@ export async function runApp(deps: AppDeps): Promise<number> {
   const cancels = new Set<() => void>();
   try {
     const loaded = await deps.loadLedger();
+    let names = await deps.projectNames().catch(() => ({}));
+    const viewModel = (from: Ledger) => buildViewModel(from, deps.today(), { projectNames: names });
     return await new Promise<number>((resolve, reject) => {
       let ledger = loaded;
-      let state: AppState = initialState(buildViewModel(ledger, deps.today()), '…', deps.live);
+      let state: AppState = initialState(viewModel(ledger), '…', deps.live);
       const motion = new MotionController({ enabled: deps.motion, clock: deps.clock });
       let prev: ScreenBuffer | null = null;
       let hits: FrameHits | null = null;
@@ -230,9 +236,12 @@ export async function runApp(deps: AppDeps): Promise<number> {
             draw();
           }));
           if (finished) return;
+          // `tokengraph projects name` may have run in another terminal since the last scan.
+          names = await deps.projectNames().catch(() => names);
+          if (finished) return;
           const before = todayWeighted();
           ledger = result.ledger;
-          const vm = buildViewModel(ledger, today);
+          const vm = viewModel(ledger);
           state = { ...withViewModel(state, vm), detected: result.detected, empty: vm.days.length === 0 && result.detected.length === 0 };
           if (todayWeighted() > before) motion.pulseToday();
           const [first] = result.failures;
@@ -300,7 +309,8 @@ export async function runApp(deps: AppDeps): Promise<number> {
         if (ledgerChanged) {
           try {
             ledger = await deps.loadLedger();
-            if (!finished) state = withViewModel(state, buildViewModel(ledger, deps.today()));
+            names = await deps.projectNames().catch(() => names);
+            if (!finished) state = withViewModel(state, viewModel(ledger));
           } catch {
             // The in-memory ledger stays; the next scan merges into it.
           }
@@ -325,13 +335,15 @@ export async function runApp(deps: AppDeps): Promise<number> {
         try {
           deps.write(`\n› ${title}\n\n`);
           let code: number;
+          let reopen = false;
           try {
-            ({ code } = await deps.runAction(id, 'screen', state.setup));
+            ({ code, reopen = false } = await deps.runAction(id, 'screen', state.setup));
           } catch (error) {
             deps.write(`${errorText(error)}\n`);
             toast(errorText(error), 'bad');
             code = -1;
           }
+          if (reopen) return finish(0);
           if (code > 0) toast(`${title} did not finish`, 'bad');
           deps.write('\nPress Enter to return to tokengraph.');
           await deps.waitForEnter();
@@ -411,6 +423,8 @@ export async function runApp(deps: AppDeps): Promise<number> {
       motion.startSplash();
       draw();
       void refreshSetup();
+      // Never awaited and never reported: the view opens at once, and being offline is not an error.
+      void deps.checkForUpdate().then(refreshSetup).then(guard(draw), () => {});
       after(tick, TICK_MS);
       deps.modeLabel().then(
         guard((mode) => {

@@ -136,9 +136,10 @@ describe('createKiloAdapter', () => {
       model: 'claude-sonnet-4-5',
       counts: { inputTokens: 40, outputTokens: 32, cacheCreationTokens: 20, cacheReadTokens: 100, cacheCreation5mTokens: null, cacheCreation1hTokens: null },
     });
-    const serialized = JSON.stringify(result);
-    expect(serialized).not.toContain(SECRET_DIRECTORY);
-    expect(serialized).not.toContain(SECRET_TEXT);
+    expect(result.projects).toEqual([expect.objectContaining({ folder: SECRET_DIRECTORY, counts: expect.objectContaining({ inputTokens: 40, outputTokens: 32 }) })]);
+    const { projects: _projects, ...rest } = result;
+    expect(JSON.stringify(rest)).not.toContain(SECRET_DIRECTORY);
+    expect(JSON.stringify(result)).not.toContain(SECRET_TEXT);
     expect(result.notes).toBeUndefined();
   });
 

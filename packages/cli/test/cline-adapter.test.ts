@@ -181,4 +181,57 @@ describe('createClineAdapter', () => {
       expect(result.requestCount).toBe(process.platform === 'linux' ? 1 : 0);
     });
   });
+
+  describe('projects', () => {
+    it('reads the SDK manifest folder, and nothing else from it', async () => {
+      const sessionId = '1758881523000_a1b2c';
+      const sessionDir = join(dataDir, 'sessions', sessionId);
+      await mkdir(sessionDir, { recursive: true });
+      const ts = Date.now() - 3_600_000;
+      await writeFile(
+        join(sessionDir, `${sessionId}.messages.json`),
+        JSON.stringify({ messages: [sdkAssistantMessage('main-1', ts, { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0 })] }),
+      );
+      await writeFile(join(sessionDir, `${sessionId}.json`), JSON.stringify({ cwd: '/w/cwd', workspace_root: '/w/root', prompt: 'planted prompt' }));
+      const result = await createClineAdapter({ timeZone: 'UTC' }).collect(new Date(Date.now() - 86_400_000));
+      expect(result.projects).toEqual([expect.objectContaining({ folder: '/w/root' })]);
+      expect(JSON.stringify({ ...result, projects: undefined })).not.toContain('/w/');
+      expect(JSON.stringify(result)).not.toContain('planted prompt');
+    });
+
+    it('takes a classic task folder from state/taskHistory.json by id, keeping no task text', async () => {
+      const ts = Date.now() - 3_600_000;
+      for (const id of ['100', '200', '300']) {
+        await mkdir(join(dataDir, 'tasks', id), { recursive: true });
+        await writeFile(join(dataDir, 'tasks', id, 'ui_messages.json'), JSON.stringify([apiReq(ts, { tokensIn: 10, tokensOut: 1, cacheWrites: 0, cacheReads: 0 }, { providerId: 'anthropic', modelId: 'claude-sonnet-4-5-20250929' })]));
+      }
+      await mkdir(join(dataDir, 'state'), { recursive: true });
+      await writeFile(
+        join(dataDir, 'state', 'taskHistory.json'),
+        JSON.stringify([
+          { id: '100', task: 'planted task text', cwdOnTaskInitialization: '/c/one' },
+          { id: '200', task: 'other', cwdOnTaskInitialization: 7 },
+          { id: 300 },
+        ]),
+      );
+      const result = await createClineAdapter({ timeZone: 'UTC' }).collect(new Date(Date.now() - 86_400_000));
+      expect(result.requestCount).toBe(3);
+      expect(result.projects).toEqual([expect.objectContaining({ folder: '/c/one', counts: expect.objectContaining({ inputTokens: 10 }) })]);
+      expect(JSON.stringify(result)).not.toContain('planted task text');
+    });
+
+    it('survives a damaged or missing taskHistory.json', async () => {
+      const ts = Date.now() - 3_600_000;
+      await mkdir(join(dataDir, 'tasks', '100'), { recursive: true });
+      await writeFile(join(dataDir, 'tasks', '100', 'ui_messages.json'), JSON.stringify([apiReq(ts, { tokensIn: 10, tokensOut: 1, cacheWrites: 0, cacheReads: 0 }, { providerId: 'anthropic', modelId: 'claude-sonnet-4-5-20250929' })]));
+      for (const content of [null, '{broken', '{"id":"100"}']) {
+        await mkdir(join(dataDir, 'state'), { recursive: true });
+        if (content !== null) await writeFile(join(dataDir, 'state', 'taskHistory.json'), content);
+        const result = await createClineAdapter({ timeZone: 'UTC' }).collect(new Date(Date.now() - 86_400_000));
+        expect(result.requestCount).toBe(1);
+        expect(result.projects ?? []).toEqual([]);
+        expect(result.notes?.some((n) => n.includes('could not be read'))).toBeFalsy();
+      }
+    });
+  });
 });

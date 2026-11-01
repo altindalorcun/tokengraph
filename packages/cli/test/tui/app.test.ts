@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
+import { mergeProjects, emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
 import { initialState, reduce, renderFrame, requestAction, runApp, withViewModel } from '../../src/tui/app.js';
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
@@ -49,7 +49,7 @@ describe('reduce', () => {
   it('picks the Insights hour with left/right, from the busiest and round midnight, and with the mouse', () => {
     let ledger = mergeUsage(emptyLedger(), 'claude-code', [{ date: TODAY, model: 'claude-sonnet-4-5', pricingTier: 'standard', counts: c(1000) }]);
     ledger = mergeHours(ledger, 'claude-code', [{ date: TODAY, hour: 23, weighted: 900 }, { date: TODAY, hour: 9, weighted: 100 }]);
-    const s = reduce(initialState(buildViewModel(ledger, TODAY), 'local only'), { type: 'char', char: '4' }, null).state;
+    const s = reduce(initialState(buildViewModel(ledger, TODAY), 'local only'), { type: 'char', char: '5' }, null).state;
     expect(s.clockHour).toBeNull();
     const next = reduce(s, { type: 'key', key: 'right' }, null).state;
     expect(next.clockHour).toBe(0); // 23 + 1 wraps to midnight
@@ -147,8 +147,13 @@ describe('setup tab', () => {
   const setup = () => ({ ...state(), setup: status('orcun') });
   const press = (s: AppState, event: InputEvent) => reduce(s, event, null);
 
-  it('opens on 5, moves within bounds and wraps no further than the list', () => {
-    let s = press(setup(), { type: 'char', char: '5' }).state;
+  it('opens Projects on 4, Insights on 5 and Setup on 6', () => {
+    const on = (char: string) => press(setup(), { type: 'char', char }).state.tab;
+    expect([on('1'), on('2'), on('3'), on('4'), on('5'), on('6')]).toEqual(['overview', 'models', 'agents', 'projects', 'insights', 'setup']);
+  });
+
+  it('opens on 6, moves within bounds and wraps no further than the list', () => {
+    let s = press(setup(), { type: 'char', char: '6' }).state;
     expect(s.tab).toBe('setup');
     expect(s.setupSel).toBe(0);
     s = press(s, { type: 'key', key: 'up' }).state;
@@ -161,7 +166,7 @@ describe('setup tab', () => {
   });
 
   it('runs a screen item on Enter and asks first for a hook', () => {
-    const s = press(setup(), { type: 'char', char: '5' }).state;
+    const s = press(setup(), { type: 'char', char: '6' }).state;
     expect(press(s, { type: 'key', key: 'enter' }).effects).toEqual([{ run: 'sync' }]);
     const items = actionItems(s.setup, s.vm.sources);
     const hook = press({ ...s, setupSel: items.findIndex((i) => i.id === 'hook:claude-code') }, { type: 'key', key: 'enter' });
@@ -178,7 +183,7 @@ describe('setup tab', () => {
   });
 
   it('selects a row on the first press and requests it on the second; an Agents footer press opens the row', () => {
-    const s = press(setup(), { type: 'char', char: '5' }).state;
+    const s = press(setup(), { type: 'char', char: '6' }).state;
     const { hits } = renderFrame(s, { theme: 'dark' }, 160, 48, STILL);
     const row = (id: string) => hits.view.hits.find((h) => h.kind === 'action' && h.id === id)!.rect;
     const target = row('readme');
@@ -213,17 +218,17 @@ describe('renderFrame', () => {
   it('draws header, tabs, content and status bar', () => {
     const { buffer } = renderFrame(state(), { theme: 'dark' }, 140, 40, STILL);
     const text = toPlainText(buffer);
-    for (const s of ['tokengraph', '1 Overview', '4 Insights', 'local only', 'TODAY', 'q quit']) expect(text).toContain(s);
+    for (const s of ['tokengraph', '1 Overview', '5 Insights', 'local only', 'TODAY', 'q quit']) expect(text).toContain(s);
   });
 
   it('shows key hints for the current tab, with the number keys only on wide screens', () => {
     const bar = (tab: 'overview' | 'models' | 'agents' | 'insights', width: number) =>
       toPlainText(renderFrame({ ...state(), tab }, { theme: 'dark' }, width, 40, STILL).buffer).split('\n').at(-1)!;
-    expect(bar('overview', 160)).toContain('1-5 tabs  ←↑↓→ day  [ ] year  t today  c colour  s rescan  : actions  ? help  q quit');
-    expect(bar('models', 160)).toContain('1-5 tabs  ↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit');
+    expect(bar('overview', 160)).toContain('1-6 tabs  ←↑↓→ day  [ ] year  t today  c colour  s rescan  : actions  ? help  q quit');
+    expect(bar('models', 160)).toContain('1-6 tabs  ↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit');
     expect(bar('agents', 120)).toContain('↑↓ select  ←→ range');
-    expect(bar('agents', 120)).not.toContain('1-5 tabs');
-    expect(bar('insights', 160)).toContain('1-5 tabs  ←→ hour  s rescan  : actions  ? help  q quit');
+    expect(bar('agents', 120)).not.toContain('1-6 tabs');
+    expect(bar('insights', 160)).toContain('1-6 tabs  ←→ hour  s rescan  : actions  ? help  q quit');
     expect(bar('insights', 120)).not.toContain('range');
   });
 
@@ -292,7 +297,7 @@ describe('runApp', () => {
         results: [], failures: [], detected: ['codex'],
       }),
       persist: async () => (persisted += 1, 'busy'),
-      modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+      modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
       setTimer: (fn, ms) => { const t = setTimeout(fn, Math.min(ms, 5)); return () => clearTimeout(t); },
     });
     await new Promise((r) => setTimeout(r, 30));
@@ -310,7 +315,7 @@ describe('runApp', () => {
       clock: () => 0, today: () => TODAY,
       loadLedger: async () => { throw new Error('ledger exploded'); },
       scan: async (l) => ({ ledger: l, results: [], failures: [], detected: [] }),
-      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
       setTimer: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
     });
     await expect(done).rejects.toThrow('ledger exploded');
@@ -325,7 +330,7 @@ describe('runApp', () => {
       clock: () => 0, today: () => TODAY,
       loadLedger: async () => emptyLedger(),
       scan: async (l) => ({ ledger: l, results: [], failures: [], detected: [] }),
-      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
       setTimer: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
     });
     void done.then(() => void (settled = true));
@@ -346,7 +351,7 @@ describe('runApp', () => {
       clock: () => 0, today: () => TODAY,
       loadLedger: async () => emptyLedger(),
       scan: async (l) => ({ ledger: l, results: [], failures: [{ adapter: 'codex-cli', message: 'boom' }], detected: ['codex'] }),
-      persist: async () => 'saved', modeLabel: async () => { throw new Error('no config'); }, autoSync: NO_AUTO_SYNC,
+      persist: async () => 'saved', modeLabel: async () => { throw new Error('no config'); }, autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
       setTimer: (fn, ms) => { const t = setTimeout(fn, Math.min(ms, 5)); return () => clearTimeout(t); },
     });
     await new Promise((r) => setTimeout(r, 30));
@@ -366,7 +371,7 @@ describe('runApp', () => {
       clock: () => 0, today: () => day,
       loadLedger: async () => mergeUsage(emptyLedger(), 'claude-code', [{ date: TODAY, model: 'claude-sonnet-4-5', pricingTier: 'standard', counts: c(1000) }]),
       scan: async (l) => ({ ledger: l, results: [], failures: [], detected: [] }),
-      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
       setTimer: (fn, ms) => { const t = setTimeout(fn, Math.min(ms, 5)); return () => clearTimeout(t); },
     });
     await new Promise((r) => setTimeout(r, 30));
@@ -396,7 +401,7 @@ describe('runApp', () => {
         }
         return { ledger: l, results: [], failures: [], detected: [] };
       },
-      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+      persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
       setTimer: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
     });
     await expect(done).rejects.toThrow('paint exploded');
@@ -415,7 +420,7 @@ describe('runApp', () => {
       loadLedger: async () => emptyLedger(),
       scan: async (l) => ({ ledger: l, results: [], failures: [], detected: [] }),
       persist: () => new Promise<'saved'>((resolve) => { persistStarted = true; finishPersist = () => resolve('saved'); }),
-      modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+      modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
       setTimer: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
     });
     void done.then(() => void (settled = true));
@@ -440,7 +445,7 @@ describe('runApp', () => {
         loadLedger: async () => emptyLedger(),
         scan: async (l) => ({ ledger: l, results: [], failures: [], detected: [] }),
         persist: () => { started = true; return new Promise<'saved'>(() => {}); },
-        modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+        modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
         setTimer: (fn, ms) => { const t = setTimeout(fn, ms); return () => clearTimeout(t); },
       });
       await vi.advanceTimersByTimeAsync(50);
@@ -457,6 +462,88 @@ describe('runApp', () => {
     const wait = (ms = 30) => new Promise((r) => setTimeout(r, ms));
     const SETUP = { login: null, autoSync: null, cursorFetch: null, graphColors: 'model' as const };
 
+    it('picks up a project name given in another terminal on the next scan', async () => {
+      const folder = '/w/alpha';
+      const usage = { date: TODAY, model: 'claude-opus-4-8', pricingTier: 'standard' as const, counts: { inputTokens: 5000, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0 } };
+      const names: { value: Record<string, string> } = { value: {} };
+      const app = start({
+        loadLedger: async () => mergeProjects(mergeUsage(emptyLedger(), 'claude-code', [usage]), 'claude-code', [{ ...usage, folder }]),
+        projectNames: async () => names.value,
+      });
+      await wait();
+      app.term.send([{ type: 'char', char: '4' }]);
+      await wait();
+      expect(app.text()).toContain('alpha');
+      names.value = { [folder]: 'renamed' };
+      app.term.send([{ type: 'char', char: 's' }]);
+      await wait(60);
+      expect(app.text()).toContain('renamed');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    describe('updates', () => {
+      const WITH_UPDATE = { ...SETUP, update: { current: '0.1.1', latest: '0.2.0' } };
+
+      it('shows a version the check finds after the view has opened, without ever waiting for it', async () => {
+        let answer: () => void = () => {};
+        const status = { value: SETUP as unknown };
+        const app = start({
+          setupStatus: vi.fn(async () => status.value),
+          checkForUpdate: () => new Promise<void>((resolve) => { answer = resolve; }),
+        });
+        await wait();
+        expect(app.text()).toContain('Overview');
+        expect(app.text()).not.toContain('0.2.0 is out');
+        status.value = WITH_UPDATE;
+        answer();
+        await wait();
+        expect(app.text()).toContain('0.2.0 is out · u to update');
+        app.term.send([{ type: 'char', char: 'q' }]);
+        expect(await app.done).toBe(0);
+      });
+
+      it('keeps quiet and keeps working when the check fails', async () => {
+        const app = start({ checkForUpdate: async () => { throw new Error('offline'); } });
+        await wait();
+        expect(app.text()).toContain('Overview');
+        expect(app.text()).not.toContain('offline');
+        app.term.send([{ type: 'char', char: 'q' }]);
+        expect(await app.done).toBe(0);
+      });
+
+      it('u hands the terminal to the update command when a version is waiting', async () => {
+        const app = start({ setupStatus: vi.fn(async () => WITH_UPDATE) });
+        await wait();
+        app.term.send([{ type: 'char', char: 'u' }]);
+        await wait(60);
+        expect(app.term.calls).toEqual(['suspend', 'run:update:screen', 'enter', 'resume']);
+        app.term.send([{ type: 'char', char: 'q' }]);
+        expect(await app.done).toBe(0);
+      });
+
+      it('u does nothing while no update is known', async () => {
+        const app = start();
+        await wait();
+        app.term.send([{ type: 'char', char: 'u' }]);
+        await wait();
+        expect(app.runAction).not.toHaveBeenCalled();
+        app.term.send([{ type: 'char', char: 'q' }]);
+        expect(await app.done).toBe(0);
+      });
+
+      it('leaves the view after a finished update instead of going on with the old code', async () => {
+        const app = start({
+          setupStatus: vi.fn(async () => WITH_UPDATE),
+          runAction: vi.fn(async () => ({ code: 0, lines: [], reopen: true })),
+        });
+        await wait();
+        app.term.send([{ type: 'char', char: 'u' }]);
+        expect(await app.done).toBe(0);
+        expect(app.term.calls).not.toContain('enter');
+      });
+    });
+
     function start(over: Record<string, unknown> = {}) {
       const term = fakeTerminal();
       let last = '';
@@ -471,7 +558,7 @@ describe('runApp', () => {
         clock: () => 0, today: () => TODAY,
         loadLedger: async () => emptyLedger(),
         scan: async (l: never) => ({ ledger: l, results: [], failures: [], detected: [] }),
-        persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC,
+        persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
         setTimer: (fn: () => void, ms: number) => { const t = setTimeout(fn, Math.min(ms, 5)); return () => clearTimeout(t); },
         setupStatus, runAction,
         waitForEnter: async () => void term.calls.push('enter'),

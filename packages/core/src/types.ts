@@ -10,6 +10,12 @@ export interface DailyModelUsage {
   counts: SplitTokenCounts;
 }
 
+/** Usage of one working folder: the same requests as `usage`, split by where they ran. */
+export interface ProjectUsage extends DailyModelUsage {
+  /** As the agent recorded it. Local only, like hours: never in a machine file or a gist. */
+  folder: string;
+}
+
 /** Weighted tokens of one source in one local hour (0-23) of one day. Display-only; never priced. */
 export interface HourlyUsage {
   date: string;
@@ -28,6 +34,8 @@ export interface CollectResult {
    * the source has no per-request time.
    */
   hours?: HourlyUsage[];
+  /** Usage per working folder. A request with no known folder is left out, so this may sum to less than `usage`. */
+  projects?: ProjectUsage[];
   /** Human-readable caveats about this run (skipped or approximated records), printed by sync. */
   notes?: string[];
 }

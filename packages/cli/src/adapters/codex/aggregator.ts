@@ -12,6 +12,7 @@ import {
   type DailyModelUsage,
   type SplitTokenCounts,
 } from '@tokengraph/core';
+import { groupByFolder, type FolderRequest } from '../request-buckets.js';
 
 /** Used when a usage record cannot be tied to a turn's model — never a guess. */
 export const UNKNOWN_MODEL = 'unknown';
@@ -44,6 +45,7 @@ interface PendingEvent {
   instant: Date;
   usage: RawUsage;
   fast: boolean;
+  folder?: string | null;
 }
 
 /** A response awaiting cross-file model resolution, keyed by response_id in resolvedRecords. */
@@ -131,6 +133,9 @@ export class CodexUsageAggregator {
   private records: (PendingEvent & { turnId: string | null; responseId: string })[] = [];
   private tokenCounts: (PendingEvent & { model: string | null; totalTokens: number | null })[] = [];
   private sawRecord = false;
+  /** This file's working folder, from its `session_meta` line. */
+  private folder: string | null = null;
+  private readonly requests: FolderRequest[] = [];
 
   constructor(options: CodexAggregatorOptions = {}) {
     this.options = options;
@@ -153,6 +158,7 @@ export class CodexUsageAggregator {
     this.records = [];
     this.tokenCounts = [];
     this.sawRecord = false;
+    this.folder = null;
   }
 
   addLine(line: string): void {
@@ -173,6 +179,10 @@ export class CodexUsageAggregator {
     const payload = asObject(entry?.['payload']);
     if (!entry || !payload) return;
     switch (entry['type']) {
+      case 'session_meta':
+        // The first line is this session's own; a fork can repeat its parent's after it.
+        this.folder ??= nonEmptyString(payload['cwd']);
+        return;
       case 'turn_context':
         this.addTurnContext(payload);
         return;
@@ -242,6 +252,8 @@ export class CodexUsageAggregator {
       this.resolvedRecords.set(responseId, { event, model });
       return;
     }
+    // A copy that wins below must not lose the folder only the other copy knew.
+    event = { ...event, folder: event.folder ?? existing.event.folder ?? null };
     const resolved = model !== UNKNOWN_MODEL;
     const existingResolved = existing.model !== UNKNOWN_MODEL;
     if (resolved !== existingResolved) {
@@ -255,7 +267,7 @@ export class CodexUsageAggregator {
     this.assertNotFinalized();
     for (const record of this.records) {
       const model = (record.turnId && this.turnModels.get(record.turnId)) || UNKNOWN_MODEL;
-      this.mergeRecord(record.responseId, model, { instant: record.instant, usage: record.usage, fast: record.fast });
+      this.mergeRecord(record.responseId, model, { instant: record.instant, usage: record.usage, fast: record.fast, folder: this.folder });
     }
     if (!this.sawRecord) {
       // Older Codex builds can re-emit an unchanged token_count on a rate-limit refresh;
@@ -268,7 +280,7 @@ export class CodexUsageAggregator {
         const isRepeat = event.totalTokens !== null && event.totalTokens === lastTotal;
         if (event.totalTokens !== null) lastTotal = event.totalTokens;
         if (isRepeat) continue;
-        const counted = this.add({ instant: event.instant, usage: event.usage, fast: event.fast }, event.model ?? UNKNOWN_MODEL);
+        const counted = this.add({ instant: event.instant, usage: event.usage, fast: event.fast, folder: this.folder }, event.model ?? UNKNOWN_MODEL);
         if (counted) this.counters.fallbackEvents += 1;
       }
     }
@@ -293,6 +305,7 @@ export class CodexUsageAggregator {
     const pricingTier = pricingTierFor({ fast: event.fast, inputTokens: input, thresholdTokens: longContextThreshold(model) ?? undefined });
     const date = dateKey(event.instant, this.options.timeZone);
     this.hours.add(date, hourKey(event.instant, this.options.timeZone), weightedTokens(counts));
+    this.requests.push({ date, model, pricingTier, counts, folder: event.folder ?? null });
     const key = `${date}\0${model}\0${pricingTier}`;
     const existing = this.buckets.get(key);
     if (existing) {
@@ -335,6 +348,7 @@ export class CodexUsageAggregator {
       source: CODEX_CLI_SOURCE,
       usage,
       hours: this.hours.toList(),
+      projects: groupByFolder(this.requests),
       requestCount: this.acceptedRecordCount + this.counters.fallbackEvents,
     };
   }

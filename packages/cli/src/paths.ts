@@ -76,6 +76,11 @@ export function syncLockPath(): string {
   return join(configHome(), 'sync.lock');
 }
 
+/** The latest version npm reported and when (`update-check.ts`). No usage data. */
+export function updateCheckPath(): string {
+  return join(configHome(), 'update-check.json');
+}
+
 /** Other machines' files from the data gist, as of the last publish (`publish/machines-cache.ts`). */
 export function machinesCachePath(): string {
   return join(configHome(), 'machines.json');

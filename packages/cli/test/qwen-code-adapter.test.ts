@@ -123,6 +123,19 @@ describe('qwen code adapter', () => {
     expect(await adapter.detect()).toBe(false);
   });
 
+  it('books chat records and subagent transcripts by their cwd; a record with none stays out of projects', async () => {
+    await chat('a.jsonl', [assistant({ uuid: 'c1', cwd: '/w/a' }), assistant({ uuid: 'c2', cwd: '/w/b' }), assistant({ uuid: 'c3', cwd: undefined })]);
+    await subagent('sess-1', 'x', [assistant({ uuid: 's1', cwd: '/w/a' }), assistant({ uuid: 's2', cwd: undefined })]);
+    const result = await collect();
+    expect(result.requestCount).toBe(5);
+    expect(result.projects!.map((row) => [row.folder, row.counts.outputTokens])).toEqual([['/w/a', 600], ['/w/b', 300]]);
+    expect(result.usage[0]!.counts.outputTokens).toBe(1500);
+    const { projects, ...rest } = result;
+    expect(projects).toHaveLength(2);
+    expect(JSON.stringify(rest)).not.toContain('/w/');
+    expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
   it('folds cache into the prompt: fresh input = prompt - cached, output never adds thoughts', async () => {
     await chat('a.jsonl', [assistant()]);
     const result = await collect();
@@ -140,7 +153,11 @@ describe('qwen code adapter', () => {
     ]);
     expect(result.notes).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('SECRET');
-    expect(JSON.stringify(result)).not.toContain('/Users/');
+    // The working folder is read for per-project totals and appears only in `projects`.
+    expect(result.projects!.map((row) => row.folder)).toEqual(['/Users/someone/private']);
+    const { projects, ...rest } = result;
+    expect(projects).toHaveLength(1);
+    expect(JSON.stringify(rest)).not.toContain('/Users/');
   });
 
   it('takes output from total - prompt when thoughts sit outside candidates (Gemini-native)', async () => {
@@ -336,6 +353,31 @@ describe('qwen code adapter', () => {
       const result = await collect();
       expect(result.requestCount).toBe(2);
       expect(result.usage[0]!.counts).toMatchObject({ inputTokens: 1007 + 3000, cacheReadTokens: 203 + 9000 });
+    });
+
+    it('books a ledger day under the folder of each request\'s session, memory extractor included', async () => {
+      const session = (REAL_MAIN as { sessionId: string }).sessionId;
+      await chat('a.jsonl', [chatMain({ cwd: '/w/a', sessionId: session })]);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN, { ...REAL_EXTRACTOR, sessionId: session }]);
+      const result = await collect();
+      expect(result.usage[0]!.counts).toMatchObject({ inputTokens: 2021, outputTokens: 66, cacheReadTokens: 409 });
+      expect(result.projects!.map((row) => [row.folder, row.date, row.counts.inputTokens])).toEqual([['/w/a', '2026-10-18', 2021]]);
+    });
+
+    it('leaves a ledger request out of projects when no chat names its session', async () => {
+      await chat('a.jsonl', [chatMain({ cwd: '/w/a', sessionId: 'another-session' })]);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN, REAL_EXTRACTOR]);
+      const result = await collect();
+      expect(result.usage[0]!.counts).toMatchObject({ inputTokens: 2021 });
+      expect(result.projects).toEqual([]);
+    });
+
+    it('reads a chat day from the chats, never adding the ledger', async () => {
+      const session = (REAL_MAIN as { sessionId: string }).sessionId;
+      await chat('a.jsonl', [chatMain({ cwd: '/w/a', sessionId: session }), chatMain({ cwd: '/w/a', sessionId: session, uuid: 'second' })]);
+      await ledger('token-usage-2026-10.jsonl', [REAL_MAIN]);
+      const result = await collect();
+      expect(result.projects!.reduce((sum, row) => sum + row.counts.inputTokens, 0)).toBe(result.usage[0]!.counts.inputTokens);
     });
 
     it('prefers the ledger on a tie', async () => {

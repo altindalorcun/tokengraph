@@ -53,8 +53,12 @@ These counters are local session token usage, not a provider bill or quota repor
 A line is a `ChatRecord`
 ([chatRecordingService.ts#L354-L471](https://github.com/QwenLM/qwen-code/blob/e584d4d1973ad2b40278e67a945eb62c0006baaa/packages/core/src/services/chatRecordingService.ts#L354-L471)).
 The fields the adapter reads, and nothing else: `type`, `uuid`, `timestamp` (ISO 8601), `model`,
-`usageMetadata`. Message text (`message`), tool output, `cwd` and the rest of the record are never read into
-anything that is kept. Only `type: "assistant"` records carry request usage (`recordAssistantTurn`, called only
+`usageMetadata`, and `cwd`, the working folder, which is read for per-project totals, stays on this machine and
+never reaches a gist (a subagent transcript record uses its own `cwd` when it has one). Message text
+(`message`), tool output and the rest of the record are never read into anything that is kept. The usage ledger
+has no folder but names each request's `sessionId`, so a chat's `cwd` also gives the folder of that session's ledger
+rows, memory extractor included. Per-project totals follow the same per-day choice as the counts and never mix the two
+sources; a ledger row whose session no chat names has no folder. Only `type: "assistant"` records carry request usage (`recordAssistantTurn`, called only
 from `core/llm-chat.ts`, once per API response). Record types `user`, `tool_result` and `system` are ignored; in
 particular `system` / `ui_telemetry` embeds a second copy of the same token counts and would double count.
 
@@ -171,7 +175,7 @@ once; `/branch` does not copy it.
 ```
 
 - Fields read: `schemaVersion`, `id`, `timestamp`, `model`, `inputTokens`, `outputTokens`, `cachedTokens`,
-  `totalTokens`. The session id and everything else are never kept. A file whose month is before the `since`
+  `totalTokens`. The session id is used only to find the session's folder, and it and everything else are never kept. A file whose month is before the `since`
   month is skipped.
 - Only `schemaVersion` 1 is read. Any other value is skipped and reported in one note, because a new schema may
   have changed what the counters mean and an overcount can never leave the ledger.

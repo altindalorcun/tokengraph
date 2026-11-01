@@ -373,3 +373,14 @@ describe('normalizeSdk', () => {
     expect(diagnostics.clamped).toBe(0);
   });
 });
+
+describe('addClassicTask folder', () => {
+  it('carries the task folder to its requests, and leaves a task without one out of projects', () => {
+    const buckets = new RequestBuckets();
+    const row = apiReq(T1, { tokensIn: 10, tokensOut: 5, cacheWrites: 0, cacheReads: 0 }, { providerId: 'anthropic', modelId: 'claude-sonnet-4-5-20250929' });
+    addClassicTask({ ...task('t1', [row]), folder: '/work/app' }, buckets, emptyClineDiagnostics(), UTC);
+    addClassicTask(task('t2', [{ ...row, ts: T1 + 1 }]), buckets, emptyClineDiagnostics(), UTC);
+    expect(buckets.toUsage()[0]!.counts.inputTokens).toBe(20);
+    expect(buckets.toProjects().map((p) => [p.folder, p.counts.inputTokens])).toEqual([['/work/app', 10]]);
+  });
+});

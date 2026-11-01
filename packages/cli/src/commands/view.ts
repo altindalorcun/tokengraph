@@ -1,9 +1,11 @@
+import { spawnSync } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dateKey, type Theme } from '@tokengraph/core';
+import { binPath, cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
 import { readConfig } from '../config.js';
 import type { SetupStatus } from '../tui/actions.js';
-import { ledgerToUsage, mergeLedgerAccounts, mergeLedgerHours, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
+import { ledgerToUsage, mergeLedgerAccounts, mergeLedgerHours, mergeLedgerProjects, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
 import { acquireSyncLock } from '../sync-lock.js';
 import { runApp, type AppDeps } from '../tui/app.js';
@@ -12,6 +14,7 @@ import { detectColorDepth, openTerminal } from '../tui/terminal.js';
 import { buildViewModel, shiftDate } from '../tui/model.js';
 import { renderSnapshot } from '../tui/print.js';
 import { runAction, waitForEnter } from '../tui/run-action.js';
+import { knownUpdate, refreshUpdateCheck } from '../update-check.js';
 
 export interface ViewOptions {
   motion: boolean;
@@ -45,6 +48,7 @@ async function persistLedger(ledger: Ledger): Promise<'saved' | 'busy'> {
     }
     merged = mergeLedgerAccounts(merged, ledger.accounts);
     merged = mergeLedgerHours(merged, ledger);
+    merged = mergeLedgerProjects(merged, ledger);
     await writeLedger(ledgerPath(), merged);
     return 'saved';
   } finally {
@@ -61,6 +65,7 @@ async function modeLabel(): Promise<string> {
 async function setupStatus(): Promise<SetupStatus> {
   const [config, autoSync] = await Promise.all([readConfig(), detectAutoSync()]);
   return {
+    update: { current: cliVersion(), latest: await knownUpdate({ config }) },
     login: config.github?.login ?? null,
     autoSync,
     cursorFetch: config.cursor?.fetch ?? null,
@@ -110,7 +115,8 @@ export async function runView(options: ViewOptions): Promise<number> {
   // Raw mode needs a TTY on both ends; without stdin the user could not even quit with Ctrl-C cleanly.
   if (options.print || !process.stdout.isTTY || !process.stdin.isTTY) return printSnapshot(options);
   const terminal = openTerminal({ stdin: process.stdin, stdout: process.stdout });
-  return runApp({
+  let reopen = false;
+  const code = await runApp({
     terminal,
     depth: detectColorDepth(process.env, true),
     theme: resolveTheme(options.theme, process.env),
@@ -119,12 +125,18 @@ export async function runView(options: ViewOptions): Promise<number> {
     clock: () => performance.now(),
     today: () => dateKey(new Date()),
     loadLedger: () => readLedger(ledgerPath()),
+    projectNames: async () => (await readConfig()).projects?.names ?? {},
     scan,
     persist: persistLedger,
     modeLabel,
     autoSync: () => detectAutoSync(),
     setupStatus,
-    runAction,
+    checkForUpdate: () => refreshUpdateCheck(),
+    runAction: async (id, kind, status) => {
+      const result = await runAction(id, kind, status);
+      reopen ||= result.reopen === true;
+      return result;
+    },
     waitForEnter,
     write: (text) => void process.stdout.write(text),
     setTimer: (fn, ms) => {
@@ -132,4 +144,7 @@ export async function runView(options: ViewOptions): Promise<number> {
       return () => clearTimeout(timer);
     },
   });
+  // The bundle on disk is the new version now; this process still holds the old one.
+  if (!reopen) return code;
+  return spawnSync(process.execPath, [binPath(), ...process.argv.slice(2)], { stdio: 'inherit' }).status ?? 1;
 }

@@ -7,7 +7,9 @@ import { configHome } from '../../paths.js';
  * of its own on disk, so this file is the only record of Cursor usage and is never pruned.
  *
  * Only these fields are ever stored: the hook payload also carries the conversation id,
- * workspace paths, the user's e-mail and a transcript path, none of which leave the payload.
+ * the user's e-mail, a transcript path and the assistant's text, none of which leave the payload.
+ * The first workspace root is the one exception: it is read for per-project totals, stays on this
+ * machine and never reaches a gist. Message text is still never read.
  * Token counts stay null when the payload omits them — Cursor does not document these fields,
  * and an absent count is unknown, not zero.
  */
@@ -22,10 +24,20 @@ export interface CursorEvent {
   fast: boolean;
   status: string | null;
   cursorVersion: string | null;
+  /** The payload's first `workspace_roots` entry. Absent on older lines and when the payload had none. */
+  folder?: string;
   inputTokens: number | null;
   outputTokens: number | null;
   cacheReadTokens: number | null;
   cacheWriteTokens: number | null;
+}
+
+/** A path longer than this is unexpected input, so it is left out rather than cut. */
+const MAX_FOLDER_LENGTH = 1024;
+
+function firstRoot(roots: unknown): string | undefined {
+  const root: unknown = Array.isArray(roots) ? roots[0] : undefined;
+  return typeof root === 'string' && root.length > 0 && root.length <= MAX_FOLDER_LENGTH ? root : undefined;
 }
 
 export function cursorEventsPath(): string {
@@ -69,6 +81,7 @@ export function eventFromHookPayload(payload: unknown, receivedAt: Date): Cursor
   const generationId = nonEmptyString(fields['generation_id']);
   if (!generationId || generationId.length > MAX_STRING_LENGTH) return null;
   const params = fields['model_params'];
+  const folder = firstRoot(fields['workspace_roots']);
   return {
     v: 1,
     receivedAt: receivedAt.toISOString(),
@@ -78,6 +91,7 @@ export function eventFromHookPayload(payload: unknown, receivedAt: Date): Cursor
     fast: Array.isArray(params) && params.some(isFastParam),
     status: truncatedString(fields['status']),
     cursorVersion: truncatedString(fields['cursor_version']),
+    ...(folder ? { folder } : {}),
     inputTokens: count(fields['input_tokens']),
     outputTokens: count(fields['output_tokens']),
     cacheReadTokens: count(fields['cache_read_tokens']),
@@ -116,6 +130,7 @@ export function parseCursorEvent(line: string): CursorEvent | null {
   const modelId = nullableString(fields['modelId']);
   const status = nullableString(fields['status']);
   const cursorVersion = nullableString(fields['cursorVersion']);
+  const folder = firstRoot([fields['folder']]);
   const inputTokens = nullableCount(fields['inputTokens']);
   const outputTokens = nullableCount(fields['outputTokens']);
   const cacheReadTokens = nullableCount(fields['cacheReadTokens']);
@@ -141,6 +156,7 @@ export function parseCursorEvent(line: string): CursorEvent | null {
     fast: fields['fast'],
     status,
     cursorVersion,
+    ...(folder ? { folder } : {}),
     inputTokens,
     outputTokens,
     cacheReadTokens,

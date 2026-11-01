@@ -25,8 +25,9 @@ export function piSessionDirs(): string[] {
 
 /**
  * Reads the pi coding agent's session files (`sessions/--<cwd>--/<time>_<id>.jsonl`). Only usage
- * counters, the provider, model, response id and timestamps are read from a line; message text and
- * working directories are never kept.
+ * counters, the provider, model, response id and timestamps are read from a line, plus the header's
+ * working folder for per-project totals (it stays on this machine and never reaches a gist); message
+ * text is never read.
  */
 export interface PiAdapterOptions extends Pick<PiAggregatorOptions, 'timeZone'>, RootsOption {}
 
@@ -53,6 +54,7 @@ export function createPiAdapter(adapterOptions: PiAdapterOptions = {}): Adapter 
           const info = await stat(path).catch(() => null);
           if (!info || info.mtime < since) continue;
           if (!(await files.first(path))) continue;
+          aggregator.startFile();
           await readLines(path, (line) => aggregator.addLine(line));
         }
       }

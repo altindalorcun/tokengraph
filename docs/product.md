@@ -7,8 +7,8 @@ things:
 
 - a **graph**: a GitHub-contribution-style heatmap of daily token usage, as an SVG you can put in
   your profile README;
-- a **terminal view**: the same graph, plus totals, models and estimated cost, right in your
-  terminal;
+- a **terminal view**: the same graph, plus totals, models, projects and estimated cost, right in
+  your terminal;
 - **story cards**: PNGs sized for Instagram and TikTok stories, drawn on your machine and handed
   to your phone with a QR code.
 
@@ -22,6 +22,9 @@ Anyone who codes with AI agents and would like to see (and show) how much they u
 supported only when its usage can be read reliably from local data. If an agent keeps no usable
 token counters on disk, we do not guess; see the per-agent notes in [`docs/agents/`](agents/) for
 how each supported tool stores its data.
+
+It also answers "how much did this project cost me?". A team can get the same answer across people
+without a server: everyone runs `tokengraph export --projects` and the team combines the files.
 
 ## What success looks like
 
@@ -44,20 +47,24 @@ an agent prunes its logs, is worse than no graph. So:
 - **Tool-neutral.** The graph is coloured by model family, not by agent. No tool is favoured.
 - **Open source.** MIT-licensed, and everything that runs is in this repository.
 - **Local-first and free to run.** Nothing the project pays for scales with its users.
-- **Token counts only.** tokengraph never reads, stores or sends prompts, answers or code. The
-  public gist holds an SVG graph with family colours and names, never model ids or per-model counts (only daily totals).
+- **Token counts, and where they were burned.** tokengraph never reads, stores or sends prompts,
+  answers or code. It notes the folder each session ran in, to total usage per project, and that
+  stays on your machine. The public gist holds an SVG graph with family colours and names, never model
+  ids or per-model counts (only daily totals), and never a project.
 - **Publishing is opt-in and goes to you.** Your usage leaves your machine only when you choose
-  to publish it, and it goes to gists on your own GitHub account. The one other network call is
-  the Cursor fetch, which asks cursor.com for your own Cursor usage and can be turned off.
+  to publish it, and it goes to gists on your own GitHub account. The two other network calls are
+  the Cursor fetch, which asks cursor.com for your own Cursor usage, and the view's daily version
+  check, which asks the npm registry for the latest version and sends no usage. Both can be turned off.
 
 ## Non-goals
 
 - A hosted service, accounts or a sign-up flow.
-- Billing, quota or spend tracking. The cost shown is an estimate at public list prices.
-- Collecting prompts, code or anything beyond token counters.
+- Invoices, budgets or quotas. The cost shown, per day or per project, is an estimate at public list
+  prices, not what a subscription plan charges.
+- Collecting prompts, code or anything beyond token counters and the folder a session ran in.
 - Leaderboards or ranking people against each other. (A community wall built from pull requests
   may come later, see below; it would be opt-in and in the open.)
-- Team dashboards.
+- Hosted team dashboards. Teams combine exports themselves.
 
 ## Ideas for later
 

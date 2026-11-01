@@ -1,7 +1,7 @@
-import { dateKey, hourKey, PRICING_TIERS, QWEN_CODE_SOURCE, weightedTokens, type CollectResult, type DailyModelUsage, type HourlyUsage, type SplitTokenCounts } from '@tokengraph/core';
+import { dateKey, hourKey, PRICING_TIERS, QWEN_CODE_SOURCE, weightedTokens, type CollectResult, type DailyModelUsage, type HourlyUsage, type ProjectUsage, type SplitTokenCounts } from '@tokengraph/core';
 import { canonicalModelId } from '../model-ids.js';
 import { CopyDiagnostics } from '../record-diagnostics.js';
-import { RequestBuckets, tierForModel, type RequestRecord } from '../request-buckets.js';
+import { groupByFolder, RequestBuckets, tierForModel, type RequestRecord } from '../request-buckets.js';
 import { asObject, nonEmptyString, readInstant, readOptionalCount, readRequiredCount } from '../usage-fields.js';
 
 export interface QwenAggregatorOptions {
@@ -24,6 +24,10 @@ export interface QwenDiagnostics {
 export interface QwenSourceResult {
   usage: DailyModelUsage[];
   hours: HourlyUsage[];
+  /** Per working folder. The chats record one; the ledger gets it through `sessionFolders`. */
+  projects?: ProjectUsage[];
+  /** Session id to working folder, from the chats. */
+  sessionFolders?: ReadonlyMap<string, string>;
   requestsByDate: Map<string, number>;
 }
 
@@ -90,7 +94,8 @@ export function parseJsonObjects(line: string): unknown[] {
  * Reads Qwen Code chat records. One `type: "assistant"` record with a `usageMetadata` object is
  * one API request; its `uuid` is global across files, since `/branch` copies every retained
  * record, usage included, into the new session's file. Only the usage counters, `model`, `uuid`
- * and `timestamp` are read; message text is never touched. `usageMetadata` is Gemini-shaped but
+ * and `timestamp` are read, plus `cwd` (the working folder, for per-project totals; it stays on this
+ * machine and never reaches a gist); message text is never touched. `usageMetadata` is Gemini-shaped but
  * its meaning depends on the wire protocol, which the record does not name: `promptTokenCount`
  * includes cached tokens (and, on the Anthropic protocol, cache-creation tokens, which are not
  * stored separately and so count as fresh input here), and `thoughtsTokenCount` is never added to
@@ -101,6 +106,8 @@ export class QwenUsageAggregator {
   private readonly options: QwenAggregatorOptions;
   private readonly buckets = new RequestBuckets();
   private readonly diagnosis = new CopyDiagnostics<'clamped'>();
+  /** Which folder each session ran in, for the usage ledger, whose rows name only a session. */
+  private readonly sessionFolders = new Map<string, string>();
   /** Malformed records that have no uuid to match copies by. */
   private unkeyedMalformed = 0;
   private unreadableFiles = 0;
@@ -136,9 +143,13 @@ export class QwenUsageAggregator {
 
     this.diagnosis.noteValid(id, prompt < cached ? ['clamped'] : []);
 
+    const session = nonEmptyString(entry['sessionId']);
+    const folder = nonEmptyString(entry['cwd']);
+    if (session && folder && !this.sessionFolders.has(session)) this.sessionFolders.set(session, folder);
+
     const counts = normalisedCounts(prompt, cached, candidates, total);
     const model = canonicalModelId(null, nonEmptyString(entry['model']) ?? fallbackModel);
-    const request: RequestRecord = { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts };
+    const request: RequestRecord = { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts, folder };
     this.buckets.add(id, request);
   }
 
@@ -152,7 +163,7 @@ export class QwenUsageAggregator {
   }
 
   result(): QwenSourceResult {
-    return { usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestsByDate: this.buckets.requestsByDate() };
+    return { usage: this.buckets.toUsage(), hours: this.buckets.toHours(), projects: this.buckets.toProjects(), sessionFolders: this.sessionFolders, requestsByDate: this.buckets.requestsByDate() };
   }
 }
 
@@ -163,7 +174,7 @@ const LEDGER_SCHEMA_VERSION = 1;
  * Reads Qwen Code's own per-request ledger, `usage/token-usage-YYYY-MM.jsonl` (Qwen Code 0.19.0 and
  * later, while `privacy.usageStatisticsEnabled` is on). Unlike the chat records it also holds the
  * managed memory extractor's requests. A record's `id` is its request; only `schemaVersion`, `id`,
- * `timestamp`, `model` and the token counters are read, never the session id. `inputTokens`
+ * `timestamp`, `sessionId`, `model` and the token counters are read. `inputTokens`
  * includes cached tokens (and, on the Anthropic protocol, cache creation), exactly as
  * `promptTokenCount` does, so the arithmetic is the chat records'. `thoughtsTokens` is never added.
  */
@@ -210,7 +221,8 @@ export class QwenLedgerAggregator {
 
     const counts = normalisedCounts(input, cached, output, total);
     const model = canonicalModelId(null, nonEmptyString(entry['model']));
-    this.buckets.add(id, { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    // The ledger has a session where the chats have a folder: the buckets group by it, and `result` turns it into the folder.
+    this.buckets.add(id, { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts, folder: nonEmptyString(entry['sessionId']) });
   }
 
   diagnostics(): QwenDiagnostics {
@@ -222,8 +234,10 @@ export class QwenLedgerAggregator {
     };
   }
 
-  result(): QwenSourceResult {
-    return { usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestsByDate: this.buckets.requestsByDate() };
+  /** `sessionFolders` comes from the chats; a request whose session no chat names has no folder. */
+  result(sessionFolders: ReadonlyMap<string, string> = new Map()): QwenSourceResult {
+    const projects = groupByFolder(this.buckets.toProjects().map((row) => ({ ...row, folder: sessionFolders.get(row.folder) ?? null })));
+    return { usage: this.buckets.toUsage(), hours: this.buckets.toHours(), projects, requestsByDate: this.buckets.requestsByDate() };
   }
 }
 
@@ -233,7 +247,7 @@ export class QwenLedgerAggregator {
  * of the requests that really happened (chats miss the memory extractor, the ledger misses days
  * before Qwen Code 0.19.0 or with usage statistics off), so the per-day maximum cannot overcount.
  * The only undercount is a day where some requests are in one source only and others in the
- * other. A per-session choice was rejected: `/branch` copies records into a new session id, which
+ * other. `projects` follows the same choice, so it never mixes the two either. A per-session choice was rejected: `/branch` copies records into a new session id, which
  * would count the same requests in two sessions.
  */
 export function combineQwenSources(chats: QwenSourceResult, ledger: QwenSourceResult): CollectResult {
@@ -255,5 +269,6 @@ export function combineQwenSources(chats: QwenSourceResult, ledger: QwenSourceRe
     (a, b) => a.date.localeCompare(b.date) || a.model.localeCompare(b.model) || PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
   );
   const hours = [...chats.hours.filter((row) => !ledgerWins(row.date)), ...ledger.hours.filter((row) => ledgerWins(row.date))].sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour);
-  return { source: QWEN_CODE_SOURCE, usage, hours, requestCount };
+  const projects = [...(chats.projects ?? []).filter((row) => !ledgerWins(row.date)), ...(ledger.projects ?? []).filter((row) => ledgerWins(row.date))];
+  return { source: QWEN_CODE_SOURCE, usage, hours, projects, requestCount };
 }

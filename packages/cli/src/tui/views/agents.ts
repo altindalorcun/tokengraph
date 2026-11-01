@@ -2,7 +2,7 @@ import { agentName } from '@tokengraph/core';
 import type { ActionId } from '../actions.js';
 import type { AutoSyncStatus } from '../auto-sync.js';
 import { mix } from '../color.js';
-import { RANGE_LABELS, agentBreakdown, agentBuckets, rangeBuckets } from '../model.js';
+import { RANGE_LABELS, agentBreakdown, agentBuckets, rangeBuckets, topProjectsLine } from '../model.js';
 import type { Rect, ScreenBuffer } from '../screen.js';
 import type { TuiTheme } from '../theme.js';
 import type { TableState, ViewProps, ViewResult } from './props.js';
@@ -55,6 +55,7 @@ export function drawAgents(
     rows: agentBreakdown(vm, state.range),
     color: (row) => agentColor(row.key),
     extras: true,
+    footnote: (row) => topProjectsLine(vm, 'agent', row.key, state.range),
     idle,
     footer: autoSync ? autoSyncFooter(autoSync, theme, rect.width) : undefined,
     chart: (view, area) => {

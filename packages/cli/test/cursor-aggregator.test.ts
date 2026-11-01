@@ -248,3 +248,17 @@ describe('CursorUsageAggregator hours', () => {
     expect(aggregator.result().hours).toEqual([{ date: '2026-09-20', hour: 3, weighted: 120 }]);
   });
 });
+
+describe('CursorUsageAggregator projects', () => {
+  it('carries the folder per turn, deduped by generation id, and skips turns and imports without one', () => {
+    const aggregator = new CursorUsageAggregator({ timeZone: 'UTC' });
+    aggregator.add(event({ generationId: 'a', folder: '/p/one' }));
+    aggregator.add(event({ generationId: 'a', folder: '/p/one', outputTokens: 80 }));
+    aggregator.add(event({ generationId: 'b', folder: '/p/two' }));
+    aggregator.add(event({ generationId: 'c' }));
+    aggregator.addImported({ id: 'r1', at: '2026-09-01T10:00:00.000Z', model: 'composer-2.5', inputTokens: 5, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 } as never);
+    const result = aggregator.result();
+    expect(result.projects?.map((p) => [p.folder, p.counts.outputTokens])).toEqual([['/p/one', 80], ['/p/two', 50]]);
+    expect(result.requestCount).toBe(4);
+  });
+});

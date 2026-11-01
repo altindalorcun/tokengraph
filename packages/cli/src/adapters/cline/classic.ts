@@ -9,6 +9,8 @@ export interface ClassicTask {
   messages: unknown[];
   /** Parsed task_metadata.json, or null when absent/unreadable. */
   metadata: unknown | null;
+  /** The task's working folder from `state/taskHistory.json`, when known. */
+  folder?: string | null;
 }
 
 interface ModelUsageEntry {
@@ -128,6 +130,6 @@ export function addClassicTask(
     const instant = new Date(ts);
     const date = dateKey(instant, options.timeZone);
     const key = `classic:${task.taskId}:${ts}:${say}`;
-    buckets.add(key, { date, hour: hourKey(instant, options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    buckets.add(key, { date, hour: hourKey(instant, options.timeZone), model, pricingTier: tierForModel(model, counts), counts, folder: task.folder });
   }
 }

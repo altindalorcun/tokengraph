@@ -8,6 +8,7 @@ import {
   type DailyModelUsage,
   type HourlyUsage,
   type PricingTier,
+  type ProjectUsage,
   type SplitTokenCounts,
 } from '@tokengraph/core';
 
@@ -19,20 +20,44 @@ export interface RequestRecord {
   model: string;
   pricingTier: PricingTier;
   counts: SplitTokenCounts;
+  /** The working folder the agent recorded, when it recorded one. */
+  folder?: string | null;
+}
+
+export type FolderRequest = Pick<RequestRecord, 'date' | 'model' | 'pricingTier' | 'counts' | 'folder'>;
+
+/** Sums requests per folder, date, model and tier. A request with no folder is left out. */
+export function groupByFolder(requests: Iterable<FolderRequest>): ProjectUsage[] {
+  const rows = new Map<string, ProjectUsage>();
+  for (const { folder, date, model, pricingTier, counts } of requests) {
+    if (!folder) continue;
+    const key = `${folder}\0${date}\0${model}\0${pricingTier}`;
+    const existing = rows.get(key);
+    if (existing) existing.counts = addSplitCounts(existing.counts, counts);
+    else rows.set(key, { folder, date, model, pricingTier, counts: { ...counts } }); // a copy, so a null cache split stays null
+  }
+  return [...rows.values()].sort(
+    (a, b) =>
+      a.folder.localeCompare(b.folder) ||
+      a.date.localeCompare(b.date) ||
+      a.model.localeCompare(b.model) ||
+      PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
+  );
 }
 
 /**
  * Collects requests keyed by a source's stable request id. The same request is often seen more
  * than once (a file rewritten or copied, a session forked, a record migrated between stores);
  * copies are merged with a per-field max so a request is counted once, at its most complete
- * snapshot. The first copy's date, hour and model win, so a later copy cannot move a request.
+ * snapshot. The first copy's date, hour, model and folder win, so a later copy cannot move a request;
+ * a later copy only fills in a folder the first one did not have.
  */
 export class RequestBuckets {
   private readonly requests = new Map<string, RequestRecord>();
 
   add(key: string, record: RequestRecord): void {
     const existing = this.requests.get(key);
-    this.requests.set(key, existing ? { ...existing, counts: maxSplitCounts(existing.counts, record.counts) } : record);
+    this.requests.set(key, existing ? { ...existing, folder: existing.folder ?? record.folder, counts: maxSplitCounts(existing.counts, record.counts) } : record);
   }
 
   get size(): number {
@@ -51,6 +76,10 @@ export class RequestBuckets {
     const sums = new HourSums();
     for (const { date, hour, counts } of this.requests.values()) sums.add(date, hour, weightedTokens(counts));
     return sums.toList();
+  }
+
+  toProjects(): ProjectUsage[] {
+    return groupByFolder(this.requests.values());
   }
 
   toUsage(): DailyModelUsage[] {

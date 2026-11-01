@@ -32,16 +32,22 @@ export interface OpenCodeMessage {
   steps: unknown[];
   /** Per step, parallel to `steps`: the step's own model, or null to use the message's. Absent when never read. */
   stepModels?: Array<StepModel | null>;
+  /** The folder the message itself records (the old JSON store's `path.root ?? path.cwd`); it wins over the session's. */
+  folder?: string | null;
 }
 
 export interface OpenCodeSession {
   id: string;
   version: string | null;
   createdMs: number | null;
+  /** The working folder the session ran in, when the store has one. Read for per-project totals only. */
+  directory?: string | null;
 }
 
 export interface OpenCodeV2Message {
   id: string;
+  /** The session the row belongs to, to look up its folder. */
+  sessionId?: string | null;
   providerId: string | null;
   modelId: string | null;
   createdMs: number;
@@ -132,6 +138,8 @@ export class OpenCodeAggregator {
   private readonly flavour: OpenCodeFlavour;
   private readonly buckets = new RequestBuckets();
   private readonly sessions = new Map<string, OpenCodeSession>();
+  /** Folders of the sessions native 2.x created, which are not in `sessions`. */
+  private readonly v2Folders = new Map<string, string>();
   /** Keyed by message id; when the same id arrives twice the copy with more steps wins (ties: last added). */
   private readonly v1Messages = new Map<string, OpenCodeMessage>();
   private readonly v2Messages = new Map<string, OpenCodeV2Message>();
@@ -144,6 +152,10 @@ export class OpenCodeAggregator {
   constructor(options: OpenCodeAggregatorOptions = {}) {
     this.options = options;
     this.flavour = options.flavour ?? OPENCODE_FLAVOUR;
+  }
+
+  addV2SessionFolder(id: string, folder: string): void {
+    this.v2Folders.set(id, folder);
   }
 
   addSession(session: OpenCodeSession): void {
@@ -189,7 +201,13 @@ export class OpenCodeAggregator {
     this.pendingSkips.clear();
     this.resolveV1();
     this.resolveV2();
-    return { source: this.flavour.source, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
+    return {
+      source: this.flavour.source,
+      usage: this.buckets.toUsage(),
+      hours: this.buckets.toHours(),
+      projects: this.buckets.toProjects(),
+      requestCount: this.buckets.size,
+    };
   }
 
   private resolveV1(): void {
@@ -208,6 +226,7 @@ export class OpenCodeAggregator {
         messageCreatedMs: message.createdMs,
       };
 
+      const folder = message.folder ?? session?.directory ?? null;
       const units: Array<{ raw: unknown; requestKey: string; model: StepModel | null }> =
         message.steps.length > 0
           ? message.steps.map((raw, index) => ({ raw, requestKey: `${key}#${index}`, model: message.stepModels?.[index] ?? null }))
@@ -218,7 +237,7 @@ export class OpenCodeAggregator {
         // message only holds the id the user selected.
         const providerId = model?.modelId ? model.providerId ?? message.providerId : message.providerId;
         const modelId = model?.modelId ?? message.modelId;
-        this.processUnit(raw, requestKey, message.createdMs, providerId, modelId, (tokens) => resolveV1Tokens(tokens, context, this.flavour.rules));
+        this.processUnit(raw, requestKey, message.createdMs, providerId, modelId, (tokens) => resolveV1Tokens(tokens, context, this.flavour.rules), folder);
       }
     }
   }
@@ -265,9 +284,8 @@ export class OpenCodeAggregator {
       if (this.beforeSince(message.createdMs)) continue;
 
       const requestKey = `v2:${key}`;
-      this.processUnit(message.tokens, requestKey, message.createdMs, message.providerId, message.modelId, (tokens) => ({
-        counts: resolveV2Tokens(tokens),
-      }));
+      const folder = message.sessionId ? (this.sessions.get(message.sessionId)?.directory ?? this.v2Folders.get(message.sessionId) ?? null) : null;
+      this.processUnit(message.tokens, requestKey, message.createdMs, message.providerId, message.modelId, (tokens) => ({ counts: resolveV2Tokens(tokens) }), folder);
     }
   }
 
@@ -290,6 +308,7 @@ export class OpenCodeAggregator {
     providerId: string | null,
     modelId: string | null,
     resolve: (tokens: StoredTokens) => Resolution,
+    folder: string | null,
   ): void {
     let resolution: Resolution;
     if (isClaudeCodeProvider(providerId)) {
@@ -312,10 +331,10 @@ export class OpenCodeAggregator {
 
     this.resolvedKeys.add(requestKey);
     this.pendingSkips.delete(requestKey);
-    this.addRequest(requestKey, createdMs, providerId, modelId, resolution.counts);
+    this.addRequest(requestKey, createdMs, providerId, modelId, resolution.counts, folder);
   }
 
-  private addRequest(requestKey: string, createdMs: number, providerId: string | null, modelId: string | null, counts: SplitTokenCounts): void {
+  private addRequest(requestKey: string, createdMs: number, providerId: string | null, modelId: string | null, counts: SplitTokenCounts, folder: string | null): void {
     const model = canonicalModelId(providerId, modelId);
     const record: RequestRecord = {
       date: dateKey(new Date(createdMs), this.options.timeZone),
@@ -323,6 +342,7 @@ export class OpenCodeAggregator {
       model,
       pricingTier: tierForModel(model, counts),
       counts,
+      folder,
     };
     this.buckets.add(requestKey, record);
   }

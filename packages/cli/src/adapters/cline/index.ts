@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { CLINE_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
 import { envPath, pathFor, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
 import { resolveAdapterRoots } from '../../agent-roots-store.js';
@@ -41,7 +41,13 @@ async function readJsonFileOrNull(path: string): Promise<unknown | null> {
  * `claude_messages.json` name) plus its optional `task_metadata.json`. Returns null when there is
  * no messages file, the file predates `since`, or it cannot be read at all (counted as unreadable).
  */
-async function readClassicTask(taskDir: string, taskId: string, since: Date, diagnostics: ClineDiagnostics): Promise<ClassicTask | null> {
+async function readClassicTask(
+  taskDir: string,
+  taskId: string,
+  since: Date,
+  diagnostics: ClineDiagnostics,
+  folders: ReadonlyMap<string, string>,
+): Promise<ClassicTask | null> {
   let messagesPath = join(taskDir, 'ui_messages.json');
   let info = await stat(messagesPath).catch(() => null);
   if (!info) {
@@ -62,7 +68,25 @@ async function readClassicTask(taskDir: string, taskId: string, since: Date, dia
     return null;
   }
   const metadata = await readJsonFileOrNull(join(taskDir, 'task_metadata.json'));
-  return { taskId, messages, metadata };
+  return { taskId, messages, metadata, folder: folders.get(taskId) ?? null };
+}
+
+/**
+ * Task id to working folder, from `state/taskHistory.json` beside the `tasks` folder. The field
+ * `cwdOnTaskInitialization` is in Cline's `HistoryItem` source; no real classic run was available
+ * to check it against. The file also holds task text: only `id` and that field are kept, the rest is dropped.
+ * A missing or damaged file, id or field just gives no folder.
+ */
+async function readTaskFolders(tasksDir: string): Promise<Map<string, string>> {
+  const folders = new Map<string, string>();
+  const history = await readJsonFileOrNull(join(dirname(tasksDir), 'state', 'taskHistory.json'));
+  if (!Array.isArray(history)) return folders;
+  for (const item of history) {
+    if (typeof item !== 'object' || item === null) continue;
+    const { id, cwdOnTaskInitialization: cwd } = item as Record<string, unknown>;
+    if (typeof id === 'string' && typeof cwd === 'string' && cwd.length > 0) folders.set(id, cwd);
+  }
+  return folders;
 }
 
 /** `.messages.json` files directly under a session directory: the main agent's and any subagents'. Never `.compaction.json`, `providers.json`, `secrets.json` or `globalState.json` — none of those end in `.messages.json`. */
@@ -134,9 +158,11 @@ function describeDiagnostics(d: ClineDiagnostics): string[] {
  * Reads Cline's two local usage formats: classic per-task `ui_messages.json` files (extension
  * versions up to and including today's "legacy" package) and SDK per-session `.messages.json`
  * files (today's "next" package and the Cline CLI). Only counters, ids, model/provider ids and
- * timestamps are ever read; `providers.json`, `secrets.json` and `globalState.json` — which hold
- * API keys — are never opened, and prompt/response text is never kept even when it is right next to
- * a counter we do read.
+ * timestamps are ever read, plus each task's working folder (the SDK manifest's `workspace_root`
+ * or `cwd`, a classic task's `cwdOnTaskInitialization`) for per-project totals; the folder stays on
+ * this machine and never reaches a gist. Message text is still never read.
+ * `providers.json`, `secrets.json` and `globalState.json` — which hold API keys — are never opened,
+ * and prompt/response text is never kept even when it is right next to a counter we do read.
  */
 export interface ClineAdapterOptions extends RootsOption {
   timeZone?: string;
@@ -170,8 +196,9 @@ export function createClineAdapter(adapterOptions: ClineAdapterOptions = {}): Ad
       const { tasks, sessions } = await plan();
 
       for (const tasksDir of tasks) {
+        const folders = await readTaskFolders(tasksDir);
         for (const taskId of await subdirectoryNames(tasksDir)) {
-          const task = await readClassicTask(join(tasksDir, taskId), taskId, since, diagnostics);
+          const task = await readClassicTask(join(tasksDir, taskId), taskId, since, diagnostics, folders);
           if (task) addClassicTask(task, buckets, diagnostics, taskOptions);
         }
       }
@@ -189,6 +216,7 @@ export function createClineAdapter(adapterOptions: ClineAdapterOptions = {}): Ad
       return {
         source: CLINE_SOURCE,
         usage: buckets.toUsage(),
+        projects: buckets.toProjects(),
         hours: buckets.toHours(),
         requestCount: buckets.size,
         ...(notes.length > 0 ? { notes } : {}),

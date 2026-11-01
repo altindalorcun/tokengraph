@@ -177,3 +177,35 @@ describe('GeminiUsageAggregator hours', () => {
     ]);
   });
 });
+
+describe('GeminiUsageAggregator folders', () => {
+  const t = { input: 100, output: 20, cached: 0, thoughts: 0, tool: 0, total: 120 };
+
+  it('groups requests by the folder their file was read with, and leaves a null folder out of projects', () => {
+    const aggregator = new GeminiUsageAggregator();
+    aggregator.addRecord(gemini('r1', t), '/work/a');
+    aggregator.addRecord(gemini('r2', t), null);
+    const result = aggregator.result();
+    expect(result.requestCount).toBe(2);
+    expect(result.usage[0]!.counts.inputTokens).toBe(200);
+    expect(result.projects).toEqual([expect.objectContaining({ folder: '/work/a', counts: expect.objectContaining({ inputTokens: 100 }) })]);
+  });
+
+  it.each([
+    ['hash copy first', [null, '/work/a']],
+    ['slug copy first', ['/work/a', null]],
+  ])('counts a hash/slug copy of one session once, with the slug folder (%s)', (_name, folders) => {
+    const aggregator = new GeminiUsageAggregator();
+    for (const folder of folders) aggregator.addRecord(gemini('r1', t), folder);
+    const result = aggregator.result();
+    expect(result.requestCount).toBe(1);
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects![0]).toMatchObject({ folder: '/work/a', counts: { inputTokens: 100 } });
+  });
+
+  it('applies the folder to a legacy document too', () => {
+    const aggregator = new GeminiUsageAggregator();
+    aggregator.addDocument({ messages: [gemini('r1', t)] }, '/work/a');
+    expect(aggregator.result().projects).toHaveLength(1);
+  });
+});

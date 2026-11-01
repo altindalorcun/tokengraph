@@ -14,6 +14,7 @@ import { drawInsights } from './views/insights.js';
 import { drawPalette, filterEntries, paletteEntries } from './views/palette.js';
 import { drawModels } from './views/models.js';
 import { drawOverview } from './views/overview.js';
+import { drawProjects } from './views/projects.js';
 import { drawSetup } from './views/setup.js';
 import type { ViewProps, ViewResult } from './views/props.js';
 import { MIN_HEIGHT, MIN_WIDTH, drawTooSmall } from './views/too-small.js';
@@ -25,11 +26,12 @@ export interface FrameHits {
   view: ViewResult;
 }
 
-const TAB_LABELS = ['Overview', 'Models', 'Agents', 'Insights', 'Setup'];
+const TAB_LABELS = ['Overview', 'Models', 'Agents', 'Projects', 'Insights', 'Setup'];
 const HINTS: Record<AppState['tab'], string> = {
   overview: '←↑↓→ day  [ ] year  t today  c colour  s rescan  : actions  ? help  q quit',
   models: '↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit',
   agents: '↑↓ select  ←→ range  c colour  h hooks  s rescan  : actions  ? help  q quit',
+  projects: '↑↓ select  ←→ range  s rescan  : actions  ? help  q quit',
   insights: '←→ hour  s rescan  : actions  ? help  q quit',
   setup: '↑↓ select  enter run  s rescan  : actions  ? help  q quit',
 };
@@ -37,6 +39,7 @@ const WIDE_HINTS_WIDTH = 140; // wide screens also list the number keys
 const LIVE_WINDOW_MS = 60_000;
 const NARROW_TABS_WIDTH = 100; // below this the tabs sit one space apart so the mode pill keeps its room
 const TABS_X = 18; // the mark and wordmark end at column 15; leave a gap
+const NARROW_TABS_X = 6; // below NARROW_TABS_WIDTH the wordmark gives way, so six tabs and the mode pill still fit
 const PROGRESS_SEGMENTS = 4;
 const TOAST_MS = 4000;
 
@@ -86,6 +89,8 @@ function drawStatusBar(buf: ScreenBuffer, state: AppState, theme: TuiTheme, moti
   const y = buf.height - 1;
   const { scan } = state;
   const parts: { text: string; fg: string }[] = [];
+  const latest = state.setup?.update?.latest;
+  if (latest) parts.push({ text: `${latest} is out · u to update`, fg: theme.accent });
   if (scan.note) parts.push({ text: clip(scan.note, Math.max(10, Math.floor(buf.width / 2))), fg: theme.bad });
   if (state.burnRate !== null) parts.push({ text: `▲ ${formatTokens(state.burnRate)}/min`, fg: theme.muted });
   const toast = state.toast && motion.now - state.toast.at < TOAST_MS ? state.toast : null;
@@ -101,7 +106,7 @@ function drawStatusBar(buf: ScreenBuffer, state: AppState, theme: TuiTheme, moti
   }
   const gap = 2;
   const rightWidth = parts.reduce((sum, p) => sum + [...p.text].length, 0) + gap * Math.max(0, parts.length - 1);
-  buf.text(1, y, `${buf.width >= WIDE_HINTS_WIDTH ? '1-5 tabs  ' : ''}${HINTS[state.tab]}`, { fg: theme.muted }, Math.max(0, buf.width - 2 - (rightWidth > 0 ? rightWidth + gap : 0)));
+  buf.text(1, y, `${buf.width >= WIDE_HINTS_WIDTH ? `1-${TABS.length} tabs  ` : ''}${HINTS[state.tab]}`, { fg: theme.muted }, Math.max(0, buf.width - 2 - (rightWidth > 0 ? rightWidth + gap : 0)));
   let x = buf.width - 1 - rightWidth;
   for (const part of parts) {
     x += buf.text(x, y, part.text, { fg: part.fg }) + gap;
@@ -122,6 +127,8 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
       return drawModels(buf, rect, { ...props, state: state.table });
     case 'agents':
       return drawAgents(buf, rect, { ...props, state: state.table, autoSync: state.autoSync, detected: state.detected });
+    case 'projects':
+      return drawProjects(buf, rect, { ...props, state: state.table });
     case 'insights':
       return drawInsights(buf, rect, { ...props, hour: state.clockHour });
     case 'setup':
@@ -150,12 +157,13 @@ export function renderFrame(
     drawTooSmall(buf, { x: 0, y: 0, width: buf.width, height: buf.height }, theme);
     return { buffer: buf, hits: { tabs: [], view: { hits: [] } } };
   }
-  drawHeaderMark(buf, 1, 0, theme);
+  const narrow = buf.width < NARROW_TABS_WIDTH;
+  drawHeaderMark(buf, 1, 0, theme, !narrow);
   const items = actionItems(state.setup, state.vm.sources);
   const progress = setupProgress(items, state.setup, state.vm.sources);
   // The Setup tab carries a dot while a recommended step is open (not before the configuration has been read).
   const badged = state.setup !== null && progress.done < progress.total ? [TABS.indexOf('setup')] : [];
-  const tabs = drawTabs(buf, TABS_X, 0, TAB_LABELS, TABS.indexOf(state.tab), theme, badged, buf.width < NARROW_TABS_WIDTH ? 1 : 2);
+  const tabs = drawTabs(buf, narrow ? NARROW_TABS_X : TABS_X, 0, TAB_LABELS, TABS.indexOf(state.tab), theme, badged, narrow ? 1 : 2);
   const last = tabs[tabs.length - 1]!;
   drawHeaderRight(buf, state, theme, motion, last.x + last.width);
   buf.fill({ x: 1, y: 2, width: buf.width - 2, height: 1 }, '─', { fg: theme.border });

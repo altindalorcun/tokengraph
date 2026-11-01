@@ -147,9 +147,38 @@ describe('createCopilotCliAdapter', () => {
       pricingTier: 'standard',
       counts: { inputTokens: 300, outputTokens: 300, cacheCreationTokens: 100, cacheReadTokens: 800, cacheCreation5mTokens: null, cacheCreation1hTokens: null },
     });
-    const serialized = JSON.stringify(result);
+    // The working folder is read for per-project totals and appears only in `projects`; the summary never.
+    expect(result.projects).toEqual([
+      expect.objectContaining({ folder: SECRET_CWD, date: '2026-09-21', model: 'claude-sonnet-4-5', counts: expect.objectContaining({ inputTokens: 300, outputTokens: 300 }) }),
+    ]);
+    const { projects: _projects, ...rest } = result;
+    const serialized = JSON.stringify(rest);
     expect(serialized).not.toContain(SECRET_CWD);
-    expect(serialized).not.toContain(SECRET_SUMMARY);
+    expect(JSON.stringify(result)).not.toContain(SECRET_SUMMARY);
+    expect(result.notes).toBeUndefined();
+  });
+
+  it('leaves a session without a sessions row out of projects but keeps it in usage', async () => {
+    const db = createStore(dbPath);
+    insertEvent(db, { session: 'no-such-session' });
+    db.close();
+    const result = await collect();
+    expect(result.usage).toHaveLength(1);
+    expect(result.projects ?? []).toEqual([]);
+  });
+
+  it.each([
+    ['no sessions table', 'DROP TABLE sessions'],
+    ['no cwd column', 'DROP TABLE sessions; CREATE TABLE sessions (id TEXT PRIMARY KEY, summary TEXT)'],
+  ])('still counts usage when the store has %s, with a null folder and no unsupported note', async (_name, sql) => {
+    const db = createStore(dbPath);
+    db.exec(sql);
+    insertEvent(db, {});
+    db.close();
+    const result = await collect();
+    expect(result.requestCount).toBe(1);
+    expect(result.usage).toHaveLength(1);
+    expect(result.projects ?? []).toEqual([]);
     expect(result.notes).toBeUndefined();
   });
 
@@ -208,7 +237,7 @@ describe('createCopilotCliAdapter', () => {
       model: 'claude-opus-4-5',
       counts: { inputTokens: 600, outputTokens: 50, cacheReadTokens: 400, cacheCreationTokens: 0 },
     });
-    expect(JSON.stringify(result)).not.toContain('secret');
+    expect(JSON.stringify({ ...result, projects: undefined })).not.toContain('secret');
   });
 
   it('never adds reasoning_tokens on top of output', async () => {

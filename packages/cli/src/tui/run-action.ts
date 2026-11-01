@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { format } from 'node:util';
+import { cliVersion } from '../bin-path.js';
 import { runCursor, runCursorFetchNow } from '../commands/cursor.js';
 import { runExport } from '../commands/export.js';
 import { runImportCursor } from '../commands/import.js';
@@ -13,12 +14,15 @@ import { runStatus } from '../commands/status.js';
 import { parseStoryArgs, runStory } from '../commands/story.js';
 import { runSync } from '../commands/sync.js';
 import { runUninstall } from '../commands/uninstall.js';
+import { runUpdate } from '../commands/update.js';
 import { askText, askYesNo } from '../prompt.js';
 import type { ActionId, SetupStatus } from './actions.js';
 
 export interface ActionResult {
   code: number;
   lines: string[];
+  /** A new version replaced this one on disk: the view must leave and start again rather than carry on with the old code. */
+  reopen?: boolean;
 }
 
 /** Runs `fn` with the console captured line by line; the console is always put back, and a throw becomes code 1. */
@@ -113,6 +117,7 @@ function command(id: ActionId, status: SetupStatus | null): () => Promise<number
     case 'story': return story;
     case 'status': return () => runStatus({}, { json: false });
     case 'uninstall': return uninstall;
+    case 'update': return () => runUpdate({ yes: false });
   }
 }
 
@@ -120,5 +125,7 @@ function command(id: ActionId, status: SetupStatus | null): () => Promise<number
 export async function runAction(id: ActionId, kind: 'inline' | 'screen', status: SetupStatus | null): Promise<ActionResult> {
   const run = command(id, status);
   if (kind === 'inline') return captureOutput(run);
-  return { code: await run(), lines: [] };
+  const before = cliVersion();
+  const code = await run();
+  return { code, lines: [], reopen: id === 'update' && code === 0 && cliVersion() !== before };
 }

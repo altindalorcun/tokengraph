@@ -5,8 +5,9 @@ How tokengraph is put together. For what it is for and what it will not do, see
 [CLAUDE.md](../CLAUDE.md). For how each agent stores its usage, see [agents/](agents/).
 
 tokengraph has no server. Everything runs on the user's machine. Usage leaves it only when the user
-chooses to publish it to their own GitHub gists; the one other network call is the Cursor fetch,
-which asks cursor.com for the user's own usage (see Privacy below).
+chooses to publish it to their own GitHub gists; the two other network calls are the Cursor fetch,
+which asks cursor.com for the user's own usage, and the view's daily version check to the npm
+registry, which sends no usage (see Privacy below).
 
 ## What runs where
 
@@ -155,6 +156,17 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
 - `status`, `view`, `story`, `export` and `import <file>` work offline from local files. `sync --local` never uses the
   network. `view` publishes only when the user
   picks Sync, login or graph colours in its Setup tab or palette; opening and scanning never do.
+- Adapters read the folder each session ran in, for per-project totals. It is stored in `state.json` under `projects`,
+  next to the hour data and just as local: machine files list their fields explicitly, so it never reaches a gist, the
+  graph or a story card. `export --projects` writes project names, never paths, and only when asked. Grouping happens
+  when reading (`project-usage.ts`): folder to git root (`project-roots.ts`, which reads `.git` and never starts `git`),
+  root to name, and roots with one name are one project. Names live in `config.json`. Usage with no known folder, and
+  anything the folders do not reach, is the Not assigned row, so projects always add up to the view's total.
+- The view, and only the view, asks `registry.npmjs.org/tokengraph/latest` for the latest version, at most once a day and
+  in the background (`update-check.ts`). The answer is kept in `update-check.json`. A failure is silent, nothing ever
+  waits for it, and other commands only read that file. `tokengraph update off`, `TOKENGRAPH_NO_UPDATE_CHECK`,
+  `NO_UPDATE_NOTIFIER` and `CI` stop it. `tokengraph update` asks npm itself and runs `npm install -g` only for a copy
+  inside npm's global folder, after a yes; the version it installs must match a plain `x.y.z`. A prerelease is never offered.
 - The public gist exposes daily totals, model family names and colours, and never model ids or
   per-model counts. Those are only in the secret data gist.
 - Without `login`, nothing is published at all.

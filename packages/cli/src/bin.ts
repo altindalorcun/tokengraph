@@ -14,12 +14,15 @@ import { runLogout } from './commands/logout.js';
 import { runReadme } from './commands/readme.js';
 import { runSchedule } from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
+import { parseProjectsArgs, runProjects, runProjectsName, runProjectsShow } from './commands/projects.js';
 import { parseStoryArgs, runStory } from './commands/story.js';
 import { runSync } from './commands/sync.js';
 import { runUninstall } from './commands/uninstall.js';
+import { runUpdate, runUpdateSwitch } from './commands/update.js';
 import { runView } from './commands/view.js';
 import { removeHostedLeftovers } from './hosted-leftovers.js';
 import { migrateLegacyHome } from './paths.js';
+import { knownUpdate, updateNotice } from './update-check.js';
 
 const USAGE = `tokengraph — track how many tokens your AI coding agents burn each day
 
@@ -31,6 +34,7 @@ Commands:
   login                Connect GitHub to publish your graph to your own gist
   readme               Print the README snippet for your graph (and copy it)
   logout               Disconnect GitHub on this machine
+  projects             Show tokens and estimated cost per project on this machine
   status               Show the account, ledger and background syncs on this machine
   install-hook         Sync automatically when Claude Code, Cursor, Codex or Gemini CLI finishes
   schedule             Sync every hour in the background
@@ -38,6 +42,7 @@ Commands:
   export               Write your daily usage as CSV or JSON
   cursor               Fetch your Cursor usage from cursor.com, or turn that off
   import               Add history from another source, such as a Cursor usage CSV
+  update               Update tokengraph to the latest version
   uninstall            Remove the hooks and the schedule (and, with --purge, your data)
 
 Run \`tokengraph <command> --help\` for a command's options.
@@ -74,7 +79,8 @@ const VIEW_OPTIONS: Options = {
 const VIEW_HELP = `Usage: tokengraph view [options]
 
 Opens an interactive view of your usage. Reads local data only; it publishes only when you pick
-Sync, Connect GitHub or Graph colours in its Setup tab or command palette (: or Ctrl-K).
+Sync, Connect GitHub or Graph colours in its Setup tab or command palette (: or Ctrl-K). Once a day
+it asks the npm registry for the latest version (\`tokengraph update off\` stops that).
 
 Options:
   --print              Print a static snapshot and exit (the default when not in a terminal)
@@ -233,6 +239,8 @@ Options:
   --out <file>         Write to a file instead of standard output
   --since <date>       Only days on or after this date (YYYY-MM-DD)
   --all-machines       Add your other machines, as of the last publish
+  --projects           Add a project column: one row per day, project, agent, model and tier.
+                       It holds the project's name, never its folder. This machine only.
   --hours              Hour-of-day rows (date, hour, source, weighted tokens) instead of daily
                        rows. This machine only: hour data is never published and not merged
                        across machines.
@@ -243,6 +251,7 @@ Options:
       since: { type: 'string' },
       'all-machines': { type: 'boolean', default: false },
       hours: { type: 'boolean', default: false },
+      projects: { type: 'boolean', default: false },
     },
     run: (values) => {
       const options = parseExportArgs(values);
@@ -251,6 +260,44 @@ Options:
         return 1;
       }
       return runExport(options);
+    },
+  },
+
+  projects: {
+    help: `Usage: tokengraph projects [options]
+       tokengraph projects show <name> [options]
+       tokengraph projects name <name-or-folder> <new-name>
+       tokengraph projects name <name-or-folder> --reset
+
+Shows how many tokens each project burned on this machine, its estimated cost, and how its models
+and agents split. A project is a git repository, or the folder a session ran in when there is none.
+Project data stays on this machine: it never reaches a gist, the graph or a story card.
+
+Folders with the same name count as one project, so naming is also how you merge them:
+
+  tokengraph projects name cli tokengraph
+  tokengraph projects name token-graph tokengraph
+
+Project numbers start from the logs still on disk when this version first ran. Usage with no known
+project, such as older logs that are gone and Cursor's account history, is in the Not assigned row.
+Cost is an estimate at public list prices, not what a subscription plan charges.
+
+Options:
+  --range <range>      7d, 30d, 90d, 1y or all (default: 30d)
+  --json               Print JSON instead of a table
+  --reset              With \`name\`: remove the name
+`,
+    options: { range: { type: 'string', default: '30d' }, json: { type: 'boolean', default: false }, reset: { type: 'boolean', default: false } },
+    positionals: true,
+    run: (values, positionals) => {
+      const command = parseProjectsArgs(values, positionals);
+      if (typeof command === 'string') {
+        console.error(command);
+        return 1;
+      }
+      if (command.action === 'list') return runProjects(command);
+      if (command.action === 'show') return runProjectsShow(command.name, command);
+      return runProjectsName(command.target, command.name);
     },
   },
 
@@ -421,6 +468,36 @@ counts it twice.
     },
   },
 
+  update: {
+    help: `Usage: tokengraph update [options]
+       tokengraph update <on|off>
+
+Asks the npm registry for the latest version and, after showing the command and asking you, installs
+it with npm. A copy that npx runs, or that another package manager installed, is left alone: you get
+the command to run instead.
+
+The terminal view does the same check in the background once a day and offers the update on its
+\`u\` key. Only the version number is requested; none of your usage is sent.
+
+  on                   Turn the daily check on (the default)
+  off                  Never contact the npm registry unless you run \`tokengraph update\` yourself.
+                       TOKENGRAPH_NO_UPDATE_CHECK=1 and NO_UPDATE_NOTIFIER=1 do the same
+
+Options:
+  --yes                Don't ask before installing (needed outside a terminal)
+`,
+    options: { yes: { type: 'boolean', default: false } },
+    positionals: true,
+    run: (values, positionals) => {
+      const [action, ...extra] = positionals;
+      if (extra.length > 0 || (action !== undefined && action !== 'on' && action !== 'off')) {
+        console.error('Usage: tokengraph update [--yes]\n       tokengraph update <on|off>');
+        return 1;
+      }
+      return action === undefined ? runUpdate({ yes: values['yes'] === true }) : runUpdateSwitch(action);
+    },
+  },
+
   uninstall: {
     help: `Usage: tokengraph uninstall [options]
 
@@ -464,6 +541,19 @@ function parse(command: Command, args: string[]): { values: Values; positionals:
     options: { ...HELP_FLAG, ...command.options },
   });
   return { values: values as Values, positionals };
+}
+
+// The view has its own notice, `update` just answered the question, and `uninstall` may have deleted the very file read here.
+const NO_UPDATE_NOTICE = new Set(['view', 'update', 'uninstall']);
+
+/**
+ * One line after a command someone typed, from what the view's last check found: this touches no network, so the
+ * offline commands stay offline, and hooks, the schedule and pipes never see it (no terminal; stderr keeps stdout clean).
+ */
+async function printUpdateNotice(name: string, command: Command): Promise<void> {
+  if (!command.help || NO_UPDATE_NOTICE.has(name) || !process.stdout.isTTY || !process.stderr.isTTY) return;
+  const latest = await knownUpdate();
+  if (latest) console.error(`\n${updateNotice(latest, cliVersion())}`);
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -530,7 +620,9 @@ async function main(argv: string[]): Promise<number> {
   // XDG_DATA_HOME, ...) records it, so the hourly schedule and the hooks, which lack that environment, still read it.
   // `hook-sync` does its own remembering, under its own deadline.
   rememberRootsForCommand(name);
-  return command.run(parsed.values, parsed.positionals);
+  const code = await command.run(parsed.values, parsed.positionals);
+  await printUpdateNotice(name, command);
+  return code;
 }
 
 main(process.argv.slice(2)).then(

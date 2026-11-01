@@ -30,6 +30,9 @@ export interface GeminiDiagnostics {
  * Side calls the CLI makes outside the chat loop (web search, context compression, model routing,
  * retried invalid streams) are never written to these files, so the totals here are a lower bound
  * on actual usage, never an overcount.
+ *
+ * The caller passes the project folder each file belongs to (null when unknown, as in a pre-migration
+ * hash directory); the copy with a folder fills in one that came without, whatever the read order.
  */
 export class GeminiUsageAggregator {
   private readonly options: GeminiAggregatorOptions;
@@ -43,27 +46,27 @@ export class GeminiUsageAggregator {
   }
 
   /** One parsed JSONL line (any kind: metadata, message, $set, $rewindTo). */
-  addRecord(record: unknown): void {
+  addRecord(record: unknown, folder: string | null = null): void {
     const entry = asObject(record);
     if (!entry) return;
     if ('$rewindTo' in entry) return;
-    this.addCandidate(entry);
+    this.addCandidate(entry, folder);
     const messages = asObject(entry['$set'])?.['messages'];
-    if (Array.isArray(messages)) for (const message of messages) this.addCandidate(message);
+    if (Array.isArray(messages)) for (const message of messages) this.addCandidate(message, folder);
   }
 
   /** A whole legacy `.json` session document ({ messages: [...] }). */
-  addDocument(document: unknown): void {
+  addDocument(document: unknown, folder: string | null = null): void {
     const messages = asObject(document)?.['messages'];
     if (!Array.isArray(messages)) return;
-    for (const message of messages) this.addCandidate(message);
+    for (const message of messages) this.addCandidate(message, folder);
   }
 
   noteUnreadableFile(): void {
     this.unreadableFiles += 1;
   }
 
-  private addCandidate(value: unknown): void {
+  private addCandidate(value: unknown, folder: string | null): void {
     const message = asObject(value);
     if (!message || message['type'] !== 'gemini') return;
     const id = nonEmptyString(message['id']);
@@ -99,7 +102,7 @@ export class GeminiUsageAggregator {
       cacheCreation1hTokens: null,
     };
     const model = canonicalModelId(null, typeof message['model'] === 'string' ? message['model'] : null);
-    const record: RequestRecord = { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts };
+    const record: RequestRecord = { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts, folder };
     this.buckets.add(id, record);
   }
 
@@ -113,6 +116,6 @@ export class GeminiUsageAggregator {
   }
 
   result(): CollectResult {
-    return { source: GEMINI_CLI_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
+    return { source: GEMINI_CLI_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), projects: this.buckets.toProjects(), requestCount: this.buckets.size };
   }
 }

@@ -47,6 +47,17 @@ describe('parseConfig', () => {
     expect(parseConfig({ github: { login: 'name-_corp', auth } })).toEqual({});
   });
 
+  it('keeps the update check switch and drops anything else there', () => {
+    expect(parseConfig({ update: { check: false } })).toEqual({ update: { check: false } });
+    expect(parseConfig({ update: { check: 'no' } })).toEqual({});
+  });
+
+  it('keeps project names and drops anything malformed there', () => {
+    expect(parseConfig({ projects: { names: { '/w/cli': 'tokengraph', '/w/x': 7, '/w/y': '  ' } } })).toEqual({ projects: { names: { '/w/cli': 'tokengraph' } } });
+    expect(parseConfig({ projects: { names: 'x' } })).toEqual({});
+    expect(parseConfig(JSON.parse('{"projects":{"names":{"__proto__":"x"}}}'))).toEqual({});
+  });
+
   it('drops malformed values instead of failing', () => {
     expect(
       parseConfig({

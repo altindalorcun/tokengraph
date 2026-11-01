@@ -77,7 +77,7 @@ function miniPixel(col: number, row: number): string | null {
 }
 
 /** A 2-row, 4-column miniature of the flame for the header, plus "tokengraph" in ink bold at x+5. */
-export function drawHeaderMark(buf: ScreenBuffer, x: number, y: number, theme: TuiTheme): void {
+export function drawHeaderMark(buf: ScreenBuffer, x: number, y: number, theme: TuiTheme, wordmark = true): void {
   paintHalfBlocks(buf, x, y, MINI_COLS, 2, miniPixel, theme.bg);
-  buf.text(x + 5, y, 'tokengraph', { fg: theme.ink, bold: true });
+  if (wordmark) buf.text(x + 5, y, 'tokengraph', { fg: theme.ink, bold: true });
 }

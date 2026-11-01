@@ -7,8 +7,8 @@ export type ActionId =
   | 'sync' | 'login' | 'logout' | 'readme' | 'colors'
   | 'hook:claude-code' | 'hook:cursor' | 'hook:codex' | 'hook:gemini-cli' | 'schedule'
   | 'cursor-fetch-now' | 'cursor-fetch' | 'import-cursor'
-  | 'export-csv' | 'export-json' | 'story' | 'status' | 'uninstall';
-export type ActionSection = 'Account' | 'Auto-sync' | 'Cursor' | 'Your data';
+  | 'export-csv' | 'export-json' | 'story' | 'status' | 'uninstall' | 'update';
+export type ActionSection = 'Account' | 'Auto-sync' | 'Cursor' | 'Your data' | 'Updates';
 
 /** What the action list needs to know about this machine; read from the config and the installed hooks. */
 export interface SetupStatus {
@@ -16,6 +16,8 @@ export interface SetupStatus {
   autoSync: AutoSyncStatus | null;
   cursorFetch: boolean | null;
   graphColors: GraphColors;
+  /** This copy's version and the newer one the last check found, if any. */
+  update: { current: string; latest: string | null } | null;
 }
 
 export interface ActionItem {
@@ -126,6 +128,13 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
   items.push(screen('export-json', 'Your data', 'Export as JSON', 'one row per day, agent and model'));
   items.push(screen('status', 'Your data', 'Show status', 'account, ledger and background syncs'));
   items.push(screen('uninstall', 'Your data', 'Uninstall tokengraph', 'remove the hooks and the schedule'));
+
+  // No confirmation here: `tokengraph update` shows the exact command and asks on the normal screen.
+  const update = status?.update ?? null;
+  items.push({
+    ...screen('update', 'Updates', update?.latest ? `Update to ${update.latest}` : 'Check for updates', update ? `you have ${update.current}` : 'ask npm for a newer version'),
+    recommended: Boolean(update?.latest),
+  });
   return items;
 }
 
@@ -156,6 +165,7 @@ export function cliCommand(item: ActionItem): string {
     case 'story': return 'tokengraph story';
     case 'status': return 'tokengraph status';
     case 'uninstall': return 'tokengraph uninstall';
+    case 'update': return 'tokengraph update';
   }
   return unreachable(item.id);
 }

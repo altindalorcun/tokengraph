@@ -48,6 +48,20 @@ describe('runCursorHook', () => {
     expect(parseCursorEvent(line!)).toMatchObject({ generationId: 'gen-1', inputTokens: 100 });
   });
 
+  it('stores the first workspace root and none of the other payload fields', async () => {
+    const withRoots = JSON.stringify({
+      ...JSON.parse(PAYLOAD),
+      workspace_roots: ['/work/app', '/work/other'],
+      user_email: 'planted@example.com',
+      conversation_id: 'planted-conv',
+      transcript_path: '/planted/transcript.jsonl',
+    });
+    await runCursorHook(deps(withRoots).deps);
+    const text = await readFile(cursorEventsPath(), 'utf8');
+    expect(parseCursorEvent(text.trim())?.folder).toBe('/work/app');
+    for (const planted of ['planted@example.com', 'planted-conv', 'transcript.jsonl', '/work/other']) expect(text).not.toContain(planted);
+  });
+
   it('records the turn without writing a sync stamp file or spawning a sync', async () => {
     const d = deps(PAYLOAD);
     expect(await runCursorHook(d.deps)).toBe(0);

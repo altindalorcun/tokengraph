@@ -21,6 +21,8 @@ export interface LedgerRow {
   cacheRead: unknown;
   cacheWrite: unknown;
   costSource: unknown;
+  /** `sessions.working_dir`; null when the session row or the column is missing. */
+  folder: unknown;
 }
 
 export type LedgerReadResult = { kind: 'rows'; rows: LedgerRow[] } | { kind: 'unsupported'; reason: string };
@@ -45,8 +47,9 @@ function schemaVersionProblem(db: DatabaseSyncType): string | null {
 
 /**
  * Reads Goose's `sessions.db` read-only. Only the ledger's counters, ids, model name and timestamp
- * are selected, plus each session's provider name and configured model name: never `messages`,
- * working directories or session names. A schema that is not recognised is reported as
+ * are selected, plus each session's provider name, configured model name and working folder
+ * (`sessions.working_dir`, read for per-project totals; it stays on this machine and never reaches a
+ * gist). Message text (`messages`) and session names are never selected. A schema that is not recognised is reported as
  * `unsupported` instead of being guessed at. Throws on open or query failure; the caller notes it.
  */
 export function readLedger(DatabaseSync: typeof DatabaseSyncType, path: string): LedgerReadResult {
@@ -68,10 +71,11 @@ export function readLedger(DatabaseSync: typeof DatabaseSyncType, path: string):
       hasSessions && sessions.has('model_config_json')
         ? "CASE WHEN json_valid(s.model_config_json) THEN json_extract(s.model_config_json, '$.model_name') END"
         : 'NULL';
+    const folder = hasSessions && sessions.has('working_dir') ? 's.working_dir' : 'NULL';
     const join = hasSessions ? 'LEFT JOIN sessions s ON s.id = l.session_id' : '';
     const rows = db
       .prepare(
-        `SELECT l.id, l.session_id, l.created_timestamp, l.model, ${sessionModel} AS session_model, ${provider} AS provider,
+        `SELECT l.id, l.session_id, l.created_timestamp, l.model, ${sessionModel} AS session_model, ${provider} AS provider, ${folder} AS folder,
                 l.input_tokens, l.output_tokens, l.cache_read_tokens, l.cache_write_tokens, l.cost_source
          FROM usage_ledger l ${join} ORDER BY l.id`,
       )
@@ -90,6 +94,7 @@ export function readLedger(DatabaseSync: typeof DatabaseSyncType, path: string):
         cacheRead: row['cache_read_tokens'],
         cacheWrite: row['cache_write_tokens'],
         costSource: row['cost_source'],
+        folder: row['folder'],
       })),
     };
   } finally {
