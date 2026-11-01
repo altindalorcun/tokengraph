@@ -79,7 +79,7 @@ describe('resolveProjectRoot', () => {
       await mkdir(join(root, 'real', '.git'), { recursive: true });
       await symlink(join(root, 'real'), join(root, 'link'));
       const home = join(root, 'home');
-      const real = normaliseFolder(realpathSync(join(root, 'real')));
+      const real = normaliseFolder(realpathSync.native(join(root, 'real')));
       expect(await resolveProjectRoot(join(root, 'link'), { home })).toBe(real);
       expect(await resolveProjectRoot(join(root, 'real'), { home })).toBe(real);
     } finally {
@@ -111,9 +111,9 @@ describe('resolveProjectRoot', () => {
       await mkdir(join(root, 'linked'), { recursive: true });
       await writeFile(join(root, 'linked', '.git'), `gitdir: ${join(root, 'repo', '.git', 'worktrees', 'linked')}\n`);
       const home = join(root, 'home');
-      const repo = normaliseFolder(realpathSync(join(root, 'repo')));
+      const repo = normaliseFolder(realpathSync.native(join(root, 'repo')));
       expect(await resolveProjectRoot(join(root, 'repo', 'src'), { home })).toBe(repo);
-      expect(normaliseFolder(realpathSync(await resolveProjectRoot(join(root, 'linked'), { home })))).toBe(repo);
+      expect(normaliseFolder(realpathSync.native(await resolveProjectRoot(join(root, 'linked'), { home })))).toBe(repo);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

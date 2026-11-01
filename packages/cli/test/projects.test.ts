@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolve } from 'node:path';
 import type { ProjectUsage } from '@tokengraph/core';
 import { parseProjectsArgs, runProjects, runProjectsName, runProjectsShow, type ProjectsDeps } from '../src/commands/projects.js';
 import type { CliConfig } from '../src/config.js';
 import { emptyLedger, mergeProjectRoots, mergeProjects, mergeUsage, type Ledger } from '../src/ledger.js';
+import { normaliseFolder } from '../src/project-roots.js';
 
-const HOME = '/Users/me';
+// Absolute on this platform: on Windows `resolve` puts a drive in front of a bare `/Users/me`.
+const HOME = normaliseFolder(resolve('/Users/me'));
 const TODAY = '2026-11-01';
 const counts = (inputTokens: number) => ({ inputTokens, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0 });
 const row = (folder: string, input: number): ProjectUsage => ({ folder, date: '2026-10-30', model: 'claude-opus-4-8', pricingTier: 'standard', counts: counts(input) });

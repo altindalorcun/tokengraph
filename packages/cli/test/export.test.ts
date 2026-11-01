@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseExportArgs, runExport } from '../src/commands/export.js';
 import { emptyLedger, mergeHours, mergeProjectRoots, mergeProjects, mergeUsage, writeLedger } from '../src/ledger.js';
 import { ledgerPath, machinesCachePath } from '../src/paths.js';
+import { normaliseFolder } from '../src/project-roots.js';
 import { writeMachinesCache } from '../src/publish/machines-cache.js';
 
 const HEADER =
@@ -223,7 +224,7 @@ describe('tokengraph export', () => {
     const folderRow = (folder: string, input: number) => ({ ...usage('2026-07-01', 'claude-opus-4-8', counts(input)), folder });
     const write = async () => {
       const base = mergeUsage(emptyLedger(), 'claude-code', [usage('2026-07-01', 'claude-opus-4-8', counts(1000))]);
-      const home = homedir();
+      const home = normaliseFolder(homedir());
       await writeLedger(ledgerPath(), mergeProjectRoots(mergeProjects(base, 'claude-code', [folderRow(`${home}/secret-place/app`, 600)]), { [`${home}/secret-place/app`]: `${home}/secret-place/app` }));
     };
 
@@ -237,7 +238,7 @@ describe('tokengraph export', () => {
     });
 
     it('never lets a project name run as a spreadsheet formula', async () => {
-      const home = homedir();
+      const home = normaliseFolder(homedir());
       const folder = `${home}/=HYPERLINK("x")`;
       const base = mergeUsage(emptyLedger(), 'claude-code', [usage('2026-07-01', 'claude-opus-4-8', counts(1000))]);
       await writeLedger(ledgerPath(), mergeProjects(base, 'claude-code', [folderRow(folder, 600), folderRow(`${home}/-rm`, 100), folderRow(`${home}/+x`, 100), folderRow(`${home}/@y`, 100)]));
