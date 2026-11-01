@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
+import { emptyLedger, mergeHours, mergeProjects, mergeUsage, type Ledger } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
 import { MODEL_FAMILIES, formatTokens } from '@tokengraph/core';
-import { buildViewModel, modelBreakdown, shiftDate } from '../../src/tui/model.js';
+import { buildViewModel, modelBreakdown, projectSummaries, rangeTotals, shiftDate } from '../../src/tui/model.js';
 import { shortDate } from '../../src/tui/views/dates.js';
 import { ScreenBuffer, toPlainText } from '../../src/tui/screen.js';
 import { familyColor, tuiTheme } from '../../src/tui/theme.js';
@@ -422,6 +422,12 @@ describe('setup tab and confirm modal', () => {
   const frame = (tab: 'setup' | 'agents' | 'overview', width: number, height: number, extra: Partial<AppState> = {}) =>
     toPlainText(renderFrame({ ...initialState(model(), 'local only'), tab, setup: status(), autoSync: status().autoSync, ...extra }, { theme: 'dark' }, width, height, STILL).buffer);
 
+  it('keeps the update notice on screen at the smallest supported size', () => {
+    const setup = { ...status(), update: { current: '0.1.1', latest: '0.2.0' } };
+    expect(frame('overview', 80, 24, { setup })).toContain('0.2.0 is out · u to update');
+    expect(frame('overview', 80, 24)).not.toContain('u to update');
+  });
+
   it('lists the sections, the recommended hook and the progress header at 160×48', () => {
     const text = frame('setup', 160, 48);
     for (const s of ['ACCOUNT', 'AUTO-SYNC', 'CURSOR', 'YOUR DATA', 'Claude Code hook', 'recommended', 'of 3 recommended steps done', '▸']) expect(text).toContain(s);
@@ -446,7 +452,7 @@ describe('setup tab and confirm modal', () => {
   });
 
   it('puts a dot after the Setup tab while a recommended step is open, and drops it when all are done', () => {
-    expect(frame('overview', 160, 48).split('\n')[0]).toMatch(/5 Setup •/);
+    expect(frame('overview', 160, 48).split('\n')[0]).toMatch(/6 Setup •/);
     const done = status();
     done.autoSync = { claudeHook: true, cursorHook: true, codexNotify: true, geminiHook: false, schedule: true };
     const text = frame('setup', 160, 48, { setup: done });
@@ -534,3 +540,90 @@ describe('command palette', () => {
   });
 });
 
+describe('projects tab', () => {
+  const HOME = '/Users/me';
+  const counts = (inputTokens: number) => ({ inputTokens, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0 });
+  const usage = (date: string, input: number, model = 'claude-opus-4-8') => ({ date, model, pricingTier: 'standard' as const, counts: counts(input) });
+  const projectLedger = (): Ledger => {
+    const date = shiftDate(TODAY, -1);
+    let ledger = mergeUsage(emptyLedger(), 'claude-code', [usage(date, 1_000_000)]);
+    ledger = mergeProjects(ledger, 'claude-code', [{ ...usage(date, 700_000), folder: `${HOME}/code/alpha` }, { ...usage(date, 200_000), folder: `${HOME}/code/beta\x1b[31m` }]);
+    ledger = mergeUsage(ledger, 'codex-cli', [usage(date, 300_000, 'gpt-5.5')]);
+    return mergeProjects(ledger, 'codex-cli', [{ ...usage(date, 300_000, 'gpt-5.5'), folder: `${HOME}/code/alpha` }]);
+  };
+  const vm = () => buildViewModel(projectLedger(), TODAY, { home: HOME });
+  const state = (over: Partial<AppState> = {}): AppState => ({ ...initialState(vm(), 'local only'), tab: 'projects', table: { range: '30d', selected: 0 }, ...over });
+  const render = (width: number, height: number, over: Partial<AppState> = {}) => toPlainText(renderFrame(state(over), { theme: 'dark' }, width, height, STILL).buffer);
+
+  it('ranks projects and ends with Not assigned', () => {
+    const text = render(160, 48);
+    expect(text).toContain('PROJECT');
+    const position = (name: string) => text.indexOf(name);
+    expect(position('alpha')).toBeLessThan(position('beta'));
+    expect(position('beta')).toBeLessThan(position('Not assigned'));
+  });
+
+  it('shows the selected project\'s models and agents with tokens, share and cost', () => {
+    const text = render(160, 48);
+    expect(text).toContain('MODELS');
+    expect(text).toContain('AGENTS');
+    expect(text).toContain('Claude Code');
+    expect(text).toContain('Codex CLI');
+    expect(text).toContain('70.0%');
+    expect(text).toMatch(/≈ \$/);
+  });
+
+  it('keeps a gap between the tokens and a share of 100%', () => {
+    expect(render(160, 48, { table: { range: '30d', selected: 1 } })).toMatch(/K\s+100\.0%/);
+  });
+
+  it('keeps working at 80×24, with the split still on screen', () => {
+    const text = render(80, 24);
+    expect(text).toContain('alpha');
+    expect(text).toContain('Not assigned');
+    expect(text).toContain('MODELS');
+  });
+
+  it('says how many folders a merged project covers', () => {
+    const merged = buildViewModel(projectLedger(), TODAY, { home: HOME, projectNames: { [`${HOME}/code/alpha`]: 'one', [`${HOME}/code/beta\x1b[31m`]: 'one' } });
+    expect(render(160, 48, { vm: merged })).toContain('2 folders');
+  });
+
+  it('explains Not assigned when it is selected', () => {
+    expect(render(160, 48, { table: { range: '30d', selected: 2 } })).toContain('no known project');
+  });
+
+  it('says the numbers are estimates for this machine', () => {
+    expect(render(160, 48)).toContain('This machine only');
+  });
+
+  it('shows only Not assigned, and why, for a ledger with no project data', () => {
+    const plain = buildViewModel(mergeUsage(emptyLedger(), 'claude-code', [usage(shiftDate(TODAY, -1), 5)]), TODAY, { home: HOME });
+    const text = render(160, 48, { vm: plain });
+    expect(text).toContain('Not assigned');
+    expect(text).toContain('no known project');
+  });
+
+  it('draws a project name with escape sequences as plain text', () => {
+    const cells = renderFrame(state(), { theme: 'dark' }, 160, 48, STILL).buffer;
+    expect(toPlainText(cells)).not.toContain('\x1b');
+  });
+
+  it('adds up to Overview\'s total for the range', () => {
+    const rows = projectSummaries(vm(), '30d');
+    expect(rows.reduce((sum, row) => sum + row.weighted, 0)).toBeCloseTo(rangeTotals(vm(), '30d').weighted);
+  });
+
+  it('shows the selected row\'s top projects on Models and Agents', () => {
+    const models = render(160, 48, { tab: 'models' });
+    expect(models).toContain('Top projects');
+    expect(models).toContain('alpha');
+    expect(render(160, 48, { tab: 'agents' })).toContain('Top projects');
+  });
+
+  it('fits six tabs and the short mode pill at 80 columns', () => {
+    const first = render(80, 24).split('\n')[0]!;
+    expect(first).toContain('6 Setup');
+    expect(first).toContain('local');
+  });
+});

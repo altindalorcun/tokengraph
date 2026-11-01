@@ -4,13 +4,13 @@ import { drawBox } from '../widgets/box.js';
 import { blit } from './props.js';
 
 const KEYS: readonly (readonly [string, string])[] = [
-  ['1-4, Tab, click', 'switch tab'],
-  ['5', 'setup tab'],
+  ['1-5, Tab, click', 'switch tab'],
+  ['6', 'setup tab'],
   ['↑ ↓, mouse', 'move day cursor / row selection'],
   ['← →', 'move day cursor by a week (Overview)'],
   ['[  ]', 'previous / next year (Overview)'],
   ['t', 'jump to today'],
-  ['←  →, r', 'previous / next range (Models, Agents)'],
+  ['←  →, r', 'previous / next range (tables)'],
   ['←  →, mouse', 'pick an hour (Insights)'],
   ['h', 'manage hooks (Agents)'],
   ['Enter', 'run the selected action (Setup)'],

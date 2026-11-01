@@ -1,12 +1,12 @@
+import { homedir } from 'node:os';
 import { allLedgerHours, allLedgerUsage, type Ledger } from '../ledger.js';
+import { projectRows, summariseProjects, topProjects, type ProjectRow, type ProjectShare, type ProjectSummary } from '../project-usage.js';
 import { shortDate } from './dates.js';
+import { addCost, emptyCost, rangeStart, rowCost, SERIES_DAYS, shiftDate, type CostSummary, type RangeKey } from './usage-math.js';
 import {
   addCounts,
-  addDays,
   agentName,
   buildGraphGrid,
-  cacheSavingsForSplitCounts,
-  costForSplitCounts,
   displayModelName,
   emptyCounts,
   formatDollars,
@@ -20,30 +20,14 @@ import {
   type TokenCounts,
 } from '@tokengraph/core';
 
-export type RangeKey = '7d' | '30d' | '90d' | '1y' | 'all';
-export const RANGES: readonly RangeKey[] = ['7d', '30d', '90d', '1y', 'all'];
-export const RANGE_LABELS: Record<RangeKey, string> = {
-  '7d': '7 days',
-  '30d': '30 days',
-  '90d': '90 days',
-  '1y': '1 year',
-  all: 'All time',
-};
+export { RANGES, RANGE_LABELS, rangeStart, shiftDate, type CostSummary, type RangeKey } from './usage-math.js';
 
 /** About one novel of output, for the "novels written" insight. */
 export const NOVEL_TOKENS = 120_000;
 
 const STREAK_CAP = 400;
 const GRID_DAYS = 364;
-const SERIES_DAYS = 30;
 
-export interface CostSummary {
-  dollars: number;
-  pricedWeighted: number;
-  unpricedWeighted: number;
-  /** Dollars prompt caching saved against full input price, over priced rows. */
-  cacheSaved: number;
-}
 export interface Share {
   key: string;
   name: string;
@@ -90,6 +74,8 @@ export interface ViewModel {
   rows: UsageRow[];
   /** Weighted tokens per local (date, hour), all agents together, ascending; empty when no adapter has hour data yet. */
   hours: HourCell[];
+  /** Usage per project, with the Not assigned rows, from `project-usage.ts`. This machine only. */
+  projectRows: ProjectRow[];
 }
 
 export interface HourCell {
@@ -169,40 +155,7 @@ export interface Insights {
   novels: number;
 }
 
-function emptyCost(): CostSummary {
-  return { dollars: 0, pricedWeighted: 0, unpricedWeighted: 0, cacheSaved: 0 };
-}
-
-function addCost(a: CostSummary, b: CostSummary): CostSummary {
-  return {
-    dollars: a.dollars + b.dollars,
-    pricedWeighted: a.pricedWeighted + b.pricedWeighted,
-    unpricedWeighted: a.unpricedWeighted + b.unpricedWeighted,
-    cacheSaved: a.cacheSaved + b.cacheSaved,
-  };
-}
-
 /** UTC date-key arithmetic, so results never depend on the host time zone. */
-export function shiftDate(date: string, days: number): string {
-  return addDays(new Date(`${date}T00:00:00Z`), days).toISOString().slice(0, 10);
-}
-
-/** First day of a range (inclusive), or null for 'all'. */
-export function rangeStart(range: RangeKey, today: string): string | null {
-  switch (range) {
-    case '7d':
-      return shiftDate(today, -6);
-    case '30d':
-      return shiftDate(today, -29);
-    case '90d':
-      return shiftDate(today, -89);
-    case '1y':
-      return shiftDate(today, -364);
-    case 'all':
-      return null;
-  }
-}
-
 function sortShares(shares: Share[]): Share[] {
   return shares.sort((a, b) => b.weighted - a.weighted || a.key.localeCompare(b.key));
 }
@@ -257,7 +210,7 @@ function buildDay(date: string, rows: UsageRow[], families: Map<string, ModelFam
 }
 
 /** Turns the local ledger into per-day rows; all later numbers derive from these. */
-export function buildViewModel(ledger: Ledger, today: string): ViewModel {
+export function buildViewModel(ledger: Ledger, today: string, options: { projectNames?: Readonly<Record<string, string>>; home?: string } = {}): ViewModel {
   const rows: UsageRow[] = [];
   const sources: string[] = [];
   // The family of a label comes from the first raw model id seen for it.
@@ -280,17 +233,7 @@ export function buildViewModel(ledger: Ledger, today: string): ViewModel {
       if (Object.values(base).every((value) => value === 0)) continue;
       const label = modelLabel(entry.model);
       if (!families.has(label)) families.set(label, modelFamily(entry.model));
-      const priced = costForSplitCounts(entry.model, entry.date, counts, entry.pricingTier);
-      const weighted = weightedTokens(base);
-      const cost: CostSummary = priced.priced
-        ? {
-            dollars: priced.dollars,
-            pricedWeighted: weighted,
-            unpricedWeighted: 0,
-            cacheSaved: cacheSavingsForSplitCounts(entry.model, entry.date, counts, entry.pricingTier) ?? 0,
-          }
-        : { dollars: 0, pricedWeighted: 0, unpricedWeighted: weighted, cacheSaved: 0 };
-      rows.push({ source, date: entry.date, label, counts: base, cost });
+      rows.push({ source, date: entry.date, label, counts: base, cost: rowCost(entry.model, entry.date, counts, entry.pricingTier) });
     }
   }
 
@@ -304,6 +247,7 @@ export function buildViewModel(ledger: Ledger, today: string): ViewModel {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, dayRows]) => buildDay(date, dayRows, families));
   return {
+    projectRows: projectRows(ledger, options.projectNames ?? {}, options.home ?? homedir()),
     today,
     days,
     byDate: new Map(days.map((day) => [day.date, day])),
@@ -523,6 +467,32 @@ export function modelBreakdown(vm: ViewModel, range: RangeKey): Breakdown[] {
 /** One row per source with usage in the range, biggest first. */
 export function agentBreakdown(vm: ViewModel, range: RangeKey): Breakdown[] {
   return breakdown(vm, range, false);
+}
+
+// A frame can ask for these sixty times a second; a view model never changes, so the answers keep.
+const projectMemo = new WeakMap<ViewModel, Map<string, unknown>>();
+
+function memoised<T>(vm: ViewModel, key: string, compute: () => T): T {
+  const cache = projectMemo.get(vm) ?? new Map<string, unknown>();
+  projectMemo.set(vm, cache);
+  if (!cache.has(key)) cache.set(key, compute());
+  return cache.get(key) as T;
+}
+
+/** One row per project active in the range, biggest first, with Not assigned last. */
+export function projectSummaries(vm: ViewModel, range: RangeKey): ProjectSummary[] {
+  return memoised(vm, `summary\0${range}`, () => summariseProjects(vm.projectRows, range, vm.today));
+}
+
+/** The biggest projects of one model label or one agent in the range. */
+export function topProjectsOf(vm: ViewModel, by: 'model' | 'agent', key: string, range: RangeKey, limit: number): ProjectShare[] {
+  return memoised(vm, `top\0${by}\0${key}\0${range}\0${limit}`, () => topProjects(vm.projectRows, by, key, range, vm.today, limit));
+}
+
+/** "Top projects: tokengraph 66%, site 12%", or null when none of this row's usage has a known project. */
+export function topProjectsLine(vm: ViewModel, by: 'model' | 'agent', key: string, range: RangeKey): string | null {
+  const top = topProjectsOf(vm, by, key, range, 3);
+  return top.length === 0 ? null : `Top projects: ${top.map((project) => `${project.name} ${Math.round(project.share * 100)}%`).join(', ')}`;
 }
 
 /** All-time highlights plus the weekday profile of the last 52 weeks. */

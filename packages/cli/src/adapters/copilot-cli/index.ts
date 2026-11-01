@@ -20,8 +20,9 @@ export interface CopilotCliAdapterOptions extends Pick<CopilotAggregatorOptions,
 
 /**
  * Reads GitHub Copilot CLI's per-request usage from `session-store.db` (table
- * `assistant_usage_events`, written by Copilot CLI 1.0.70+). Only counters, ids, the model name and
- * the timestamp are selected: never prompts, working directories or session summaries. The
+ * `assistant_usage_events`, written by Copilot CLI 1.0.70+). Only counters, ids, the model name, the
+ * timestamp and each session's working folder are selected. The folder is read for per-project totals,
+ * stays on this machine and never reaches a gist; prompts and session summaries are never read. The
  * `events.jsonl` snapshots, the opt-in OTEL file and the Copilot Chat extension in VS Code
  * describe the same requests and are not read.
  */

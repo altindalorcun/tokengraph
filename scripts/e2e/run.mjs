@@ -67,6 +67,11 @@ function isNodeScript(command) {
   }
 }
 
+/** Agents whose adapter does not report a working folder. None today; Cursor has no run here at all. */
+const NO_FOLDER = new Set();
+/** Agents with a documented share of requests that have no folder (see their docs/agents note). */
+const FOLDERLESS_OK = new Set();
+
 function exec(command, args, { env, cwd, timeoutMs = 180_000 } = {}) {
   return new Promise((done) => {
     // Windows: node refuses to start a .cmd/.bat without a shell (EINVAL since the 2024 security fix), and a shell needs
@@ -693,11 +698,17 @@ async function runAgent(agentId, opts) {
     result.requestsLogged = entries.filter((e) => e.usage != null).length;
     result.requestsWithoutUsage = entries.filter((e) => e.status === 200 && e.normalized && e.usage == null).length;
     result.models = compare(agentId, entries, rows);
+    const projectFile = join(root, 'projects.json');
+    const byProject = await exec(process.execPath, [TG_BIN, 'export', '--projects', '--format', 'json', '--out', projectFile], { env: tgEnv, cwd: root, timeoutMs: 60_000 });
+    if (byProject.code !== 0) throw new Error(`tokengraph export --projects failed: ${tail(byProject.stderr || byProject.stdout)}`);
+    result.projects = checkProjects(agentId, JSON.parse(readFileSync(projectFile, 'utf8')).rows, rows, new Set(driver.variants.map((variant) => variant.protocol)));
+    if (result.projects.note) result.notes.push(result.projects.note);
     const failedScenarios = result.scenarios.filter((s) => !s.skipped && (s.exit !== 0 || s.requests === 0));
     if (failedScenarios.length) result.notes.push(`${failedScenarios.length} scenario run(s) failed or made no request: ${failedScenarios.map((s) => `${s.variant}/${s.scenario}`).join(', ')}`);
     if (result.models.length === 0) result.status = 'FAIL';
     else if (result.models.some((m) => !m.pass)) result.status = 'FAIL';
     else if (failedScenarios.length) result.status = 'FAIL';
+    else if (!result.projects.pass) result.status = 'FAIL';
     if (!opts.keep) result.logCopy = entries;
   } catch (error) {
     result.status = 'ERROR';
@@ -717,6 +728,24 @@ async function runAgent(agentId, opts) {
     }
   }
   return result;
+}
+
+/**
+ * Each scenario runs in `work/<protocol>`, so that folder's name is the project. Project rows must add up to the plain
+ * export, and all of it must land on a real folder unless the agent is in NO_FOLDER (reported, not failed) or has a
+ * documented share of requests no folder can be known for (FOLDERLESS_OK).
+ */
+function checkProjects(agentId, projectRows, plainRows, protocols) {
+  const sum = (list) => list.reduce((total, row) => total + row.weightedTokens, 0);
+  const assigned = projectRows.filter((row) => row.project !== 'Not assigned');
+  const stray = [...new Set(assigned.map((row) => row.project))].filter((name) => !protocols.has(name));
+  const total = sum(plainRows);
+  const summed = Math.abs(sum(projectRows) - total) < 0.5;
+  const assignedTokens = sum(assigned);
+  if (NO_FOLDER.has(agentId)) return { pass: summed, assignedTokens, total, note: `folder not read yet: ${assignedTokens} of ${total} tokens assigned` };
+  const complete = FOLDERLESS_OK.has(agentId) ? assignedTokens > 0 : Math.abs(assignedTokens - total) < 0.5;
+  const pass = summed && complete && stray.length === 0;
+  return { pass, assignedTokens, total, ...(pass ? {} : { note: `projects: ${assignedTokens} of ${total} tokens assigned, rows ${summed ? 'sum' : 'do not sum'}, stray names: ${stray.join(', ') || 'none'}` }) };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

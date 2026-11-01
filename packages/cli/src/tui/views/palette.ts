@@ -24,6 +24,7 @@ const TAB_ENTRIES: readonly (readonly [TabKey, string, string])[] = [
   ['overview', 'Overview', 'heatmap graph days'],
   ['models', 'Models', 'cost price'],
   ['agents', 'Agents', 'sources hooks status'],
+  ['projects', 'Projects', 'repos folders cost'],
   ['insights', 'Insights', 'stats streak'],
   ['setup', 'Setup', 'settings config'],
 ];
@@ -31,7 +32,7 @@ const TAB_ENTRIES: readonly (readonly [TabKey, string, string])[] = [
 /** The CLI command name (`install-hook`, `export`, ...) plus words people reach for. */
 function actionKeywords(item: ActionItem): string {
   const command = cliCommand(item).split(' ')[1] ?? '';
-  const extra = item.id.startsWith('hook:') ? 'hook' : item.id === 'schedule' ? 'schedule cron background' : '';
+  const extra = item.id.startsWith('hook:') ? 'hook' : item.id === 'schedule' ? 'schedule cron background' : item.id === 'update' ? 'upgrade version new' : '';
   return `${command} ${extra}`.trim();
 }
 

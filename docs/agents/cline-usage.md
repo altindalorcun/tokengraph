@@ -80,6 +80,14 @@ Code `globalStorageUri`
 The migration that moves VS Code global state to `~/.cline/data` deliberately does not move
 `taskHistory` and `tasks/` ([`vscode-to-file-migration.ts`](https://github.com/cline/cline/blob/252082b9e93b4f91253876391e35b4c13326f5e6/apps/vscode/src/hosts/vscode/vscode-to-file-migration.ts)).
 
+**Working folder (per-project totals) - NOT checked against a real run.** `state/taskHistory.json`
+holds `cwdOnTaskInitialization` for each task id (`HistoryItem` in `apps/vscode/src/shared/HistoryItem.ts` at `252082b`). This comes from the
+Cline source, not from real classic data (the e2e rig only drives the SDK format). The adapter reads
+that file once per storage root, keeps only `id` and that field in memory (the file also holds task
+text, which is dropped) and gives a task no folder when the file, the id or the field is missing or
+the file is damaged. The folder stays on this machine and never reaches a gist; message text is
+still never read.
+
 Recommendation for the adapter: read only `tasks/*/ui_messages.json` (+ `task_metadata.json` for
 the model); the root list = the host × OS directories above +
 `${CLINE_DATA_DIR:-${CLINE_DIR:-~/.cline}/data}`. `api_conversation_history.json` is needed for
@@ -117,6 +125,11 @@ and sandbox mode (`CLINE_SANDBOX_DATA_DIR`) can move the root elsewhere
 those cannot be found by the default scan. The adapter reads `sessions/*/*.messages.json` and the
 `<sessionId>.json` manifest in the same directory; `providers.json`, `secrets.json` and
 `globalState.json` must never be opened (the API keys are there).
+
+**Working folder (per-project totals).** The manifest has `cwd` and `workspace_root`, both
+absolute (verified on a real run); the adapter uses `workspace_root ?? cwd`. A session without
+either gives no folder. The folder stays on this machine and never reaches a gist; message text is
+still never read.
 
 ## A. The `ui_messages.json` schema
 

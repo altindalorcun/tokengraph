@@ -26,8 +26,11 @@ file, so requests are deduplicated across files.
   stay there. The setting and the flag are per-install or per-run and cannot be seen from a later `sync`, so they
   are not followed. (tokscale and token-monitor read only the fixed default path.)
 - The adapter reads every `*.jsonl` under those folders, line by line, and only the `type`, `id`, `timestamp`,
-  `provider`, `api`, `model`, `responseModel`, `responseId` and `usage` fields. Message text, tool arguments, the
-  header's `cwd` and the compaction summaries are never kept.
+  `provider`, `api`, `model`, `responseModel`, `responseId` and `usage` fields, plus the header's `cwd`: every
+  request in a file is booked to its header's working folder for per-project totals (a file without a header
+  gives its requests no folder, and a request copied into a forked file keeps the first folder). The folder
+  stays on this machine and never reaches a gist. Message text, tool arguments and the compaction summaries are
+  never read.
 
 ## Record schema
 

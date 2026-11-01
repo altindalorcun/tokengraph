@@ -162,9 +162,24 @@ describe('createGooseAdapter', () => {
         counts: { inputTokens: 300, outputTokens: 200, cacheCreationTokens: 100, cacheReadTokens: 600, cacheCreation5mTokens: null, cacheCreation1hTokens: null },
       },
     ]);
-    const serialized = JSON.stringify(result);
-    expect(serialized).not.toContain(SECRET_MESSAGE);
-    expect(serialized).not.toContain(SECRET_DIR);
+    // The working folder is read for per-project totals and appears only in `projects`; message text and session name never.
+    expect(result.projects).toEqual([expect.objectContaining({ folder: SECRET_DIR, date: '2026-09-21', model: 'claude-sonnet-4-5' })]);
+    const { projects: _projects, ...rest } = result;
+    expect(JSON.stringify(rest)).not.toContain(SECRET_DIR);
+    expect(JSON.stringify(result)).not.toContain(SECRET_MESSAGE);
+    expect(result.notes).toBeUndefined();
+  });
+
+  it('leaves a session without a working_dir column or sessions row out of projects but keeps it in usage', async () => {
+    const db = createDb(dbPath, { sessionColumns: 'id TEXT PRIMARY KEY, provider_name TEXT, model_config_json TEXT, name TEXT' });
+    db.prepare('INSERT INTO sessions (id, provider_name, name) VALUES (?, ?, ?)').run('s1', 'anthropic', SECRET_MESSAGE);
+    addRow(db);
+    addRow(db, { session: 'orphan' });
+    db.close();
+    const result = await collect();
+    expect(result.requestCount).toBe(2);
+    expect(result.usage).toHaveLength(1);
+    expect(result.projects ?? []).toEqual([]);
     expect(result.notes).toBeUndefined();
   });
 

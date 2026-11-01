@@ -445,9 +445,11 @@ equality is available, it must be used before the version rule.
 - Reading SQLite is necessary. The CLI requires Node 22, and reading OpenCode's database needs
   Node 22.13 or newer, where the built-in `node:sqlite` works without a flag. The adapter uses it,
   so there is no native dependency.
-- Only the counter and identity fields should be read (with `json_extract`); `content`, text,
-  tool output and file paths (`path.cwd/root`, `session.directory`) must not be stored or
-  published.
+- Only the counter and identity fields should be read (with `json_extract`), plus the working
+  folder for per-project totals: `session.directory` in SQLite (null when an older schema has no
+  such column) and `path.root ?? path.cwd` of the assistant message in the old `storage/` tree.
+  The folder stays on this machine and never reaches a gist. Message text, `content`, tool output
+  and `title` are never read.
 - Pricing tier: the Anthropic long-context threshold can be computed per request (per step-finish)
   from `input + cache.read + cache.write`; there is no fast mode information, so no tier other
   than `standard`/`long-context` can be assigned.

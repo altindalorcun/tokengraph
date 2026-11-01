@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname } from 'node:path';
 import {
   addSplitCounts,
@@ -11,8 +12,10 @@ import {
   type PricingTier,
   type SplitTokenCounts,
 } from '@tokengraph/core';
+import { readConfig } from '../config.js';
 import { allLedgerHours, readLedger, type Ledger } from '../ledger.js';
 import { ledgerPath } from '../paths.js';
+import { NOT_ASSIGNED, projectRows, type ProjectRow } from '../project-usage.js';
 import { combinedUsage, type MachineFile } from '../publish/machines.js';
 import { readMachinesCache } from '../publish/machines-cache.js';
 
@@ -23,6 +26,8 @@ export interface ExportOptions {
   out?: string;
   since?: string;
   allMachines?: boolean;
+  /** One row per day, project, agent, model and tier. This machine only. */
+  projects?: boolean;
   /** Hour-of-day rows (this machine only) instead of daily rows. */
   hours?: boolean;
 }
@@ -30,16 +35,22 @@ export interface ExportOptions {
 export interface ExportDeps {
   ledger: () => Promise<Ledger>;
   machines: () => Promise<MachineFile[]>;
+  projectNames: () => Promise<Record<string, string>>;
+  home: () => string;
 }
 
 const DEFAULT_DEPS: ExportDeps = {
   ledger: () => readLedger(ledgerPath()),
   machines: () => readMachinesCache(),
+  projectNames: async () => (await readConfig()).projects?.names ?? {},
+  home: () => homedir(),
 };
 
 /** One row per day, agent, model and pricing tier. Costs are null when unpriced, splits when unknown. */
 export interface ExportRow {
   date: string;
+  /** The project's name, with `--projects`. Never its path: this file is made to be sent to someone. */
+  project?: string;
   source: KnownSource;
   model: string;
   pricingTier: PricingTier;
@@ -64,6 +75,8 @@ export function parseExportArgs(values: Record<string, string | boolean | undefi
   if (format !== 'csv' && format !== 'json') return '--format must be csv or json.';
   const since = values['since'];
   if (since !== undefined && (typeof since !== 'string' || !isDateKey(since))) return '--since must be a date as YYYY-MM-DD.';
+  if (values['projects'] === true && values['all-machines'] === true) return '--projects is for this machine only; it cannot be combined with --all-machines.';
+  if (values['projects'] === true && values['hours'] === true) return '--projects cannot be combined with --hours.';
   if (values['hours'] === true && values['all-machines'] === true) return '--hours is for this machine only; it cannot be combined with --all-machines.';
   return {
     format,
@@ -71,7 +84,51 @@ export function parseExportArgs(values: Record<string, string | boolean | undefi
     out: typeof values['out'] === 'string' ? values['out'] : undefined,
     allMachines: values['all-machines'] === true,
     ...(values['hours'] === true ? { hours: true } : {}),
+    ...(values['projects'] === true ? { projects: true } : {}),
   };
+}
+
+function exportRow(date: string, source: KnownSource, model: string, tier: PricingTier, counts: SplitTokenCounts): ExportRow {
+  const cost = costForSplitCounts(model, date, counts, tier);
+  return {
+    date,
+    source,
+    model,
+    pricingTier: tier,
+    inputTokens: counts.inputTokens,
+    outputTokens: counts.outputTokens,
+    cacheWriteTokens: counts.cacheCreationTokens,
+    cacheWrite5mTokens: counts.cacheCreation5mTokens,
+    cacheWrite1hTokens: counts.cacheCreation1hTokens,
+    cacheReadTokens: counts.cacheReadTokens,
+    weightedTokens: weightedTokens(counts),
+    estimatedCostUsd: cost.priced ? Math.round(cost.dollars * 1e6) / 1e6 : null,
+  };
+}
+
+const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Export rows per project, from this machine's ledger. Roots that share a name sum, as they do everywhere else. */
+export function buildProjectRows(ledger: Ledger, names: Readonly<Record<string, string>>, home: string, since?: string): ExportRow[] {
+  const merged = new Map<string, ProjectRow>();
+  for (const row of projectRows(ledger, names, home)) {
+    if (since !== undefined && row.date < since) continue;
+    const key = JSON.stringify([row.date, row.project, row.source, row.model, row.pricingTier]);
+    const existing = merged.get(key);
+    if (existing) existing.counts = addSplitCounts(existing.counts, row.counts);
+    else merged.set(key, { ...row });
+  }
+  return [...merged.values()]
+    .map((row) => ({ ...exportRow(row.date, row.source, row.model, row.pricingTier, row.counts), project: row.project }))
+    .sort(
+      (a, b) =>
+        compareText(a.date, b.date) ||
+        Number(a.project === NOT_ASSIGNED) - Number(b.project === NOT_ASSIGNED) ||
+        compareText(a.project, b.project) ||
+        compareText(a.source, b.source) ||
+        compareText(a.model, b.model) ||
+        PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
+    );
 }
 
 /**
@@ -91,30 +148,13 @@ export function buildRows(ledger: Ledger, others: readonly MachineFile[], since?
       if (existing) existing.counts = addSplitCounts(existing.counts, entry.counts);
       else merged.set(key, { date: entry.date, model: entry.model, tier: entry.pricingTier, counts: entry.counts });
     }
-    for (const { date, model, tier, counts } of merged.values()) {
-      const cost = costForSplitCounts(model, date, counts, tier);
-      rows.push({
-        date,
-        source,
-        model,
-        pricingTier: tier,
-        inputTokens: counts.inputTokens,
-        outputTokens: counts.outputTokens,
-        cacheWriteTokens: counts.cacheCreationTokens,
-        cacheWrite5mTokens: counts.cacheCreation5mTokens,
-        cacheWrite1hTokens: counts.cacheCreation1hTokens,
-        cacheReadTokens: counts.cacheReadTokens,
-        weightedTokens: weightedTokens(counts),
-        estimatedCostUsd: cost.priced ? Math.round(cost.dollars * 1e6) / 1e6 : null,
-      });
-    }
+    for (const { date, model, tier, counts } of merged.values()) rows.push(exportRow(date, source, model, tier, counts));
   }
-  const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
   return rows.sort(
     (a, b) =>
-      compare(a.date, b.date) ||
-      compare(a.source, b.source) ||
-      compare(a.model, b.model) ||
+      compareText(a.date, b.date) ||
+      compareText(a.source, b.source) ||
+      compareText(a.model, b.model) ||
       PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
   );
 }
@@ -147,16 +187,23 @@ function csvField(value: string | number | null): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-export function formatCsv(rows: readonly ExportRow[]): string {
+/** A project name comes from a folder, and this file gets opened in spreadsheets: a leading quote keeps it text, not a formula. */
+function spreadsheetSafe(text: string | undefined): string | null {
+  if (text === undefined) return null;
+  return /^[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
+export function formatCsv(rows: readonly ExportRow[], withProject = false): string {
+  const header = withProject ? ['date', 'project', ...CSV_HEADER.slice(1)] : CSV_HEADER;
   const lines = rows.map((row) =>
     [
-      row.date, row.source, row.model, row.pricingTier, row.inputTokens, row.outputTokens, row.cacheWriteTokens,
+      row.date, ...(withProject ? [spreadsheetSafe(row.project)] : []), row.source, row.model, row.pricingTier, row.inputTokens, row.outputTokens, row.cacheWriteTokens,
       row.cacheWrite5mTokens, row.cacheWrite1hTokens, row.cacheReadTokens, row.weightedTokens, row.estimatedCostUsd,
     ]
       .map(csvField)
       .join(','),
   );
-  return `${[CSV_HEADER.join(','), ...lines].join('\n')}\n`;
+  return `${[header.join(','), ...lines].join('\n')}\n`;
 }
 
 export function formatJson(rows: readonly ExportRow[], scope: 'this-machine' | 'all-machines'): string {
@@ -174,9 +221,9 @@ export async function runExport(options: ExportOptions, overrides: Partial<Expor
     rowCount = hourRows.length;
     text = options.format === 'json' ? formatHoursJson(hourRows) : formatHoursCsv(hourRows);
   } else {
-    const rows = buildRows(ledger, others, options.since);
+    const rows = options.projects ? buildProjectRows(ledger, await deps.projectNames(), deps.home(), options.since) : buildRows(ledger, others, options.since);
     rowCount = rows.length;
-    text = options.format === 'json' ? formatJson(rows, options.allMachines ? 'all-machines' : 'this-machine') : formatCsv(rows);
+    text = options.format === 'json' ? formatJson(rows, options.allMachines ? 'all-machines' : 'this-machine') : formatCsv(rows, options.projects === true);
   }
   if (options.out === undefined) {
     process.stdout.write(text);

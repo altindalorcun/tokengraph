@@ -228,3 +228,26 @@ describe('addSdkMessages', () => {
     expect(diagnostics.malformedEntries).toBe(0);
   });
 });
+
+describe('addSdkMessages folder', () => {
+  const messages = [assistantMessage('m1')];
+  it('uses workspace_root, then cwd', () => {
+    for (const [manifest, folder] of [
+      [{ cwd: '/a/cwd', workspace_root: '/a/root' }, '/a/root'],
+      [{ cwd: '/a/cwd' }, '/a/cwd'],
+      [{ cwd: '/a/cwd', workspace_root: '' }, '/a/cwd'],
+    ] as const) {
+      const buckets = new RequestBuckets();
+      addSdkMessages(file(messages, manifest), buckets, emptyClineDiagnostics(), UTC);
+      expect(buckets.toProjects().map((p) => p.folder)).toEqual([folder]);
+    }
+  });
+  it('gives no folder without a manifest or with a non-string value', () => {
+    for (const manifest of [null, {}, { cwd: 5, workspace_root: ['x'] }]) {
+      const buckets = new RequestBuckets();
+      addSdkMessages(file(messages, manifest), buckets, emptyClineDiagnostics(), UTC);
+      expect(buckets.toProjects()).toEqual([]);
+      expect(buckets.toUsage()).toHaveLength(1);
+    }
+  });
+});

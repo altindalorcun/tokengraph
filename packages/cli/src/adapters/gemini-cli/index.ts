@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { GEMINI_CLI_SOURCE, type Adapter, type CollectResult } from '@tokengraph/core';
 import { envPath, FileDeduper, planScan, processRootContext, type RootsOption } from '../../agent-roots.js';
 import { resolveAdapterRoots } from '../../agent-roots-store.js';
@@ -48,7 +48,38 @@ function hasMessagesArray(value: unknown): value is { messages: unknown[] } {
   return typeof value === 'object' && value !== null && Array.isArray((value as Record<string, unknown>)['messages']);
 }
 
-async function readJsonlSession(path: string, aggregator: GeminiUsageAggregator): Promise<void> {
+async function readSmallText(path: string): Promise<string | null> {
+  try {
+    return (await readFile(path, 'utf8')).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** `<runtime>/projects.json` is `{"projects": {"/abs/path": "slug"}}`; the path whose slug is `slug`, or null. */
+async function folderFromProjectsJson(runtimeDir: string, slug: string): Promise<string | null> {
+  const text = await readSmallText(join(runtimeDir, 'projects.json'));
+  if (!text) return null;
+  try {
+    const projects: unknown = (JSON.parse(text) as { projects?: unknown }).projects;
+    if (typeof projects !== 'object' || projects === null) return null;
+    for (const [folder, value] of Object.entries(projects)) if (value === slug && folder) return folder;
+  } catch {
+    // A malformed projects.json is the same as none.
+  }
+  return null;
+}
+
+/**
+ * The working folder of a Gemini project directory (`<runtime>/tmp/<project-id>`): the absolute path in
+ * its `.project_root`, else the path `projects.json` maps to this slug, else null (old hash-named
+ * folders have no readable path). Only those two small files are read, never chat text.
+ */
+async function projectFolder(projectDir: string): Promise<string | null> {
+  return (await readSmallText(join(projectDir, '.project_root'))) ?? (await folderFromProjectsJson(dirname(dirname(projectDir)), basename(projectDir)));
+}
+
+async function readJsonlSession(path: string, aggregator: GeminiUsageAggregator, folder: string | null): Promise<void> {
   try {
     await readLines(path, (line) => {
       const trimmed = line.trim();
@@ -60,18 +91,18 @@ async function readJsonlSession(path: string, aggregator: GeminiUsageAggregator)
         // A bad line (e.g. a partial write) is skipped silently, not counted as unreadable.
         return;
       }
-      aggregator.addRecord(record);
+      aggregator.addRecord(record, folder);
     });
   } catch {
     aggregator.noteUnreadableFile();
   }
 }
 
-async function readLegacyJsonSession(path: string, aggregator: GeminiUsageAggregator): Promise<void> {
+async function readLegacyJsonSession(path: string, aggregator: GeminiUsageAggregator, folder: string | null): Promise<void> {
   try {
     const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
-    if (hasMessagesArray(parsed)) aggregator.addDocument(parsed);
-    else aggregator.addRecord(parsed);
+    if (hasMessagesArray(parsed)) aggregator.addDocument(parsed, folder);
+    else aggregator.addRecord(parsed, folder);
   } catch {
     aggregator.noteUnreadableFile();
   }
@@ -90,8 +121,9 @@ function describeDiagnostics({ malformedMessages, clampedMessages, totalMismatch
 
 /**
  * Reads Gemini CLI's local chat recordings. Recording is always on (no opt-out); only the counters
- * inside each message's `tokens` object are read — prompt/response text, tool output and
- * directories are never opened or stored.
+ * inside each message's `tokens` object are read, plus the project's working folder (from
+ * `.project_root` or `projects.json`) for per-project totals. The folder stays on this machine and never
+ * reaches a gist; prompt/response text and tool output are never opened or stored.
  */
 export interface GeminiCliAdapterOptions extends Pick<GeminiAggregatorOptions, 'timeZone'>, RootsOption {}
 
@@ -114,12 +146,14 @@ export function createGeminiCliAdapter(adapterOptions: GeminiCliAdapterOptions =
       const files = new FileDeduper();
       for (const tmpDir of await tmpDirs()) {
         for (const projectDir of await childDirectories(tmpDir)) {
+          let folder: string | null | undefined; // looked up once per project folder, and only if it has a chat to read
           for await (const path of sessionFiles(join(projectDir, 'chats'))) {
             const info = await stat(path).catch(() => null);
             if (!info || info.mtime < since) continue;
             if (!(await files.first(path))) continue;
-            if (path.endsWith('.jsonl')) await readJsonlSession(path, aggregator);
-            else await readLegacyJsonSession(path, aggregator);
+            if (folder === undefined) folder = await projectFolder(projectDir);
+            if (path.endsWith('.jsonl')) await readJsonlSession(path, aggregator, folder);
+            else await readLegacyJsonSession(path, aggregator, folder);
           }
         }
       }

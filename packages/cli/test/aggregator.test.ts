@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CLAUDE_CODE_SOURCE } from '@tokengraph/core';
 import { UsageAggregator } from '../src/adapters/claude-code/aggregator.js';
 
 interface LineOverrides {
@@ -271,5 +272,35 @@ describe('UsageAggregator hours', () => {
   it('counts the copies of one message once in its hour', () => {
     const copies = Array.from({ length: 5 }, () => line({ timestamp: '2026-09-10T07:05:00.000Z' }));
     expect(aggregate(copies).hours).toEqual([{ date: '2026-09-10', hour: 7, weighted: 64 }]);
+  });
+});
+
+describe('UsageAggregator projects', () => {
+  const at = (cwd: string | undefined, overrides: LineOverrides = {}) => JSON.stringify({ ...JSON.parse(line(overrides)), cwd, message: { ...JSON.parse(line(overrides)).message, content: [{ type: 'text', text: 'PLANTED-PROMPT' }] } });
+  const collect = (lines: string[]) => {
+    const aggregator = new UsageAggregator({ timeZone: 'UTC' });
+    for (const text of lines) aggregator.addLine(text);
+    return aggregator.result(CLAUDE_CODE_SOURCE);
+  };
+
+  it('books each message under its folder and sums to usage', () => {
+    const result = collect([at('/w/a', { id: 'm1', output: 5 }), at('/w/b', { id: 'm2', output: 7 })]);
+    expect(result.projects!.map((row) => [row.folder, row.counts.outputTokens])).toEqual([['/w/a', 5], ['/w/b', 7]]);
+    expect(result.projects!.reduce((sum, row) => sum + row.counts.outputTokens, 0)).toBe(result.usage[0]!.counts.outputTokens);
+  });
+
+  it('counts a message once, under the first folder seen, across streaming copies', () => {
+    const result = collect([at('/w/a', { id: 'm1', output: 1 }), at('/w/b', { id: 'm1', output: 9 })]);
+    expect(result.projects!.map((row) => [row.folder, row.counts.outputTokens])).toEqual([['/w/a', 9]]);
+  });
+
+  it('a copy with no cwd stays in usage and out of projects until a copy has one', () => {
+    expect(collect([at(undefined, { id: 'm1' })]).projects).toEqual([]);
+    expect(collect([at(undefined, { id: 'm1' })]).usage).toHaveLength(1);
+    expect(collect([at(undefined, { id: 'm1' }), at('/w/a', { id: 'm1' })]).projects).toHaveLength(1);
+  });
+
+  it('keeps everything but the folder and the counters out of the result', () => {
+    expect(JSON.stringify(collect([at('/w/a', { id: 'm1' })]))).not.toContain('PLANTED-PROMPT');
   });
 });

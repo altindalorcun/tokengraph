@@ -30,6 +30,10 @@ export interface CliConfig {
    * "on, once a manual sync has announced it"; `tokengraph cursor off` stores false. Never holds a credential.
    */
   cursor?: { fetch?: boolean };
+  /** `check`: false after `tokengraph update off`, so the view stops asking npm for the latest version. Unset means on. */
+  update?: { check?: boolean };
+  /** `names`: project root → the name the user gave it. Roots with one name are one project. Local only, like the ledger's projects. */
+  projects?: { names?: Record<string, string> };
 }
 
 /** The most roots remembered for one source; a config file is not a log. */
@@ -110,6 +114,17 @@ export function parseConfig(raw: unknown): CliConfig {
 
   const cursor = record(fields['cursor']);
   if (cursor && typeof cursor['fetch'] === 'boolean') config.cursor = { fetch: cursor['fetch'] };
+
+  const update = record(fields['update']);
+  if (update && typeof update['check'] === 'boolean') config.update = { check: update['check'] };
+
+  const names = record(record(fields['projects'])?.['names']);
+  if (names) {
+    const parsed = Object.entries(names).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim() !== '' && !['__proto__', 'constructor', 'prototype'].includes(entry[0]),
+    );
+    if (parsed.length > 0) config.projects = { names: Object.fromEntries(parsed) };
+  }
 
   return config;
 }

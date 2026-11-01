@@ -42,6 +42,7 @@ describe('eventFromHookPayload', () => {
       fast: true,
       status: 'completed',
       cursorVersion: '3.14.7',
+      folder: '/secret/project',
       inputTokens: 1180993,
       outputTokens: 8146,
       cacheReadTokens: 1007022,
@@ -49,9 +50,9 @@ describe('eventFromHookPayload', () => {
     });
   });
 
-  it('never keeps text, paths, e-mail, workspace roots or the conversation id', () => {
-    const serialised = JSON.stringify(eventFromHookPayload(PAYLOAD, NOW));
-    for (const secret of ['the assistant answer', '/secret/', 'someone@example.com', 'conv-1']) {
+  it('never keeps text, the transcript path, e-mail, further roots or the conversation id', () => {
+    const serialised = JSON.stringify(eventFromHookPayload({ ...PAYLOAD, workspace_roots: ['/secret/project', '/second/root'] }, NOW));
+    for (const secret of ['the assistant answer', 'transcript.jsonl', '/second/root', 'someone@example.com', 'conv-1']) {
       expect(serialised).not.toContain(secret);
     }
   });
@@ -157,5 +158,23 @@ describe('appendCursorEvent', () => {
     expect(lines.map((l) => parseCursorEvent(l)!.generationId)).toEqual(['gen-1', 'gen-2']);
     // Windows has no POSIX file modes, so this bit is only meaningful on POSIX platforms.
     if (process.platform !== 'win32') expect((await stat(cursorEventsPath())).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe('event folder', () => {
+  it('stores the first workspace root only when it is a short non-empty string', () => {
+    const folderOf = (roots: unknown) => eventFromHookPayload({ ...PAYLOAD, workspace_roots: roots }, NOW)?.folder;
+    expect(folderOf(['/a', '/b'])).toBe('/a');
+    expect(folderOf(['x'.repeat(1024)])).toBe('x'.repeat(1024));
+    for (const bad of [['x'.repeat(1025)], [''], [5], [], 'str', null, undefined]) expect(folderOf(bad)).toBeUndefined();
+    expect('folder' in eventFromHookPayload({ ...PAYLOAD, workspace_roots: [] }, NOW)!).toBe(false);
+  });
+
+  it('round-trips a folder and parses an old line without one', () => {
+    const event = eventFromHookPayload(PAYLOAD, NOW)!;
+    expect(parseCursorEvent(JSON.stringify(event))?.folder).toBe('/secret/project');
+    const { folder: _f, ...old } = event;
+    expect(parseCursorEvent(JSON.stringify(old))).toEqual(old);
+    expect(parseCursorEvent(JSON.stringify({ ...event, folder: 5 }))?.folder).toBeUndefined();
   });
 });

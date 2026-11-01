@@ -349,8 +349,12 @@ Neither tool applies `$rewindTo` (they count rewound requests), the same as our 
 5. The normalisation above; the date is the local day from `timestamp` (`dateKey`); the model is
    the message's `model` field (`unknown` if missing); the source name must be added to
    `KNOWN_SOURCES` (here `gemini-cli`).
-6. Only counters are kept; `content`, `thoughts`, `toolCalls`, file paths, `summary` and
-   `directories` are never read or stored.
+6. Only counters are kept, plus the project's working folder for per-project totals: the absolute
+   path in `tmp/<project-id>/.project_root`, else the path `projects.json` maps to the slug, else
+   none (old hash-named folders have no readable path). The folder stays on this machine and never
+   reaches a gist. A session present under both the hash and the slug folder counts once and takes
+   the slug's folder. `content`, `thoughts`, `toolCalls`, `summary` and `directories` are never
+   read or stored.
 
 ## Not verified
 

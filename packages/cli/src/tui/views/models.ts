@@ -1,5 +1,5 @@
 import { FAMILY_LABELS, MODEL_FAMILIES, type ModelFamily } from '@tokengraph/core';
-import { RANGE_LABELS, familyBuckets, modelBreakdown, rangeBuckets } from '../model.js';
+import { RANGE_LABELS, familyBuckets, modelBreakdown, rangeBuckets, topProjectsLine } from '../model.js';
 import type { Rect, ScreenBuffer } from '../screen.js';
 import { familyColor } from '../theme.js';
 import { drawColumnChart } from './chart.js';
@@ -14,6 +14,7 @@ export function drawModels(buf: ScreenBuffer, rect: Rect, props: ViewProps & { s
     rows: modelBreakdown(vm, state.range),
     color: (row) => familyColor(row.family, theme),
     extras: true,
+    footnote: (row) => topProjectsLine(vm, 'model', row.key, state.range),
     chart: (view, area) => {
       const buckets = familyBuckets(vm, rangeBuckets(vm, state.range));
       const present = new Set<ModelFamily>(buckets.flatMap((b) => b.families.map((f) => f.family)));

@@ -10,7 +10,8 @@ import { createKiloAdapter, kiloDataDir } from './adapters/kilo/index.js';
 import { createOpenCodeAdapter, openCodeDataDir } from './adapters/opencode/index.js';
 import { createPiAdapter, piSessionDirs } from './adapters/pi/index.js';
 import { createQwenCodeAdapter, qwenProjectsDirs } from './adapters/qwen-code/index.js';
-import { mergeHours, mergeUsage, type Ledger } from './ledger.js';
+import { mergeHours, mergeProjects, mergeUsage, type Ledger } from './ledger.js';
+import { normaliseFolder, refreshProjectRoots } from './project-roots.js';
 
 export interface CollectProgress {
   adapter: string;
@@ -58,11 +59,14 @@ export async function collectLocal(
 
   const results: CollectResult[] = [];
   const failures: { adapter: string; message: string }[] = [];
+  const folders = new Set<string>();
   for (const adapter of detected) {
     onProgress({ adapter: adapter.name, state: 'scanning' });
     try {
       const result = await adapter.collect(since);
-      ledger = mergeHours(mergeUsage(ledger, result.source, result.usage), result.source, result.hours);
+      const projects = result.projects?.map((row) => ({ ...row, folder: normaliseFolder(row.folder) }));
+      ledger = mergeProjects(mergeHours(mergeUsage(ledger, result.source, result.usage), result.source, result.hours), result.source, projects);
+      for (const row of projects ?? []) folders.add(row.folder);
       results.push(result);
       onProgress({ adapter: adapter.name, state: 'done' });
     } catch (error) {
@@ -73,6 +77,7 @@ export async function collectLocal(
       onProgress({ adapter: adapter.name, state: 'failed', message });
     }
   }
+  ledger = await refreshProjectRoots(ledger, folders);
   return { ledger, results, failures, detected: detected.map((adapter) => adapter.name) };
 }
 

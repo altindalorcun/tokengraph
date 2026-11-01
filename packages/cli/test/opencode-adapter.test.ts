@@ -152,9 +152,97 @@ describe('createOpenCodeAdapter', () => {
     expect(result.usage).toHaveLength(1);
     expect(result.usage[0]).toMatchObject({ date: '2026-09-27', model: 'claude-sonnet-4-5', counts: { inputTokens: 40, outputTokens: 25 } });
 
-    const serialized = JSON.stringify(result);
+    // The working folder is read for per-project totals, and only appears in `projects`.
+    expect(result.projects).toEqual([
+      expect.objectContaining({ folder: SECRET_DIRECTORY, date: '2026-09-27', model: 'claude-sonnet-4-5', counts: expect.objectContaining({ inputTokens: 40, outputTokens: 25 }) }),
+    ]);
+    const { projects: _projects, ...rest } = result;
+    const serialized = JSON.stringify(rest);
     expect(serialized).not.toContain(SECRET_DIRECTORY);
     expect(serialized).not.toContain(SECRET_TEXT);
+    expect(JSON.stringify(result)).not.toContain(SECRET_TEXT);
+  });
+
+  it('gives a request null folder (left out of projects) when the session table has no directory column', async () => {
+    const opencodeDir = join(dataDir, 'opencode');
+    await mkdir(opencodeDir, { recursive: true });
+    const db = new DatabaseSync(join(opencodeDir, 'opencode.db'));
+    db.exec(`CREATE TABLE session (id text primary key, version text not null, time_created integer not null)`);
+    db.exec(`CREATE TABLE message (id text primary key, session_id text, time_created integer, time_updated integer, data text)`);
+    db.exec(`CREATE TABLE part (id text primary key, message_id text, session_id text, time_created integer, time_updated integer, data text)`);
+    db.prepare('INSERT INTO session (id, version, time_created) VALUES (?, ?, ?)').run('s1', '1.18.32', SESSION_CREATED);
+    insertMessage(db, { id: 'msg_1', sessionId: 's1', data: assistantData({ tokens: tokens(30, 20) }) });
+    db.close();
+
+    const result = await createOpenCodeAdapter({ timeZone: 'UTC' }).collect(SINCE);
+    expect(result.requestCount).toBe(1);
+    expect(result.usage).toHaveLength(1);
+    expect(result.projects).toEqual([]);
+  });
+
+  it('keeps one folder for a forked session (clone under a new id counts once)', async () => {
+    const opencodeDir = join(dataDir, 'opencode');
+    await mkdir(opencodeDir, { recursive: true });
+    const db = createV1Db(join(opencodeDir, 'opencode.db'));
+    insertSession(db, { id: 's1', version: '1.18.32', timeCreated: SESSION_CREATED, directory: '/work/a' });
+    insertSession(db, { id: 's2', version: '1.18.32', timeCreated: SESSION_CREATED, directory: '/work/a' });
+    insertMessage(db, { id: 'msg_1', sessionId: 's1', data: assistantData({ tokens: tokens(30, 20) }) });
+    insertMessage(db, { id: 'msg_2', sessionId: 's2', data: assistantData({ tokens: tokens(30, 20) }) });
+    db.close();
+
+    const result = await createOpenCodeAdapter({ timeZone: 'UTC' }).collect(SINCE);
+    expect(result.requestCount).toBe(1);
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects![0]).toMatchObject({ folder: '/work/a', counts: { inputTokens: 30, outputTokens: 20 } });
+  });
+
+  it('reads the folder of the old JSON storage tree from path.cwd, falling back to path.root, which is / outside a git repo', async () => {
+    const opencodeDir = join(dataDir, 'opencode');
+    const storageDir = join(opencodeDir, 'storage');
+    await mkdir(join(storageDir, 'session', 'proj1'), { recursive: true });
+    await mkdir(join(storageDir, 'message', 's1'), { recursive: true });
+    await mkdir(join(storageDir, 'part', 'msg_1'), { recursive: true });
+    await mkdir(join(storageDir, 'part', 'msg_2'), { recursive: true });
+    await writeFile(join(storageDir, 'session', 'proj1', 's1.json'), JSON.stringify({ version: '1.18.32', time: { created: SESSION_CREATED } }));
+    await writeFile(join(storageDir, 'message', 's1', 'msg_1.json'), JSON.stringify(assistantData({ tokens: tokens(10, 5), path: { cwd: '/work/sub', root: '/work/root' } })));
+    await writeFile(join(storageDir, 'message', 's1', 'msg_2.json'), JSON.stringify(assistantData({ tokens: tokens(7, 3), path: { cwd: '/work/cwd-only' } })));
+    await writeFile(join(storageDir, 'part', 'msg_1', 'prt_1.json'), JSON.stringify(stepFinishData(10, 5)));
+    await writeFile(join(storageDir, 'part', 'msg_2', 'prt_1.json'), JSON.stringify(stepFinishData(7, 3)));
+
+    const result = await createOpenCodeAdapter({ timeZone: 'UTC' }).collect(SINCE);
+    expect(result.requestCount).toBe(2);
+    expect(result.projects!.map((p) => [p.folder, p.counts.inputTokens])).toEqual([
+      ['/work/cwd-only', 7],
+      ['/work/sub', 10],
+    ]);
+  });
+
+  it('finds a v2-only session\'s folder in session_v2, and copes with a session_v2 that has no directory', async () => {
+    const opencodeDir = join(dataDir, 'opencode');
+    await mkdir(opencodeDir, { recursive: true });
+    const v2Row = (id: string, sessionId: string) => ({
+      id,
+      sessionId,
+      type: 'assistant',
+      data: { agent: 'build', cost: 0.5, model: { providerID: 'anthropic', id: 'claude-sonnet-4-5' }, time: { created: CREATED, completed: CREATED + 1000 }, tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } } },
+    });
+    const db = createV2Db(join(opencodeDir, 'opencode.db'));
+    db.exec('CREATE TABLE session_v2 (id text primary key, directory text not null)');
+    db.prepare('INSERT INTO session_v2 (id, directory) VALUES (?, ?)').run('v2s', '/work/v2-project');
+    insertSessionMessage(db, v2Row('msg_v2', 'v2s'));
+    db.close();
+    const result = await createOpenCodeAdapter({ timeZone: 'UTC' }).collect(SINCE);
+    expect(result.projects!.map((p) => p.folder)).toEqual(['/work/v2-project']);
+
+    await rm(join(opencodeDir, 'opencode.db'));
+    const old = createV2Db(join(opencodeDir, 'opencode.db'));
+    old.exec('CREATE TABLE session_v2 (id text primary key)');
+    old.prepare('INSERT INTO session_v2 (id) VALUES (?)').run('v2s');
+    insertSessionMessage(old, v2Row('msg_v2', 'v2s'));
+    old.close();
+    const without = await createOpenCodeAdapter({ timeZone: 'UTC' }).collect(SINCE);
+    expect(without.usage).toHaveLength(1);
+    expect(without.projects).toEqual([]);
   });
 
   it('prefers the db copy of a message also present in JSON storage (more steps wins)', async () => {

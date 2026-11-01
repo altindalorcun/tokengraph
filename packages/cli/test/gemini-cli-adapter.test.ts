@@ -101,4 +101,49 @@ describe('createGeminiCliAdapter', () => {
     const result = await createGeminiCliAdapter().collect(new Date(Date.now() - 86_400_000));
     expect(result.requestCount).toBe(0);
   });
+
+  describe('per-project folders', () => {
+    const since = () => new Date(Date.now() - 86_400_000);
+    const HASH = 'a'.repeat(64);
+
+    it('reads .project_root, falls back to projects.json by slug, and gives a hash folder null', async () => {
+      const tmp = join(home, '.gemini', 'tmp');
+      for (const dir of ['rooted', 'slugged', HASH]) await mkdir(join(tmp, dir, 'chats'), { recursive: true });
+      await writeFile(join(tmp, 'rooted', '.project_root'), '/work/rooted\n');
+      await writeFile(join(home, '.gemini', 'projects.json'), JSON.stringify({ projects: { '/work/slugged': 'slugged', '/work/other': 'other' } }));
+      await writeFile(join(tmp, 'rooted', 'chats', 's.jsonl'), JSON.stringify(geminiMessage('r1')));
+      await writeFile(join(tmp, 'slugged', 'chats', 's.jsonl'), JSON.stringify(geminiMessage('r2')));
+      await writeFile(join(tmp, HASH, 'chats', 's.jsonl'), JSON.stringify(geminiMessage('r3')));
+
+      const result = await createGeminiCliAdapter({ timeZone: 'UTC' }).collect(since());
+      expect(result.requestCount).toBe(3);
+      expect(result.usage[0]!.counts.inputTokens).toBe(300);
+      expect(result.projects!.map((p) => [p.folder, p.counts.inputTokens])).toEqual([
+        ['/work/rooted', 100],
+        ['/work/slugged', 100],
+      ]);
+    });
+
+    it('prefers .project_root over projects.json, and tolerates a malformed projects.json', async () => {
+      const tmp = join(home, '.gemini', 'tmp');
+      await mkdir(join(tmp, 'p', 'chats'), { recursive: true });
+      await writeFile(join(tmp, 'p', '.project_root'), '/work/real');
+      await writeFile(join(home, '.gemini', 'projects.json'), '{not json');
+      await writeFile(join(tmp, 'p', 'chats', 's.jsonl'), JSON.stringify(geminiMessage('r1')));
+      const result = await createGeminiCliAdapter({ timeZone: 'UTC' }).collect(since());
+      expect(result.projects!.map((p) => p.folder)).toEqual(['/work/real']);
+    });
+
+    it('counts a session copied from the hash folder to the slug folder once, under the slug folder', async () => {
+      const tmp = join(home, '.gemini', 'tmp');
+      await mkdir(join(tmp, HASH, 'chats'), { recursive: true });
+      await mkdir(join(tmp, 'my-project', 'chats'), { recursive: true });
+      await writeFile(join(tmp, 'my-project', '.project_root'), '/work/mine');
+      await writeFile(join(tmp, HASH, 'chats', 's.jsonl'), JSON.stringify(geminiMessage('r1')));
+      await writeFile(join(tmp, 'my-project', 'chats', 's.jsonl'), JSON.stringify(geminiMessage('r1')));
+      const result = await createGeminiCliAdapter({ timeZone: 'UTC' }).collect(since());
+      expect(result.requestCount).toBe(1);
+      expect(result.projects!.map((p) => [p.folder, p.counts.inputTokens])).toEqual([['/work/mine', 100]]);
+    });
+  });
 });

@@ -26,6 +26,28 @@ function message(overrides: Partial<OpenCodeMessage> = {}): OpenCodeMessage {
   };
 }
 
+describe('OpenCodeAggregator folders', () => {
+  it('uses the session directory, and a message folder wins over it', () => {
+    const aggregator = new OpenCodeAggregator();
+    aggregator.addSession({ ...NEW_SESSION, directory: '/work/a' });
+    aggregator.addV1Message(message({ id: 'msg_1', tokens: stepTokens(10, 5) }));
+    aggregator.addV1Message(message({ id: 'msg_2', tokens: stepTokens(1, 1), createdMs: CREATED + 5, folder: '/work/b' }));
+    expect(aggregator.result().projects!.map((p) => [p.folder, p.counts.inputTokens])).toEqual([
+      ['/work/a', 10],
+      ['/work/b', 1],
+    ]);
+  });
+
+  it('leaves a request with no known folder out of projects but in usage', () => {
+    const aggregator = new OpenCodeAggregator();
+    aggregator.addSession(NEW_SESSION);
+    aggregator.addV1Message(message({ tokens: stepTokens(10, 5) }));
+    const result = aggregator.result();
+    expect(result.usage).toHaveLength(1);
+    expect(result.projects).toEqual([]);
+  });
+});
+
 describe('OpenCodeAggregator v1 request units', () => {
   it('counts each step-finish part as its own request and ignores the message\'s own (overwritten) tokens', () => {
     const aggregator = new OpenCodeAggregator();

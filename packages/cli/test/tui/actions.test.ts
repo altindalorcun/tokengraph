@@ -37,8 +37,17 @@ describe('actionItems', () => {
       'hook:claude-code', 'hook:cursor', 'hook:codex', 'hook:gemini-cli', 'schedule',
       'cursor-fetch', 'cursor-fetch-now', 'import-cursor',
       'story', 'export-csv', 'export-json', 'status', 'uninstall',
+      'update',
     ]);
     expect(find(items, 'hook:codex').title).toBe('Codex notify');
+  });
+
+  it('offers an update only when a newer version is known, and hands the question to the command', () => {
+    const idle = find(actionItems(status({ update: { current: '0.1.1', latest: null } }), []), 'update');
+    expect(idle).toMatchObject({ title: 'Check for updates', detail: 'you have 0.1.1', recommended: false, kind: 'screen', confirm: null });
+    const ready = find(actionItems(status({ update: { current: '0.1.1', latest: '0.2.0' } }), []), 'update');
+    expect(ready).toMatchObject({ title: 'Update to 0.2.0', detail: 'you have 0.1.1', recommended: true, kind: 'screen', confirm: null });
+    expect(cliCommand(ready)).toBe('tokengraph update');
   });
 
   it('maps hook state and words the confirmation', () => {
@@ -57,7 +66,7 @@ describe('actionItems', () => {
 
   it('gives every section and unknown hooks without a status', () => {
     const items = actionItems(null, []);
-    expect(new Set(items.map((item) => item.section))).toEqual(new Set(['Account', 'Auto-sync', 'Cursor', 'Your data']));
+    expect(new Set(items.map((item) => item.section))).toEqual(new Set(['Account', 'Auto-sync', 'Cursor', 'Your data', 'Updates']));
     for (const id of ['hook:claude-code', 'hook:cursor', 'hook:codex', 'hook:gemini-cli', 'schedule']) {
       expect(find(items, id).state).toBe('unknown');
     }

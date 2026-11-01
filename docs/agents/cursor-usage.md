@@ -67,8 +67,10 @@ expects JSON on stdout. `afterAgentResponse` is not used: that hook also carries
 ### Stored fields
 
 Each line in the event file (`cursor-events.jsonl`) contains only the following fields. No other
-field in the hook payload, such as `conversation_id`, `transcript_path`, `workspace_roots`,
-`user_email` or the assistant/user **text**, is **ever stored**:
+field in the hook payload, such as `conversation_id`, `transcript_path`, `user_email` or the
+assistant/user **text**, is **ever stored**. The one path that is kept is the **first entry of
+`workspace_roots`**, as `folder`: it is read for per-project totals, stays on this machine and never
+reaches a gist. Message text is still never read.
 
 | Field | Source | Note |
 | --- | --- | --- |
@@ -78,6 +80,7 @@ field in the hook payload, such as `conversation_id`, `transcript_path`, `worksp
 | `fast` | An item in `model_params` | Boolean; accepted shapes: `{id:"fast", value:true}`, `{id:"fast", value:"true"}`, `{name:"fast", value:true}`, `{name:"fast", value:"true"}` (if there is no `id`, `name` is used); if the model name does not already end with `-fast`, it is appended to the name |
 | `status` | `status` | Cut to 200 characters |
 | `cursorVersion` | `cursor_version` | Cut to 200 characters |
+| `folder` | First entry of `workspace_roots` | Optional. Left out when the entry is not a string, is empty or is longer than 1024 characters; old lines have none. Only that entry is stored, never the other roots |
 | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` | hook fields of the same name | Numeric; `null` = it was not in the payload (unknown, not zero) |
 
 Source: `packages/cli/src/adapters/cursor/events.ts`.
@@ -86,6 +89,10 @@ Source: `packages/cli/src/adapters/cursor/events.ts`.
 
 - **Dedup by `generationId`** (per-field max): if `stop` fires several times for the same turn,
   it is not counted twice.
+- **Per-project totals:** each turn carries its event's `folder` (the first copy that has one
+  wins) and the adapter returns `projects`. Turns without a folder, `cursor-import.jsonl` rows and
+  the cursor.com account history have none: they stay in the totals and add nothing to `projects`.
+  Not checked against a real Cursor run.
 - If `inputTokens` or `outputTokens` is missing (these fields are not officially documented, so
   some versions/turns may not send them), that turn is **not counted as zero but skipped
   entirely**; the note "N Cursor turn(s) reported no token counts and were skipped" appears in

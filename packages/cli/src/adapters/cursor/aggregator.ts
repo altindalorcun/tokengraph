@@ -13,6 +13,7 @@ import {
   type PricingTier,
   type SplitTokenCounts,
 } from '@tokengraph/core';
+import { groupByFolder } from '../request-buckets.js';
 import { capModelName, normalizeClaudeModel } from '../model-ids.js';
 import type { CursorEvent } from './events.js';
 import type { ImportedRow } from './imports.js';
@@ -69,6 +70,8 @@ interface TurnRecord {
   model: string;
   pricingTier: PricingTier;
   counts: SplitTokenCounts;
+  /** The hook event's workspace root; imported rows have none. */
+  folder?: string;
 }
 
 const FAST_SUFFIX = '-fast';
@@ -155,8 +158,8 @@ export class CursorUsageAggregator {
     this.turns.set(
       event.generationId,
       existing
-        ? { date: existing.date, hour: existing.hour, model, pricingTier, counts: maxSplitCounts(existing.counts, counts) }
-        : { date, hour, model, pricingTier, counts },
+        ? { date: existing.date, hour: existing.hour, model, pricingTier, counts: maxSplitCounts(existing.counts, counts), folder: existing.folder ?? event.folder }
+        : { date, hour, model, pricingTier, counts, folder: event.folder },
     );
   }
 
@@ -211,6 +214,6 @@ export class CursorUsageAggregator {
       (a, b) =>
         a.date.localeCompare(b.date) || a.model.localeCompare(b.model) || PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
     );
-    return { source: CURSOR_SOURCE, usage, hours: hours.toList(), requestCount: this.turns.size };
+    return { source: CURSOR_SOURCE, usage, hours: hours.toList(), projects: groupByFolder(this.turns.values()), requestCount: this.turns.size };
   }
 }

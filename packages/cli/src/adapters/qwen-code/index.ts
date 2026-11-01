@@ -106,8 +106,8 @@ function describeDiagnostics({ malformedRecords, clampedRecords, unreadableFiles
 /**
  * Reads Qwen Code's chat transcripts: `projects/<cwd>/chats/<session>.jsonl`, plus the background
  * subagents' `projects/<cwd>/subagents/<session>/agent-<id>.jsonl`. Only the usage counters,
- * model, uuid and timestamp of a record are read; message text, tool output and working
- * directories are never kept. Recording can be switched off in Qwen Code (`general.chatRecording`).
+ * model, uuid and timestamp of a record are read, plus its `cwd` (the working folder, for per-project
+ * totals; it stays on this machine and never reaches a gist); message text and tool output are never read. Recording can be switched off in Qwen Code (`general.chatRecording`).
  *
  * Qwen Code 0.19.0 and later also write `usage/token-usage-YYYY-MM.jsonl`, one line per model
  * request, including the managed memory extractor's, which the chats do not hold. Both sources are
@@ -155,7 +155,8 @@ export function createQwenCodeAdapter(adapterOptions: QwenCodeAdapterOptions = {
       }
 
       const notes = describeDiagnostics(sumDiagnostics(aggregator.diagnostics(), ledger.diagnostics()));
-      return { ...combineQwenSources(aggregator.result(), ledger.result()), ...(notes.length > 0 ? { notes } : {}) };
+      const chats = aggregator.result();
+      return { ...combineQwenSources(chats, ledger.result(chats.sessionFolders)), ...(notes.length > 0 ? { notes } : {}) };
     },
   };
 }

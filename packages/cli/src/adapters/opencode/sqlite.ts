@@ -63,14 +63,32 @@ function tableNames(db: DatabaseSyncType): Set<string> {
   return new Set(rows.map((row) => row['name'] as string));
 }
 
+/** Whether `table` has a column called `column` (older schemas have no `session.directory`). */
+function hasColumn(db: DatabaseSyncType, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
+  return rows.some((row) => row['name'] === column);
+}
+
 function readSessions(db: DatabaseSyncType, aggregator: OpenCodeAggregator): void {
-  const rows = db.prepare('SELECT id, version, time_created FROM session').all() as Row[];
+  // `directory` is the working folder, read for per-project totals only; a schema without it gives null.
+  const directory = hasColumn(db, 'session', 'directory') ? 'directory' : 'NULL AS directory';
+  const rows = db.prepare(`SELECT id, version, time_created, ${directory} FROM session`).all() as Row[];
   for (const row of rows) {
     aggregator.addSession({
       id: row['id'] as string,
       version: asStringOrNull(row['version']),
       createdMs: asMsOrNull(row['time_created']),
+      directory: asStringOrNull(row['directory']),
     });
+  }
+}
+
+/** `session_v2` holds the sessions native 2.x created. Only the id and the folder are read. */
+function readV2SessionFolders(db: DatabaseSyncType, aggregator: OpenCodeAggregator): void {
+  if (!hasColumn(db, 'session_v2', 'directory')) return;
+  for (const row of db.prepare('SELECT id, directory FROM session_v2').all() as Row[]) {
+    const directory = asStringOrNull(row['directory']);
+    if (directory) aggregator.addV2SessionFolder(row['id'] as string, directory);
   }
 }
 
@@ -168,7 +186,7 @@ function readV1Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bo
 function readV2Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bound: number): void {
   const rows = db
     .prepare(
-      `SELECT id,
+      `SELECT id, session_id,
               json_extract(data, '$.model.providerID') AS provider_id,
               json_extract(data, '$.model.id') AS model_id,
               json_extract(data, '$.time.created') AS created,
@@ -196,6 +214,7 @@ function readV2Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bo
 
     aggregator.addV2Message({
       id: row['id'] as string,
+      sessionId: asStringOrNull(row['session_id']),
       providerId: asStringOrNull(row['provider_id']),
       modelId: asStringOrNull(row['model_id']),
       createdMs: asMsOrNull(row['created']) ?? asMsOrNull(row['time_created']) ?? 0,
@@ -208,8 +227,9 @@ function readV2Messages(db: DatabaseSyncType, aggregator: OpenCodeAggregator, bo
 }
 
 /**
- * Reads one OpenCode-family database (`opencode*.db`, `kilo*.db`) read-only into `aggregator`. Only counters, ids, model/provider ids
- * and timestamps are ever selected — never `content`, `path`, `directory` or `title`. Throws on
+ * Reads one OpenCode-family database (`opencode*.db`, `kilo*.db`) read-only into `aggregator`. Only counters, ids, model/provider ids,
+ * timestamps and `session.directory` (the working folder, read for per-project totals; it stays on this machine and never
+ * reaches a gist) are ever selected — never message text, `content`, `path` or `title`. Throws on
  * open or query failure; the caller notes it as an unreadable source and moves on.
  */
 export function readOpenCodeDatabase(
@@ -233,6 +253,7 @@ export function readOpenCodeDatabase(
       readV1Messages(db, aggregator, bound, stepsByMessage);
     }
 
+    if (tables.has('session_v2')) readV2SessionFolders(db, aggregator);
     if (tables.has('session_message')) readV2Messages(db, aggregator, bound);
   } finally {
     db.close();

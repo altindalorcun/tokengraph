@@ -117,7 +117,7 @@ describe('tokengraph uninstall', () => {
   });
 
   it('purge deletes the fetched Cursor account files and the fetch state, and keeps look-alikes', async () => {
-    const mine = ['cursor-account-0123456789abcdef.jsonl', 'cursor-fetch.json'];
+    const mine = ['cursor-account-0123456789abcdef.jsonl', 'cursor-fetch.json', 'update-check.json', 'update-check.json.123.tmp'];
     const notMine = ['cursor-account-xyz.jsonl', 'cursor-account-0123456789abcdef.jsonl.bak', 'notes.txt'];
     for (const name of [...mine, ...notMine]) await writeFile(join(data, name), '');
     expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps())).toBe(0);

@@ -3,13 +3,13 @@ import { actionItems, type ActionId, type ActionItem, type SetupStatus } from '.
 import type { AutoSyncStatus } from './auto-sync.js';
 import type { FrameHits } from './frame.js';
 import type { InputEvent } from './input.js';
-import { RANGES, agentBreakdown, hourProfile, modelBreakdown, shiftDate, type RangeKey, type ViewModel } from './model.js';
+import { RANGES, agentBreakdown, hourProfile, modelBreakdown, projectSummaries, shiftDate, type RangeKey, type ViewModel } from './model.js';
 import type { OverviewState, TableState } from './views/props.js';
 import { clampSelection, filterEntries, paletteEntries } from './views/palette.js';
 import { hitTest } from './widgets/heatmap.js';
 
-export type TabKey = 'overview' | 'models' | 'agents' | 'insights' | 'setup';
-export const TABS: readonly TabKey[] = ['overview', 'models', 'agents', 'insights', 'setup'];
+export type TabKey = 'overview' | 'models' | 'agents' | 'projects' | 'insights' | 'setup';
+export const TABS: readonly TabKey[] = ['overview', 'models', 'agents', 'projects', 'insights', 'setup'];
 
 export interface AppState {
   vm: ViewModel;
@@ -123,6 +123,7 @@ function rowCount(state: AppState): number {
   const { vm, table } = state;
   if (state.tab === 'models') return modelBreakdown(vm, table.range).length;
   if (state.tab === 'agents') return agentBreakdown(vm, table.range).length;
+  if (state.tab === 'projects') return projectSummaries(vm, table.range).length;
   return 0;
 }
 
@@ -164,11 +165,15 @@ function openSetup(state: AppState, id: ActionId): Reduced {
   return { state: index < 0 ? moved.state : selectSetup(moved.state, index), effects: moved.effects };
 }
 
+function isTable(tab: TabKey): boolean {
+  return tab === 'models' || tab === 'agents' || tab === 'projects';
+}
+
 /** Up/down: a day on Overview, a row on Models and Agents, an action on Setup. */
 function vertical(state: AppState, step: number): Reduced {
   if (state.tab === 'setup') return { state: selectSetup(state, state.setupSel + step), effects: [] };
   if (state.tab === 'overview') return { state: moveCursor(state, step), effects: [] };
-  if (state.tab === 'models' || state.tab === 'agents') return { state: selectRow(state, state.table.selected + step), effects: [] };
+  if (isTable(state.tab)) return { state: selectRow(state, state.table.selected + step), effects: [] };
   return { state, effects: [] };
 }
 
@@ -178,8 +183,9 @@ function onChar(state: AppState, char: string): Reduced {
   if (char === 'q') return { state, effects: ['quit'] };
   if (char === '?') return none({ ...state, help: !state.help });
   if (state.help) return none();
-  if (char >= '1' && char <= '5') return withTab(state, TABS[Number(char) - 1]!);
+  if (char >= '1' && char <= String(TABS.length)) return withTab(state, TABS[Number(char) - 1]!);
   if (char === 'h' && state.tab === 'agents') return openSetup(state, 'hook:claude-code');
+  if (char === 'u' && state.setup?.update?.latest) return requestAction(state, 'update');
   if (char === 'c') return none(toggleColour(state));
   if (char === 's') return { state, effects: ['rescan'] };
   if (state.tab === 'overview') {
@@ -190,7 +196,7 @@ function onChar(state: AppState, char: string): Reduced {
       const forward = shiftDate(state.overview.yearEnd, WINDOW_DAYS);
       return none(shiftYear(state, forward < today ? forward : today));
     }
-  } else if ((state.tab === 'models' || state.tab === 'agents') && char === 'r') {
+  } else if (isTable(state.tab) && char === 'r') {
     return stepRange(state, 1);
   }
   return none();
@@ -256,7 +262,7 @@ function onKey(state: AppState, key: string): Reduced {
     if (key === 'home') return { state: { ...state, overview: { ...state.overview, cursor: lo } }, effects: [] };
     if (key === 'end') return { state: { ...state, overview: { ...state.overview, cursor: hi } }, effects: [] };
   }
-  if (state.tab === 'models' || state.tab === 'agents') {
+  if (isTable(state.tab)) {
     if (key === 'left') return stepRange(state, -1);
     if (key === 'right') return stepRange(state, 1);
   }
@@ -292,7 +298,7 @@ function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>,
     const hit = hits.view.hits.find((h) => h.kind === 'hour' && x >= h.rect.x && x < h.rect.x + h.rect.width && y >= h.rect.y && y < h.rect.y + h.rect.height);
     return hit?.kind === 'hour' ? { state: { ...state, clockHour: hit.hour }, effects: [] } : { state, effects: [] };
   }
-  if (event.action !== 'press' || (state.tab !== 'models' && state.tab !== 'agents' && state.tab !== 'setup')) return { state, effects: [] };
+  if (event.action !== 'press' || (!isTable(state.tab) && state.tab !== 'setup')) return { state, effects: [] };
   const inside = (r: { x: number; y: number; width: number; height: number }): boolean =>
     x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
   for (const hit of hits.view.hits) {

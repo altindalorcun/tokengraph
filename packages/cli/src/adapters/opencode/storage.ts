@@ -14,6 +14,12 @@ function asMsOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** The folder an old-store assistant message recorded: `path.cwd`, else `path.root`, which is `/` outside a git repository. */
+function folderOf(value: unknown): string | null {
+  const path = asRecord(value);
+  return asStringOrNull(path?.['cwd']) ?? asStringOrNull(path?.['root']);
+}
+
 async function subdirectoryNames(dir: string): Promise<string[]> {
   let entries;
   try {
@@ -118,6 +124,7 @@ async function readMessages(storageDir: string, aggregator: OpenCodeAggregator, 
         cost: typeof raw['cost'] === 'number' ? raw['cost'] : null,
         tokens: hasTokens ? raw['tokens'] : null,
         steps,
+        folder: folderOf(raw['path']),
       });
     }
   }
@@ -125,8 +132,9 @@ async function readMessages(storageDir: string, aggregator: OpenCodeAggregator, 
 
 /**
  * Reads the pre-1.2 JSON store (`storage/{session,message,part}`, never `auth.json`,
- * `mcp-auth.json` or `log/`) into `aggregator`. Only counters, ids, model/provider ids and
- * timestamps are ever read — never `content`, `path`, `directory` or `title`.
+ * `mcp-auth.json` or `log/`) into `aggregator`. Only counters, ids, model/provider ids,
+ * timestamps and the assistant message's working folder (`path.root ?? path.cwd`, read for per-project totals; it stays on
+ * this machine and never reaches a gist) are ever read — never message text, `content` or `title`.
  */
 export async function readOpenCodeStorage(storageDir: string, aggregator: OpenCodeAggregator, sinceMs: number): Promise<void> {
   await readSessions(storageDir, aggregator);

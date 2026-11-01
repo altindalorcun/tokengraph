@@ -139,8 +139,10 @@ semantics change would need a new threshold in `packages/cli/src/adapters/kilo/i
 ## Content isolation
 
 Only `json_extract` of `tokens`, `modelID`, `providerID`, `time`, `agent`, `cost` and a part's
-`model.providerID` / `model.modelID`, plus `session.id`, `version` and `time_created`. Prompt and
-response text, tool output, `session.directory` and `title` are never selected.
+`model.providerID` / `model.modelID`, plus `session.id`, `version`, `time_created` and
+`session.directory` (the working folder, read for per-project totals; it stays on this machine and
+never reaches a gist; a database without the column gives no folder). Prompt and response text, tool
+output and `title` are never selected.
 
 ## Roots tokengraph scans
 

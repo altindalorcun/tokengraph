@@ -12,7 +12,7 @@ import {
   type PricingTier,
   type SplitTokenCounts,
 } from '@tokengraph/core';
-import { tierForModel } from '../request-buckets.js';
+import { groupByFolder, tierForModel, type FolderRequest } from '../request-buckets.js';
 
 /** Locally generated assistant messages (API errors, interrupts) — never real API usage. */
 const SYNTHETIC_MODEL = '<synthetic>';
@@ -38,6 +38,8 @@ interface MessageRecord {
   /** usage.speed was "fast" on a copy of this message. */
   fast: boolean;
   counts: SplitTokenCounts;
+  /** The record's `cwd`: where the session ran. The first copy that has one wins. */
+  folder: string | null;
 }
 
 function readCount(value: unknown): number {
@@ -128,12 +130,13 @@ export class UsageAggregator {
     const fast = usageFields['speed'] === 'fast';
     const date = dateKey(instant, this.options.timeZone);
     const hour = hourKey(instant, this.options.timeZone);
+    const folder = typeof entry['cwd'] === 'string' && entry['cwd'] !== '' ? entry['cwd'] : null;
     const existing = this.records.get(messageId);
     this.records.set(
       messageId,
       existing
-        ? { date, hour, model, fast: existing.fast || fast, counts: maxSplitCounts(existing.counts, counts) }
-        : { date, hour, model, fast, counts },
+        ? { date, hour, model, fast: existing.fast || fast, counts: maxSplitCounts(existing.counts, counts), folder: existing.folder ?? folder }
+        : { date, hour, model, fast, counts, folder },
     );
   }
 
@@ -144,9 +147,11 @@ export class UsageAggregator {
     // decided here too, from each message's final prompt length.
     const buckets = new Map<string, Aggregated>();
     const hours = new HourSums();
-    for (const { date, hour, model, fast, counts } of this.records.values()) {
+    const requests: FolderRequest[] = [];
+    for (const { date, hour, model, fast, counts, folder } of this.records.values()) {
       hours.add(date, hour, weightedTokens(counts));
       const pricingTier = tierForModel(model, counts, fast);
+      requests.push({ date, model, pricingTier, counts, folder });
       const key = `${date}\0${model}\0${pricingTier}`;
       const existing = buckets.get(key);
       if (existing) {
@@ -167,6 +172,6 @@ export class UsageAggregator {
         a.model.localeCompare(b.model) ||
         PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
     );
-    return { source, usage, hours: hours.toList(), requestCount: this.records.size }; // distinct requests in the window, like every other adapter
+    return { source, usage, hours: hours.toList(), projects: groupByFolder(requests), requestCount: this.records.size }; // distinct requests in the window, like every other adapter
   }
 }

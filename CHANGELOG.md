@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- **Update notice.** The terminal view asks npm for the latest version once a day in the background.
+  When a new one is out it says so in the status bar, and `u` installs it and reopens the view.
+  Offline it stays silent, and the view never waits for the answer. Other commands you type show one
+  line about it, from what the view last found, without touching the network.
+- **Usage per project.** The new Projects tab shows tokens, share and estimated cost per project, with the
+  selected project's models and agents, and Models and Agents show each row's top projects. Insights moves
+  to key 5 and Setup to key 6. `tokengraph projects` prints the same, `projects show <name>` adds a project's
+  folders, and `tokengraph export --projects` writes one row per day, project, agent, model and tier.
+  A project is a git repository, or the folder a session ran in when there is none. Numbers start from the logs
+  still on disk; usage with no known project, such as cursor.com's history, is the Not assigned row. Project
+  data stays on this machine: nothing about it reaches a gist, the graph or a story card.
+- **Merge folders into one project.** `tokengraph projects name cli tokengraph` renames a project, and folders
+  with the same name count as one.
+- **`tokengraph update`** shows the npm command and asks before installing. `--yes` skips the
+  question. A copy run through `npx` or installed some other way is left alone and you get the
+  command to run. `tokengraph update off`, `TOKENGRAPH_NO_UPDATE_CHECK=1` or `NO_UPDATE_NOTIFIER=1`
+  stop the daily check, which sends no usage data.
+
 ## 0.1.1 — 2026-10-30
 
 - The npm page now links to [tokengraph.app](https://tokengraph.app).

@@ -141,11 +141,13 @@ sessions. No entry was added to `status`'s retention checks.
 
 ## Content isolation
 
-The one query selects ids, a model name, numeric counters, a timestamp, `cost_source`, a provider name and the
-model name inside `model_config_json`. `messages.content_json`, working directories and session names are never
-selected. The database is opened read-only. WAL: a read-only open of a WAL database still needs the `-shm` file, and
+The one query selects ids, a model name, numeric counters, a timestamp, `cost_source`, a provider name, the
+model name inside `model_config_json` and `sessions.working_dir` (verified on a real database: `working_dir TEXT NOT
+NULL`). The working folder is read for per-project totals, stays on this machine and never reaches a gist; message
+text (`messages.content_json`) and session names are still never read. A database without a `working_dir` column
+still reads its usage; those requests just have no folder and stay out of the per-project totals. The database is opened read-only. WAL: a read-only open of a WAL database still needs the `-shm` file, and
 the token-monitor note records that read-only scans on macOS can touch it; accepted. The test suite checks that planted
-secrets in `messages` and `sessions` never reach the result.
+secrets in `messages` and `sessions` never reach the result, and that the folder appears only in `projects`.
 
 ## Format history
 

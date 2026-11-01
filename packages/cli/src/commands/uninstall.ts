@@ -60,9 +60,10 @@ const OWN_FILES = [
   'hook-sync.last',
   'sync.lock',
   'schedule.log',
+  'update-check.json',
 ];
-/** Temp files the atomic writers (ledger.ts, config.ts, publish/machines-cache.ts) leave if interrupted. */
-const OWN_TEMP = /^(?:state|config|machines|cursor-fetch)\.json\.[\d.]+\.tmp$/;
+/** Temp files the atomic writers (ledger.ts, config.ts, publish/machines-cache.ts, update-check.ts) leave if interrupted. */
+const OWN_TEMP = /^(?:state|config|machines|cursor-fetch|update-check)\.json\.[\d.]+\.tmp$/;
 /** Usage fetched from cursor.com, one file per account key (adapters/cursor/accounts.ts). It can be fetched again. */
 const CURSOR_ACCOUNT_FILE = /^cursor-account-[0-9a-f]{16}\.jsonl$/;
 const CURSOR_FILES = ['cursor-events.jsonl', 'cursor-import.jsonl'];

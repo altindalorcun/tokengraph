@@ -99,7 +99,43 @@ describe('pi adapter', () => {
       },
     ]);
     expect(JSON.stringify(result)).not.toContain('SECRET');
-    expect(JSON.stringify(result)).not.toContain('/Users/');
+    // The working folder is read for per-project totals and appears only in `projects`.
+    expect(result.projects!.map((row) => row.folder)).toEqual(['/Users/someone/private']);
+    const { projects, ...rest } = result;
+    expect(projects).toHaveLength(1);
+    expect(JSON.stringify(rest)).not.toContain('/Users/');
+  });
+
+  describe('projects', () => {
+    const headerAt = (cwd: string) => ({ ...header, cwd });
+
+    it('gives every request of a file its header cwd, and keeps the prompt out of the result', async () => {
+      await sessionFile('a.jsonl', [headerAt('/w/a'), assistant({ id: 'e1' }), assistant({ id: 'e2', message: { responseId: 'resp_2' } })]);
+      const result = await collect();
+      expect(result.projects!.map((row) => [row.folder, row.counts.outputTokens])).toEqual([['/w/a', 680]]);
+      expect(result.projects!.reduce((sum, row) => sum + row.counts.outputTokens, 0)).toBe(result.usage[0]!.counts.outputTokens);
+      expect(JSON.stringify(result)).not.toContain('SECRET');
+      const { projects, ...rest } = result;
+      expect(projects).toHaveLength(1);
+      expect(JSON.stringify(rest)).not.toContain('/w/a');
+    });
+
+    it('does not let one file folder leak into a file with no header', async () => {
+      await sessionFile('a.jsonl', [headerAt('/w/a'), assistant()]);
+      await sessionFile('b.jsonl', [assistant({ message: { responseId: 'resp_b' } })]);
+      const result = await collect();
+      expect(result.requestCount).toBe(2);
+      expect(result.projects!.map((row) => [row.folder, row.counts.outputTokens])).toEqual([['/w/a', 340]]);
+      expect(result.usage[0]!.counts.outputTokens).toBe(680);
+    });
+
+    it('keeps the first folder of a request copied into a forked file', async () => {
+      await sessionFile('a.jsonl', [headerAt('/w/a'), assistant()]);
+      await sessionFile('b.jsonl', [headerAt('/w/b'), assistant()]);
+      const result = await collect();
+      expect(result.requestCount).toBe(1);
+      expect(result.projects!.map((row) => row.folder)).toEqual(['/w/a']);
+    });
   });
 
   it('splits the cache write for Anthropic and Bedrock, and leaves it unknown elsewhere', async () => {

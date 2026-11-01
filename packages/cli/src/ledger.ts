@@ -20,6 +20,7 @@ import {
   type KnownSource,
   type MachineUsage,
   type PricingTier,
+  type ProjectUsage,
   type SourcedUsage,
   type SplitTokenCounts,
 } from '@tokengraph/core';
@@ -40,6 +41,17 @@ export interface LedgerAccounts {
   cursor?: Record<string, LedgerAccount>;
 }
 
+/**
+ * Usage per working folder, on this machine. Stored as the agent recorded the folder, because the ledger never prunes a
+ * key: grouping (git roots, names) happens when reading, so it can change without a migration. Local only.
+ */
+export interface LedgerProjects {
+  /** source → folder → days. */
+  usage: Partial<Record<KnownSource, Record<string, LedgerDays>>>;
+  /** folder → project root, recorded while the folder existed. */
+  roots: Record<string, string>;
+}
+
 export interface Ledger {
   version: typeof LEDGER_VERSION;
   sources: Partial<Record<KnownSource, LedgerDays>>;
@@ -51,6 +63,8 @@ export interface Ledger {
   hours?: Partial<Record<KnownSource, HourDays>>;
   /** Cursor account hours (account key → date → hour → tokens), kept apart from the `cursor` source's hook hours. */
   accountHours?: Record<string, HourDays>;
+  /** Local only, like hours: machine files list their fields explicitly and this is not one of them. Additive. */
+  projects?: LedgerProjects;
 }
 
 /** The first 16 hex digits of a SHA-256: what an account key looks like. */
@@ -153,6 +167,55 @@ export function mergeLedgerAccounts(ledger: Ledger, extra: LedgerAccounts | unde
 
 function accountUsage(account: LedgerAccount): DailyModelUsage[] {
   return ledgerToUsage({ version: LEDGER_VERSION, sources: { [CURSOR_SOURCE]: account.days } }, CURSOR_SOURCE);
+}
+
+const MAX_FOLDER_LENGTH = 1024;
+const ABSOLUTE_FOLDER = /^(?:[a-z]:)?\//i;
+
+/**
+ * Folders become object keys, and they come from other programs' files. Only an absolute path counts: it can never be
+ * `__proto__` or `toString`, and a relative one says nothing about where a session ran.
+ */
+function isFolderKey(folder: unknown): folder is string {
+  return typeof folder === 'string' && folder.length <= MAX_FOLDER_LENGTH && ABSOLUTE_FOLDER.test(folder);
+}
+
+/** Max-merges one source's usage per folder, like `mergeUsage` per source: project history outlives the logs too. */
+export function mergeProjects(ledger: Ledger, source: KnownSource, rows: readonly ProjectUsage[] | undefined): Ledger {
+  if (!rows || rows.length === 0) return ledger;
+  const groups = new Map<string, ProjectUsage[]>();
+  for (const row of rows) {
+    if (isFolderKey(row.folder)) groups.set(row.folder, [...(groups.get(row.folder) ?? []), row]);
+  }
+  if (groups.size === 0) return ledger;
+  const folders = { ...(ledger.projects?.usage[source] ?? {}) };
+  for (const [folder, group] of groups) {
+    const merged = mergeUsage({ version: LEDGER_VERSION, sources: { [source]: folders[folder] ?? {} } }, source, group);
+    folders[folder] = merged.sources[source] ?? {};
+  }
+  return { ...ledger, projects: { usage: { ...ledger.projects?.usage, [source]: folders }, roots: ledger.projects?.roots ?? {} } };
+}
+
+export function mergeProjectRoots(ledger: Ledger, roots: Readonly<Record<string, string>>): Ledger {
+  const entries = Object.entries(roots).filter(([folder, root]) => isFolderKey(folder) && isFolderKey(root));
+  if (entries.length === 0) return ledger;
+  return { ...ledger, projects: { usage: ledger.projects?.usage ?? {}, roots: { ...ledger.projects?.roots, ...Object.fromEntries(entries) } } };
+}
+
+export function projectUsageRows(ledger: Ledger, source: KnownSource): ProjectUsage[] {
+  return Object.entries(ledger.projects?.usage[source] ?? {}).flatMap(([folder, days]) =>
+    ledgerToUsage({ version: LEDGER_VERSION, sources: { [source]: days } }, source).map((entry) => ({ ...entry, folder })),
+  );
+}
+
+/** Max-merges `extra`'s project data into `ledger` (another copy of this machine's own ledger). */
+export function mergeLedgerProjects(ledger: Ledger, extra: Pick<Ledger, 'projects'>): Ledger {
+  if (!extra.projects) return ledger;
+  let merged = ledger;
+  for (const source of Object.keys(extra.projects.usage).filter(isKnownSource)) {
+    merged = mergeProjects(merged, source, projectUsageRows(extra as Ledger, source));
+  }
+  return mergeProjectRoots(merged, extra.projects.roots);
 }
 
 /** A ledger as the pure combining rule takes it (`combineMachineUsage` in core). */
@@ -268,6 +331,31 @@ function parseAccounts(raw: unknown): LedgerAccounts | undefined {
   return Object.keys(cursor).length > 0 ? { cursor } : undefined;
 }
 
+/** Tolerant, like the hour tables: a bad entry is dropped, and a damaged block is no project data, never a failed read. */
+function parseProjects(raw: unknown): LedgerProjects | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { usage: rawUsage, roots: rawRoots } = raw as Record<string, unknown>;
+  const usage: LedgerProjects['usage'] = {};
+  if (typeof rawUsage === 'object' && rawUsage !== null) {
+    for (const [source, rawFolders] of Object.entries(rawUsage as Record<string, unknown>)) {
+      if (!isKnownSource(source) || typeof rawFolders !== 'object' || rawFolders === null) continue;
+      const folders: Record<string, LedgerDays> = {};
+      for (const [folder, rawDays] of Object.entries(rawFolders as Record<string, unknown>)) {
+        const days = isFolderKey(folder) ? parseDays(rawDays, readTiers) : null;
+        if (days) folders[folder] = days;
+      }
+      if (Object.keys(folders).length > 0) usage[source] = folders;
+    }
+  }
+  const roots: Record<string, string> = {};
+  if (typeof rawRoots === 'object' && rawRoots !== null) {
+    for (const [folder, root] of Object.entries(rawRoots as Record<string, unknown>)) {
+      if (isFolderKey(folder) && isFolderKey(root)) roots[folder] = root;
+    }
+  }
+  return Object.keys(usage).length > 0 || Object.keys(roots).length > 0 ? { usage, roots } : undefined;
+}
+
 /** For machine files, which carry the same `accounts` field as the ledger. */
 export function parseLedgerAccounts(raw: unknown): LedgerAccounts | undefined {
   return parseAccounts(raw);
@@ -367,10 +455,12 @@ export function parseLedger(raw: unknown): Ledger {
       if (parsed) accountHours[key] = parsed;
     }
   }
+  const projects = parseProjects(fields['projects']);
   return {
     version: LEDGER_VERSION,
     sources,
     ...(accounts ? { accounts } : {}),
+    ...(projects ? { projects } : {}),
     ...(Object.keys(hours).length > 0 ? { hours } : {}),
     ...(Object.keys(accountHours).length > 0 ? { accountHours } : {}),
   };

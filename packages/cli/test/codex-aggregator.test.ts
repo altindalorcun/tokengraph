@@ -414,3 +414,39 @@ describe('CodexUsageAggregator hours', () => {
     ]);
   });
 });
+
+describe('CodexUsageAggregator projects', () => {
+  const sessionMeta = (cwd: string) => JSON.stringify({ timestamp: T, type: 'session_meta', payload: { id: 's', cwd, base_instructions: { text: 'PLANTED-INSTRUCTIONS' } } });
+
+  it('applies session_meta.cwd to every response of that file', () => {
+    const { result } = collect([[sessionMeta('/w/a'), turnContext('t1', 'm'), record('r1', 't1'), record('r2', 't1')], [sessionMeta('/w/b'), turnContext('t2', 'm'), record('r3', 't2')]]);
+    expect(result.projects!.map((row) => [row.folder, row.counts.outputTokens])).toEqual([['/w/a', 100], ['/w/b', 50]]);
+  });
+
+  it('keeps the first session_meta of a file: a later one, as in a fork, does not move or clear the folder', () => {
+    const later = JSON.stringify({ timestamp: T, type: 'session_meta', payload: { id: 's2' } });
+    const { result } = collect([[sessionMeta('/w/a'), sessionMeta('/w/parent'), later, turnContext('t1', 'm'), record('r1', 't1')]]);
+    expect(result.projects!.map((row) => row.folder)).toEqual(['/w/a']);
+  });
+
+  it('counts a response seen in two files once', () => {
+    const { result } = collect([[sessionMeta('/w/a'), turnContext('t1', 'm'), record('r1', 't1')], [sessionMeta('/w/b'), turnContext('t1', 'm'), record('r1', 't1')]]);
+    expect(result.projects!.reduce((sum, row) => sum + row.counts.outputTokens, 0)).toBe(50);
+  });
+
+  it('a file with no session_meta gives no folder, and the next file does not inherit one', () => {
+    const { result } = collect([[sessionMeta('/w/a'), turnContext('t1', 'm'), record('r1', 't1')], [turnContext('t2', 'm'), record('r2', 't2')]]);
+    expect(result.projects).toHaveLength(1);
+    expect(result.usage[0]!.counts.outputTokens).toBe(100);
+  });
+
+  it('gives the token_count fallback its file\'s folder too', () => {
+    const { result } = collect([[sessionMeta('/w/a'), turnContext('t1', 'm'), tokenCount()]]);
+    expect(result.projects!.map((row) => row.folder)).toEqual(['/w/a']);
+  });
+
+  it('keeps everything but the folder and the counters out of the result', () => {
+    const { result } = collect([[sessionMeta('/w/a'), turnContext('t1', 'm'), record('r1', 't1')]]);
+    expect(JSON.stringify(result)).not.toContain('PLANTED-INSTRUCTIONS');
+  });
+});

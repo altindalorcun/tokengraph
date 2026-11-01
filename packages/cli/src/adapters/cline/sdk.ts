@@ -20,6 +20,15 @@ export interface SdkMessagesFile {
   manifest: unknown | null;
 }
 
+/** The session's working folder: the manifest's `workspace_root`, else its `cwd`. Nothing else of the manifest is read for it. */
+function sessionFolder(manifest: Record<string, unknown> | null): string | null {
+  for (const key of ['workspace_root', 'cwd']) {
+    const value = manifest?.[key];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
 const LEGACY_WARNING_PREFIX = 'Warning: this is a legacy conversation';
 
 /**
@@ -96,6 +105,7 @@ export function addSdkMessages(
   if (messages.length === 0) return;
 
   const manifest = asObject(file.manifest);
+  const folder = sessionFolder(manifest);
   const metadata = manifest ? asObject(manifest['metadata']) : null;
 
   const importedFrom = metadata ? asObject(metadata['importedFrom']) : null;
@@ -176,6 +186,6 @@ export function addSdkMessages(
     const date = dateKey(instant, options.timeZone);
     // Session-independent: a forked session copies earlier messages with the same id, and this key
     // lets them merge into one request instead of being double-counted.
-    buckets.add(`sdk:${id}`, { date, hour: hourKey(instant, options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    buckets.add(`sdk:${id}`, { date, hour: hourKey(instant, options.timeZone), model, pricingTier: tierForModel(model, counts), counts, folder });
   }
 }

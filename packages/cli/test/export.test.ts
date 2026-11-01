@@ -1,10 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { DailyModelUsage, SplitTokenCounts } from '@tokengraph/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseExportArgs, runExport } from '../src/commands/export.js';
-import { emptyLedger, mergeHours, mergeUsage, writeLedger } from '../src/ledger.js';
+import { emptyLedger, mergeHours, mergeProjectRoots, mergeProjects, mergeUsage, writeLedger } from '../src/ledger.js';
 import { ledgerPath, machinesCachePath } from '../src/paths.js';
 import { writeMachinesCache } from '../src/publish/machines-cache.js';
 
@@ -216,6 +216,70 @@ describe('tokengraph export', () => {
       expect(out).toBe('date,hour,source,weighted_tokens\n');
       expect(parseExportArgs({ hours: true, 'all-machines': true })).toMatch(/this machine only/);
       expect(parseExportArgs({ hours: true })).toMatchObject({ hours: true });
+    });
+  });
+
+  describe('--projects', () => {
+    const folderRow = (folder: string, input: number) => ({ ...usage('2026-07-01', 'claude-opus-4-8', counts(input)), folder });
+    const write = async () => {
+      const base = mergeUsage(emptyLedger(), 'claude-code', [usage('2026-07-01', 'claude-opus-4-8', counts(1000))]);
+      const home = homedir();
+      await writeLedger(ledgerPath(), mergeProjectRoots(mergeProjects(base, 'claude-code', [folderRow(`${home}/secret-place/app`, 600)]), { [`${home}/secret-place/app`]: `${home}/secret-place/app` }));
+    };
+
+    it('adds a project column with the name, never the path', async () => {
+      await write();
+      expect(await runExport({ format: 'csv', projects: true })).toBe(0);
+      const [header, ...lines] = out.trim().split('\n');
+      expect(header).toBe(HEADER.replace('date,', 'date,project,'));
+      expect(lines.map((line) => line.split(',')[1])).toEqual(['app', 'Not assigned']);
+      expect(out).not.toContain('secret-place');
+    });
+
+    it('never lets a project name run as a spreadsheet formula', async () => {
+      const home = homedir();
+      const folder = `${home}/=HYPERLINK("x")`;
+      const base = mergeUsage(emptyLedger(), 'claude-code', [usage('2026-07-01', 'claude-opus-4-8', counts(1000))]);
+      await writeLedger(ledgerPath(), mergeProjects(base, 'claude-code', [folderRow(folder, 600), folderRow(`${home}/-rm`, 100), folderRow(`${home}/+x`, 100), folderRow(`${home}/@y`, 100)]));
+      await runExport({ format: 'csv', projects: true });
+      const cells = out.trim().split('\n').slice(1).map((line) => line.split(',')[1]!.replace(/^"|"$/g, ''));
+      expect(cells.filter((cell) => /^[=+\-@]/.test(cell))).toEqual([]);
+      expect(cells).toContain("'-rm");
+      expect(cells).toContain("'+x");
+      expect(cells).toContain("'@y");
+      out = '';
+      await runExport({ format: 'json', projects: true });
+      expect((JSON.parse(out) as { rows: { project: string }[] }).rows.map((row) => row.project)).toContain('-rm');
+    });
+
+    it('holds the same rows in JSON', async () => {
+      await write();
+      await runExport({ format: 'json', projects: true });
+      const parsed = JSON.parse(out) as { rows: { project: string; inputTokens: number }[] };
+      expect(parsed.rows.map((row) => [row.project, row.inputTokens])).toEqual([['app', 600], ['Not assigned', 400]]);
+    });
+
+    it('sums to the plain export', async () => {
+      await write();
+      await runExport({ format: 'json', projects: true });
+      const split = (JSON.parse(out) as { rows: { weightedTokens: number; estimatedCostUsd: number }[] }).rows;
+      out = '';
+      await runExport({ format: 'json' });
+      const [plain] = (JSON.parse(out) as { rows: { weightedTokens: number; estimatedCostUsd: number }[] }).rows;
+      expect(split.reduce((sum, row) => sum + row.weightedTokens, 0)).toBeCloseTo(plain!.weightedTokens);
+      expect(split.reduce((sum, row) => sum + row.estimatedCostUsd, 0)).toBeCloseTo(plain!.estimatedCostUsd, 4);
+    });
+
+    it('leaves the plain export byte-identical', async () => {
+      await write();
+      await runExport({ format: 'csv' });
+      expect(out.split('\n')[0]).toBe(HEADER);
+      expect(out).not.toContain('Not assigned');
+    });
+
+    it('cannot be combined with --all-machines or --hours', () => {
+      expect(parseExportArgs({ projects: true, 'all-machines': true })).toContain('--projects');
+      expect(parseExportArgs({ projects: true, hours: true })).toContain('--projects');
     });
   });
 });

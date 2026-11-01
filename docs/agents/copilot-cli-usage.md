@@ -34,7 +34,7 @@ writes. Whether `output_tokens` includes `reasoning_tokens` is not confirmed, so
     nothing unless the user turns it on. Same requests again.
   - `data.db`: the desktop Copilot App's per-session lifetime totals. A legacy, App-only source.
   - `config.json`, `logs/`: settings and diagnostics, no usage; `config.json` can hold account details.
-  - The `sessions` table inside `session-store.db` (working directory, repository, branch, summary).
+  - The `repository`, `branch` and `summary` columns of the `sessions` table inside `session-store.db`. Only `cwd` is read (see Content isolation).
 - The Copilot Chat extension in VS Code keeps its own `chatSessions/*.jsonl` and is out of scope (its
   files are rewritten as snapshot plus mutations, so they are not reliable to count). A VS Code chat
   session of the "Copilot CLI" type runs the same CLI runtime and lands in `session-store.db`, so reading
@@ -159,10 +159,14 @@ only by the user. So no entry was added to `status`'s retention checks.
 
 ## Content isolation
 
-The one query selects ids, one model name, numeric counters and a timestamp. The `sessions` table (`cwd`,
-`repository`, `branch`, `summary`) and `token_details_json` are never selected, and `events.jsonl`, which
-holds prompts, is never opened. The test suite checks that planted secrets in `sessions` and
-`token_details_json` never reach the result.
+The one query selects ids, one model name, numeric counters, a timestamp and, through a LEFT JOIN on the session id,
+`sessions.cwd`. The working folder is read for per-project totals, stays on this machine and never reaches a gist;
+message text and session names are still never read. The other `sessions` columns (`repository`, `branch`, `summary`)
+and `token_details_json` are never selected, and `events.jsonl`, which holds prompts, is never opened. `cwd` was
+verified on a real 1.x store (`sessions.cwd TEXT`). A store with no `sessions` table or no `cwd` column still reads
+its usage; those requests just have no folder and stay out of the per-project totals. The test suite checks that
+planted secrets in `sessions` and `token_details_json` never reach the result, and that the folder appears only in
+`projects`.
 
 ## Format history
 

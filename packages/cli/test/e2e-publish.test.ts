@@ -7,6 +7,7 @@ import { runReadme } from '../src/commands/readme.js';
 import { runSync } from '../src/commands/sync.js';
 import { readConfig, writeConfig } from '../src/config.js';
 import { pollForToken } from '../src/github/device-flow.js';
+import { mergeProjectRoots, mergeProjects, readLedger, writeLedger } from '../src/ledger.js';
 import { startFakeGitHub } from './fake-github.js';
 import { writeClaudeTranscript } from './fixtures-claude.js';
 
@@ -92,6 +93,24 @@ describe('login → sync → readme, end to end', () => {
     expect(data.public).toBe(false);
     expect(Object.keys(data.files).some((name) => name.startsWith('machine-'))).toBe(true);
     expect(await runReadme({ compact: false, copy: async () => true })).toBe(0);
+  });
+
+  it('never publishes project data and keeps it through a publish', async () => {
+    const path = join(root, 'tg', 'state.json');
+    const planted = '/PLANTED-FOLDER/secret-client';
+    await writeLedger(path, mergeProjectRoots(
+      mergeProjects(await readLedger(path), 'claude-code', [{
+        folder: planted, date: daysAgo(1).slice(0, 10), model: 'claude-opus-4-8', pricingTier: 'standard',
+        counts: { inputTokens: 5, outputTokens: 5, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0 },
+      }]),
+      { [planted]: planted },
+    ));
+    expect(await runSync({ sinceDays: 30, theme: 'light', quiet: true })).toBe(0);
+    const published = JSON.stringify([...github.gists.values()]);
+    expect(published).toContain('machine-');
+    expect(published).not.toContain('PLANTED-FOLDER');
+    expect(published).not.toContain('secret-client');
+    expect((await readLedger(path)).projects?.roots[planted]).toBe(planted);
   });
 
   it('a deleted graph gist comes back on the next sync', async () => {

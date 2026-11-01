@@ -78,21 +78,29 @@ function hasTokens(raw: unknown): boolean {
  * model-attributed calls; any `kind` counts). A request is keyed by `(provider, responseId)`, or by
  * its start time, model and counters when the provider gave no id: forking a session writes a new
  * file holding copies of the same entries, and a copy merges into the original. All branches of a
- * session tree are counted, since abandoned branches were billed too.
+ * session tree are counted, since abandoned branches were billed too. The session header's `cwd` is
+ * the working folder of every request in its file (read for per-project totals, never message text);
+ * `startFile()` must be called before each file so one file's folder cannot leak into the next.
  */
 export class PiUsageAggregator {
   private readonly options: PiAggregatorOptions;
   private readonly buckets = new RequestBuckets();
   private readonly unattributed = new Set<string>();
   private malformedRecords = 0;
+  private folder: string | null = null;
 
   constructor(options: PiAggregatorOptions = {}) {
     this.options = options;
   }
 
+  /** Forgets the previous file's working folder; call before the first line of each file. */
+  startFile(): void {
+    this.folder = null;
+  }
+
   addLine(line: string): void {
-    // Only lines that can hold usage are parsed; session text is never inspected.
-    if (!line.includes('"usage"')) return;
+    // Only the header and lines that can hold usage are parsed; session text is never inspected.
+    if (!line.includes('"usage"') && !line.includes('"session"')) return;
     let record: unknown;
     try {
       record = JSON.parse(line);
@@ -106,7 +114,9 @@ export class PiUsageAggregator {
     const entry = asObject(record);
     if (!entry) return;
     const type = entry['type'];
-    if (type === 'message') {
+    if (type === 'session') {
+      this.folder = nonEmptyString(entry['cwd']);
+    } else if (type === 'message') {
       const message = asObject(entry['message']);
       if (!message) return;
       if (message['role'] === 'assistant') this.addRequest(entry, message, 'message');
@@ -149,7 +159,7 @@ export class PiUsageAggregator {
     const key = responseId
       ? `id\0${provider ?? ''}\0${responseId}`
       : [kind, instant.getTime(), provider ?? '', rawModel, counts.inputTokens, counts.outputTokens, counts.cacheReadTokens, counts.cacheCreationTokens].join('\0');
-    this.buckets.add(key, { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts });
+    this.buckets.add(key, { date: dateKey(instant, this.options.timeZone), hour: hourKey(instant, this.options.timeZone), model, pricingTier: tierForModel(model, counts), counts, folder: this.folder });
   }
 
   diagnostics(): PiDiagnostics {
@@ -157,6 +167,6 @@ export class PiUsageAggregator {
   }
 
   result(): CollectResult {
-    return { source: PI_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), requestCount: this.buckets.size };
+    return { source: PI_SOURCE, usage: this.buckets.toUsage(), hours: this.buckets.toHours(), projects: this.buckets.toProjects(), requestCount: this.buckets.size };
   }
 }
