@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-01
 
 - **Update notice.** The terminal view asks npm for the latest version once a day in the background.
   When a new one is out it says so in the status bar, and `u` installs it and reopens the view.
