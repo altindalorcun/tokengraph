@@ -1,12 +1,10 @@
-import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
-import { realpath } from 'node:fs/promises';
 import { binPath, cliVersion, isEphemeralInstall } from '../bin-path.js';
 import { readConfig, writeConfig } from '../config.js';
+import { installGlobally, npmGlobalRoot } from '../npm-global.js';
 import { askYesNo } from '../prompt.js';
 import { checkLatestNow, isNewerVersion } from '../update-check.js';
 
 const CHANGELOG_URL = 'https://tokengraph.app/changelog/';
-const NPM_ROOT_TIMEOUT_MS = 10_000;
 
 export type InstallKind = 'npm' | 'npx' | 'other';
 
@@ -34,43 +32,11 @@ export function installKind(bin: string, npmGlobalRoot: string | null): InstallK
   return comparable(bin).startsWith(`${comparable(npmGlobalRoot)}/tokengraph/`) ? 'npm' : 'other';
 }
 
-// npm is npm.cmd on Windows, and Node only starts a .cmd through a shell. What reaches it is fixed text plus a version
-// that matched the release pattern in update-check.ts.
-function spawnNpm(args: readonly string[], stdio: StdioOptions): ChildProcess {
-  if (process.platform === 'win32') return spawn(`npm ${args.join(' ')}`, { shell: true, stdio, windowsHide: true });
-  return spawn('npm', args, { stdio });
-}
-
-function npmGlobalRoot(): Promise<string | null> {
-  return new Promise((resolve) => {
-    const child = spawnNpm(['root', '-g'], ['ignore', 'pipe', 'ignore']);
-    const timer = setTimeout(() => child.kill(), NPM_ROOT_TIMEOUT_MS);
-    let out = '';
-    child.stdout?.on('data', (chunk: Buffer) => (out += chunk.toString('utf8')));
-    child.on('error', () => resolve(null));
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      const root = out.trim();
-      if (code !== 0 || root === '') return resolve(null);
-      // Compared with the entry script's path, which Node has already resolved through any symlink.
-      realpath(root).then(resolve, () => resolve(root));
-    });
-  });
-}
-
-function installWithNpm(version: string): Promise<number> {
-  return new Promise((resolve) => {
-    const child = spawnNpm(['install', '-g', `tokengraph@${version}`], 'inherit');
-    child.on('error', () => resolve(1));
-    child.on('close', (code) => resolve(code ?? 1));
-  });
-}
-
 const DEFAULT_DEPS: UpdateDeps = {
   currentVersion: cliVersion,
   latestVersion: () => checkLatestNow(),
   kind: async () => installKind(binPath(), await npmGlobalRoot()),
-  install: installWithNpm,
+  install: installGlobally,
   confirm: (question) => askYesNo(question),
   get interactive() {
     return process.stdin.isTTY === true && process.stdout.isTTY === true;

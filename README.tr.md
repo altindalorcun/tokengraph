@@ -47,8 +47,9 @@ npx tokengraph login      # GitHub gist'inizde yayımlayın ve README kod parça
 npx tokengraph story      # kullanımınızı hikâye kartlarına dönüştürüp telefonunuza gönderin
 ```
 
-Node.js 22 veya daha yenisi gerekir. README grafiğini hiç düşünmeden güncel tutmak için:
-`npm install -g tokengraph && tokengraph schedule`.
+Node.js 22 veya daha yenisi gerekir. README grafiğini hiç düşünmeden güncel tutmak için bir kez kurup saatlik
+senkronizasyonu açın: `npm install -g tokengraph && tokengraph schedule`. `npx tokengraph login` bittiğinde
+ikisini sizin yerinize yapmayı önerir.
 
 ## README'nize ekleyin
 
@@ -148,7 +149,7 @@ Her komut `--help` alır. Bilinmeyen bir seçenek hata verir. Ayrıntılı kıla
 | Komut | Ne yapar |
 | --- | --- |
 | `tokengraph [view]` | Canlı terminal görünümünü açar: yıllık ısı haritası, modeller, ajanlar, seriler, günün hangi saatlerinde çalıştığınızı gösteren bir "When you code" grafiği (← → ile bir saat seçilir) ve görünümden çıkmadan hook'ları, saatlik zamanlamayı, sync'i, Cursor'ı, dışa aktarmayı ve story'yi yönettiğiniz bir Kurulum (Setup) sekmesi. `:` veya Ctrl-K komut paletini açar; her eylem CLI karşılığını gösterir. Projects sekmesi proje başına token ve tahmini maliyeti, modelleri ve ajanlarıyla birlikte gösterir. `--print` statik bir görüntü yazdırır, `--no-motion` animasyonları atlar, `--no-live` açıkken yeniden taramayı durdurur, `--theme auto\|dark\|light` temayı seçer. Terminalde varsayılan komuttur. |
-| `tokengraph login` | GitHub'a bağlanır, grafiğinizi kendi gist'inizde yayımlar ve README kod parçasını yazdırır. GitHub CLI oturumunuz varsa onu kullanır (`--gh`); yoksa tarayıcıda onayladığınız tek kullanımlık bir kodu kullanır (`--device`, `--no-open`). Yalnızca gist erişimi ister. |
+| `tokengraph login` | GitHub'a bağlanır, grafiğinizi kendi gist'inizde yayımlar ve README kod parçasını yazdırır. GitHub CLI oturumunuz varsa onu kullanır (`--gh`); yoksa tarayıcıda onayladığınız tek kullanımlık bir kodu kullanır (`--device`, `--no-open`). Yalnızca gist erişimi ister. Ardından saatlik senkronizasyonu önerir; `npx` ile çalışıyorsa, zamanlama kalıcı bir kurulum gerektirdiği için önce tokengraph'ı npm ile global olarak kurmayı önerir. |
 | `tokengraph logout` | Bu makinedeki GitHub girişini unutur. Yerel veriler ve gist'leriniz kalır. |
 | `tokengraph sync` | Her ajanın günlüklerini kullanım defterine aktarır ve giriş yapılmışsa yayımlar. Cursor'da oturum açıksa önce Cursor kullanımınızı cursor.com'dan çeker (en fazla saatte bir). `--since <days>` ne kadar geriye okunacağını belirler (varsayılan 90), `--local` ağa hiç dokunmaz. |
 | `tokengraph projects` | Bu makinedeki proje başına token, pay ve tahmini maliyeti gösterir; `--range 7d\|30d\|90d\|1y\|all`, `--json`. `projects show <ad>` modellerini, ajanlarını ve klasörlerini de gösterir. Proje bir git deposudur; depo yoksa oturumun çalıştığı klasördür. `projects name <ad-veya-klasör> <yeni-ad>` yeniden adlandırır; aynı adı taşıyan klasörler tek proje sayılır, yani birleştirmenin yolu da budur. `--reset` adı kaldırır. |

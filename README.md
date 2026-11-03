@@ -45,8 +45,9 @@ npx tokengraph login      # publish it to your GitHub gist and get the README sn
 npx tokengraph story      # turn your usage into story cards and send them to your phone
 ```
 
-Needs Node.js 22 or newer. To keep the README graph fresh without thinking about it:
-`npm install -g tokengraph && tokengraph schedule`.
+Needs Node.js 22 or newer. To keep the README graph fresh without thinking about it, install it once and
+turn on the hourly sync: `npm install -g tokengraph && tokengraph schedule`. After an `npx tokengraph login`,
+login offers to do both for you.
 
 ## Put it in your README
 
@@ -154,7 +155,7 @@ Every command takes `--help`. An unknown option is an error. The full guide is a
 | Command | What it does |
 | --- | --- |
 | `tokengraph [view]` | Opens the live terminal view: year heatmap, models, agents, streaks, a "When you code" chart of the hours you work in (← → picks an hour), and a Setup tab to manage hooks, the hourly schedule, sync, Cursor, export and story without leaving the view. The Projects tab shows tokens and estimated cost per project, with its models and agents. `:` or Ctrl-K opens a command palette; each action shows its CLI equivalent. `--print` prints a static snapshot, `--no-motion` skips animations, `--no-live` stops rescanning while open, `--theme auto\|dark\|light`. The default command in a terminal. |
-| `tokengraph login` | Connects GitHub, publishes your graph to your own gist, prints the README snippet. Uses your GitHub CLI login if you have one (`--gh`), or a one-time code you approve in the browser (`--device`, `--no-open`). Asks for gist access only. |
+| `tokengraph login` | Connects GitHub, publishes your graph to your own gist, prints the README snippet. Uses your GitHub CLI login if you have one (`--gh`), or a one-time code you approve in the browser (`--device`, `--no-open`). Asks for gist access only. Then offers the hourly sync; run through `npx`, it first offers to install tokengraph globally with npm, since the schedule needs a lasting install. |
 | `tokengraph logout` | Forgets the GitHub login on this machine. Local data and your gists stay. |
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. With Cursor signed in it first fetches your Cursor usage from cursor.com (at most once an hour). `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
 | `tokengraph projects` | Shows tokens, share and estimated cost per project on this machine; `--range 7d\|30d\|90d\|1y\|all`, `--json`. `projects show <name>` adds its models, agents and folders. A project is a git repository, or the folder a session ran in when there is none. `projects name <name-or-folder> <new-name>` renames one, and folders with the same name count as one project, so that is also how you merge them; `--reset` removes a name. |
