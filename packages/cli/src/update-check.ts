@@ -20,6 +20,11 @@ export interface UpdateCheckDeps {
   timeoutMs?: number;
 }
 
+/** True for a plain `x.y.z` release, the only kind of version that may reach the screen or an npm command. */
+export function isReleaseVersion(version: string): boolean {
+  return RELEASE.test(version);
+}
+
 /** True when `candidate` is a later plain release than `current`. Anything else (a prerelease, 'unknown') is never newer. */
 export function isNewerVersion(candidate: string, current: string): boolean {
   const next = RELEASE.exec(candidate);
