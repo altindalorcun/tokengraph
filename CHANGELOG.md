@@ -6,6 +6,8 @@
   the first publish a copy run through `npx` now offers to install tokengraph globally with npm
   (the same version) and then turns the schedule on from that copy. It asks first, and a no or an npm
   error prints the command to run yourself, with a pointer to npm's guide for permission errors.
+- **Marks for five more agents.** Kilo CLI, Copilot CLI, pi, Qwen Code and Goose now show their logo in the
+  terminal view and the README graph's legend, like the other six.
 
 ## 0.2.0 — 2026-11-01
 
