@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-11-03
 
 - **`npx tokengraph login` can turn on the hourly sync.** The schedule needs a lasting install, so after
   the first publish a copy run through `npx` now offers to install tokengraph globally with npm
