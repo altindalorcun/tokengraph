@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 — 2026-11-08
 
 - **One way to write a token count, everywhere.** A story card could print "1000M" for a total just under a
   billion, and its big number dropped the decimal the README graph showed ("713M" beside "713.4M"). The
