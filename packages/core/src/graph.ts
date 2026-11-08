@@ -154,11 +154,29 @@ function n(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
+const TOKEN_UNITS = ['K', 'M', 'B', 'T', 'Q'] as const;
+
+/**
+ * A token count split into figure and unit ("713.4" + "M"), the one rounding every surface uses: the
+ * terminal view, the README graph and the story cards. One decimal from 1K on, and the unit steps up as
+ * soon as the rounded figure would reach 1000, so 999.96M is "1.0B", never "1000.0M". There is no upper
+ * limit: past the last unit the figure keeps growing.
+ */
+export function tokenParts(value: number): { figure: string; unit: string } {
+  if (Math.round(value) < 1_000) return { figure: String(Math.round(value)), unit: '' };
+  let scaled = value / 1_000;
+  let unit = 0;
+  while (unit < TOKEN_UNITS.length - 1 && Number(scaled.toFixed(1)) >= 1_000) {
+    scaled /= 1_000;
+    unit += 1;
+  }
+  return { figure: scaled.toFixed(1), unit: TOKEN_UNITS[unit]! };
+}
+
+/** "999", "1.5K", "48.2M", "713.4M", "3.1B", "4.2T": tokenParts joined. */
 export function formatTokens(value: number): string {
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(Math.round(value));
+  const { figure, unit } = tokenParts(value);
+  return figure + unit;
 }
 
 /** Grouped digits, the way the embed's heading shows a year's total. Locale-independent. */

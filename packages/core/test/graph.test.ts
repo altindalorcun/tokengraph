@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DISPLAY_SURFACES, FAMILY_RAMPS, FAMILY_RAMPS_LIGHT } from '../src/graph-colors.js';
 import { FAMILY_LABELS, MODEL_FAMILIES } from '../src/model-makers.js';
 import { LOGO_CELLS, logoCellMarkup, logoLockupMarkup } from '../src/story/logo.js';
-import { buildGraphGrid, gridFamilies, formatTokens, formatTokensExact, renderGraphSvg, renderNoticeSvg, WEEKS, type GraphDay } from '../src/graph.js';
+import { buildGraphGrid, gridFamilies, formatTokens, formatTokensExact, renderGraphSvg, tokenParts, renderNoticeSvg, WEEKS, type GraphDay } from '../src/graph.js';
 
 function daysEndingAt(endDate: string, count: number, value: (index: number) => number): GraphDay[] {
   const end = new Date(`${endDate}T00:00:00Z`).getTime();
@@ -192,6 +192,36 @@ describe('formatTokens', () => {
     expect(formatTokens(1500)).toBe('1.5K');
     expect(formatTokens(2_400_000)).toBe('2.4M');
     expect(formatTokens(3_100_000_000)).toBe('3.1B');
+    expect(formatTokens(4_200_000_000_000)).toBe('4.2T');
+    expect(formatTokens(5_000_000_000_000_000)).toBe('5.0Q');
+  });
+
+  it('keeps one decimal at every size', () => {
+    expect(formatTokens(48_240_000)).toBe('48.2M');
+    expect(formatTokens(99_960_000)).toBe('100.0M');
+    expect(formatTokens(713_400_000)).toBe('713.4M');
+  });
+
+  it('steps up a unit when rounding would reach 1000, never "1000.0M"', () => {
+    expect(formatTokens(999.6)).toBe('1.0K');
+    expect(formatTokens(999_940)).toBe('999.9K');
+    expect(formatTokens(999_960)).toBe('1.0M');
+    expect(formatTokens(999_960_000)).toBe('1.0B');
+    expect(formatTokens(999_960_000_000)).toBe('1.0T');
+  });
+
+  it('has no upper limit', () => {
+    expect(formatTokens(1_000_000_000_000)).toBe('1.0T');
+    expect(formatTokens(1_500_000_000_000)).toBe('1.5T');
+    expect(formatTokens(2_000_000_000_000_000_000)).toBe('2000.0Q');
+  });
+});
+
+describe('tokenParts', () => {
+  it('splits what formatTokens prints', () => {
+    expect(tokenParts(999_960_000)).toEqual({ figure: '1.0', unit: 'B' });
+    expect(tokenParts(713_400_000)).toEqual({ figure: '713.4', unit: 'M' });
+    expect(tokenParts(12)).toEqual({ figure: '12', unit: '' });
   });
 });
 
