@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 — 2026-11-08
+
+- **One way to write a token count, everywhere.** A story card could print "1000M" for a total just under a
+  billion, and its big number dropped the decimal the README graph showed ("713M" beside "713.4M"). The
+  cards, the README graph and the terminal view now write every count the same way: one decimal, the next
+  unit as soon as the figure would reach 1000 ("1.0B", never "1000M"), and no upper limit (on to T and Q,
+  where a trillion used to read "1000.0B").
+
 ## 0.2.1 — 2026-11-03
 
 - **`npx tokengraph login` can turn on the hourly sync.** The schedule needs a lasting install, so after

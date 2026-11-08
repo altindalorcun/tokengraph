@@ -1,4 +1,4 @@
-import { formatDollars, formatTokens } from '../graph.js';
+import { formatDollars, formatTokens, tokenParts } from '../graph.js';
 import { cacheHitRate } from './aggregate.js';
 import type { StoryData } from './data.js';
 
@@ -38,21 +38,9 @@ export function periodPhrase(range: StoryData['range']): string {
   }
 }
 
-/** The big number split into figure and unit, so the unit can be set smaller: "48.2" + "M". */
+/** The big number split into figure and unit, so the unit can be set smaller: "48.2" + "M". Same rounding as formatTokens. */
 export function heroNumber(value: number): { figure: string; unit: string } {
-  const scales = [
-    [1e12, 'T'],
-    [1e9, 'B'],
-    [1e6, 'M'],
-    [1e3, 'K'],
-  ] as const;
-  for (const [size, unit] of scales) {
-    if (value >= size) {
-      const scaled = value / size;
-      return { figure: scaled >= 100 ? String(Math.round(scaled)) : scaled.toFixed(1), unit };
-    }
-  }
-  return { figure: String(Math.round(value)), unit: '' };
+  return tokenParts(value);
 }
 
 /** Dollars short enough for a stat column: cents below $1,000, whole dollars below $100K, then K and M. */
