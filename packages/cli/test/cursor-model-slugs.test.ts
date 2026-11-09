@@ -29,6 +29,9 @@ const SLUGS: ReadonlyArray<readonly [slug: string, model: string, tier: 'standar
   ['claude-opus-4-8-thinking-high', 'claude-opus-4-8', 'standard', true],
   ['claude-opus-4-8-thinking-medium', 'claude-opus-4-8', 'standard', true],
   ['claude-fable-5-thinking-high', 'claude-fable-5', 'standard', true],
+  ['claude-fable-5-2-thinking-high', 'claude-fable-5-2', 'standard', true],
+  ['claude-mythos-5-2-thinking-xhigh', 'claude-mythos-5-2', 'standard', true],
+  ['claude-mythos-5-1-thinking-high-fast', 'claude-mythos-5-1', 'fast', false],
   ['claude-sonnet-5-thinking-high', 'claude-sonnet-5', 'standard', true],
   // Retired and no longer on Anthropic's price page.
   ['claude-3.5-sonnet', 'claude-3-5-sonnet', 'standard', false],

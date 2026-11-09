@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3 — 2026-11-09
+
+- **Claude Fable 5.2 and Claude Mythos 5.2 are priced.** Both launched on 2026-11-09 at $8 / $40 per million
+  tokens, with cache reads at 0.025x ($0.20) and fast mode at 2x ($16 / $80), from Anthropic's pricing page.
+  Every other Claude row on that page is unchanged.
+- **Mythos usage from other agents is priced and merges with Claude Code's.** A Mythos model named the way
+  Copilot, OpenRouter or Cursor write it (`claude-mythos-5.1`, `claude-mythos-5-1-thinking-high`) was stored
+  as given and left unpriced. It is now stored as `claude-mythos-5-1`, like every other Claude model, and
+  days recorded under the old names move to it when the ledger or another machine's file is read, so
+  nothing is counted twice.
+
 ## 0.2.2 — 2026-11-08
 
 - **One way to write a token count, everywhere.** A story card could print "1000M" for a total just under a

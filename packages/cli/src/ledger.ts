@@ -1,8 +1,11 @@
 import { clampInstant } from './clamp-instant.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import { renameWithRetry } from './fs-retry.js';
+import { migrateStoredModelId } from './adapters/model-ids.js';
 import {
+  addSplitCounts,
   CLAUDE_CODE_SOURCE,
+  CODEX_CLI_SOURCE,
   combineMachineUsage,
   combineMachineHours,
   CURSOR_SOURCE,
@@ -326,7 +329,7 @@ function parseAccounts(raw: unknown): LedgerAccounts | undefined {
     if (!ACCOUNT_KEY.test(key) || typeof value !== 'object' || value === null) continue;
     const { coveredThrough, days } = value as Record<string, unknown>;
     if (typeof coveredThrough !== 'string' || Number.isNaN(Date.parse(coveredThrough))) continue;
-    cursor[key] = { coveredThrough: clampInstant(coveredThrough)!, days: parseDays(days, readTiers) ?? {} };
+    cursor[key] = { coveredThrough: clampInstant(coveredThrough)!, days: parseDays(days, readTiers, modelKeysFor(CURSOR_SOURCE)) ?? {} };
   }
   return Object.keys(cursor).length > 0 ? { cursor } : undefined;
 }
@@ -341,7 +344,7 @@ function parseProjects(raw: unknown): LedgerProjects | undefined {
       if (!isKnownSource(source) || typeof rawFolders !== 'object' || rawFolders === null) continue;
       const folders: Record<string, LedgerDays> = {};
       for (const [folder, rawDays] of Object.entries(rawFolders as Record<string, unknown>)) {
-        const days = isFolderKey(folder) ? parseDays(rawDays, readTiers) : null;
+        const days = isFolderKey(folder) ? parseDays(rawDays, readTiers, modelKeysFor(source)) : null;
         if (days) folders[folder] = days;
       }
       if (Object.keys(folders).length > 0) usage[source] = folders;
@@ -361,15 +364,38 @@ export function parseLedgerAccounts(raw: unknown): LedgerAccounts | undefined {
   return parseAccounts(raw);
 }
 
+/** Sources whose adapter stores the agent's own model id: their keys are never renamed (see migrateStoredModelId). */
+const RAW_MODEL_ID_SOURCES: ReadonlySet<string> = new Set([CLAUDE_CODE_SOURCE, CODEX_CLI_SOURCE]);
+
+/** How a source's stored model keys are read: renamed to today's id, or (raw-id sources) kept as written. */
+function modelKeysFor(source: string): (model: string) => string {
+  return RAW_MODEL_ID_SOURCES.has(source) ? (model) => model : migrateStoredModelId;
+}
+
+/**
+ * Keys that land on the same id were stored under different raw ids, so they are different requests and
+ * are summed (an unknown cache split stays unknown). A file read again has nothing left to rename.
+ */
 function parseModels(
   models: unknown,
   readTiers: (value: unknown) => Partial<Record<PricingTier, SplitTokenCounts>> | null,
+  modelKey: (model: string) => string,
 ): Record<string, Partial<Record<PricingTier, SplitTokenCounts>>> | null {
   if (typeof models !== 'object' || models === null) return null;
   const parsed: Record<string, Partial<Record<PricingTier, SplitTokenCounts>>> = {};
-  for (const [model, value] of Object.entries(models as Record<string, unknown>)) {
+  for (const [stored, value] of Object.entries(models as Record<string, unknown>)) {
     const tiers = readTiers(value);
-    if (tiers) parsed[model] = tiers;
+    if (!tiers) continue;
+    const model = modelKey(stored);
+    const existing = parsed[model];
+    if (!existing) {
+      parsed[model] = tiers;
+      continue;
+    }
+    for (const [tier, counts] of Object.entries(tiers) as [PricingTier, SplitTokenCounts][]) {
+      const current = existing[tier];
+      existing[tier] = current ? addSplitCounts(current, counts) : counts;
+    }
   }
   return Object.keys(parsed).length > 0 ? parsed : null;
 }
@@ -377,12 +403,13 @@ function parseModels(
 function parseDays(
   rawDays: unknown,
   readTiers: (value: unknown) => Partial<Record<PricingTier, SplitTokenCounts>> | null,
+  modelKey: (model: string) => string,
 ): LedgerDays | null {
   if (typeof rawDays !== 'object' || rawDays === null) return null;
   const days: LedgerDays = {};
   for (const [date, models] of Object.entries(rawDays as Record<string, unknown>)) {
     if (!isDateKey(date)) continue;
-    const parsed = parseModels(models, readTiers);
+    const parsed = parseModels(models, readTiers, modelKey);
     if (parsed) days[date] = parsed;
   }
   return Object.keys(days).length > 0 ? days : null;
@@ -425,7 +452,7 @@ export function parseLedger(raw: unknown): Ledger {
   const version = fields['version'];
 
   if (version === 1 || version === 2) {
-    const days = parseDays(fields['days'], legacyTiers(version === 1 ? readLegacyCounts : readSplitCounts));
+    const days = parseDays(fields['days'], legacyTiers(version === 1 ? readLegacyCounts : readSplitCounts), modelKeysFor(CLAUDE_CODE_SOURCE));
     return days ? { version: LEDGER_VERSION, sources: { [CLAUDE_CODE_SOURCE]: days } } : emptyLedger();
   }
   if (version !== LEDGER_VERSION) return emptyLedger();
@@ -435,7 +462,7 @@ export function parseLedger(raw: unknown): Ledger {
   const sources: Ledger['sources'] = {};
   for (const [source, rawDays] of Object.entries(rawSources as Record<string, unknown>)) {
     if (!isKnownSource(source)) continue;
-    const days = parseDays(rawDays, readTiers);
+    const days = parseDays(rawDays, readTiers, modelKeysFor(source));
     if (days) sources[source] = days;
   }
   const accounts = parseAccounts(fields['accounts']);
