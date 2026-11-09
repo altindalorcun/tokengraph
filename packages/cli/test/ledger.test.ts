@@ -383,3 +383,63 @@ describe('hours in the ledger', () => {
     expect(cursor).toEqual(['2026-10-01 9 20', '2099-01-01 8 40']);
   });
 });
+
+describe('Mythos ids stored by 0.2.2 and earlier', () => {
+  // Before 0.2.3 the id normaliser did not know the Mythos family, so tools that name models their own way
+  // stored `claude-mythos-5.1` or a Cursor slug as given. Those keys move to the id the adapters write now.
+  const c = (input: number, fiveMinute: number | null = 0) => ({
+    inputTokens: input,
+    outputTokens: 1,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreation5mTokens: fiveMinute,
+    cacheCreation1hTokens: fiveMinute === null ? null : 0,
+  });
+  const v3 = {
+    version: 3,
+    sources: {
+      opencode: {
+        '2026-11-01': {
+          'claude-mythos-5.1': { standard: c(100) },
+          'claude-mythos-5-1': { standard: c(20, null) },
+          'claude-opus-4-8': { standard: c(7) },
+        },
+      },
+      cursor: { '2026-11-01': { 'claude-mythos-5-1-thinking-high-fast': { fast: c(5) } } },
+      // These adapters store the id the agent wrote, and keep writing it: renaming it would count it twice.
+      'claude-code': { '2026-11-01': { 'claude-mythos-5.1': { standard: c(3) } } },
+      'codex-cli': { '2026-11-01': { 'claude-mythos-5.1': { standard: c(4) } } },
+    },
+    accounts: { cursor: { '0123456789abcdef': { coveredThrough: '2026-11-02T00:00:00.000Z', days: { '2026-11-01': { 'claude-mythos-5-thinking-high': { standard: c(9) } } } } } },
+    projects: { usage: { opencode: { '/work/app': { '2026-11-01': { 'claude-mythos-5.1': { standard: c(6) } } } } }, roots: {} },
+  };
+
+  it('moves them to the canonical id, summing ids that land on the same one', () => {
+    const ledger = parseLedger(v3);
+    expect(ledger.sources.opencode?.['2026-11-01']).toEqual({
+      // Two raw ids are two sets of requests: summed the way addSplitCounts sums (unknown only when both are).
+      'claude-mythos-5-1': { standard: { ...c(120), outputTokens: 2 } },
+      'claude-opus-4-8': { standard: c(7) },
+    });
+    expect(ledger.sources.cursor?.['2026-11-01']).toEqual({ 'claude-mythos-5-1': { fast: c(5) } });
+    expect(ledger.accounts?.cursor?.['0123456789abcdef']?.days).toEqual({ '2026-11-01': { 'claude-mythos-5': { standard: c(9) } } });
+    expect(ledger.projects?.usage.opencode?.['/work/app']).toEqual({ '2026-11-01': { 'claude-mythos-5-1': { standard: c(6) } } });
+  });
+
+  it('leaves the sources that store raw ids alone', () => {
+    const ledger = parseLedger(v3);
+    expect(Object.keys(ledger.sources['claude-code']?.['2026-11-01'] ?? {})).toEqual(['claude-mythos-5.1']);
+    expect(Object.keys(ledger.sources['codex-cli']?.['2026-11-01'] ?? {})).toEqual(['claude-mythos-5.1']);
+  });
+
+  it('is idempotent, so reading a migrated ledger again changes nothing', () => {
+    const once = parseLedger(v3);
+    expect(parseLedger(JSON.parse(JSON.stringify(once)))).toEqual(once);
+  });
+
+  it('then max-merges a fresh collection under the new id instead of adding beside it', () => {
+    const merged = mergeUsage(parseLedger(v3), 'opencode', [usage('2026-11-01', 'claude-mythos-5-1', { inputTokens: 120, outputTokens: 2 })]);
+    expect(Object.keys(merged.sources.opencode?.['2026-11-01'] ?? {}).sort()).toEqual(['claude-mythos-5-1', 'claude-opus-4-8']);
+    expect(merged.sources.opencode?.['2026-11-01']?.['claude-mythos-5-1']?.standard?.inputTokens).toBe(120);
+  });
+});

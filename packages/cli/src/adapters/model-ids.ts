@@ -1,8 +1,8 @@
 /** Longest model id kept; longer ids are cut so a damaged record cannot bloat the ledger. */
 export const MAX_MODEL_NAME_LENGTH = 120;
 
-const CLAUDE_FAMILIES = new Set(['opus', 'sonnet', 'haiku', 'fable']);
-const CANONICAL_CLAUDE = /^claude-(opus|sonnet|haiku|fable)-\d+(-\d+)?(-\d{8})?$/;
+const CLAUDE_FAMILIES = new Set(['opus', 'sonnet', 'haiku', 'fable', 'mythos']);
+const CANONICAL_CLAUDE = /^claude-(opus|sonnet|haiku|fable|mythos)-\d+(-\d+)?(-\d{8})?$/;
 // Version-first naming (`claude-3-7-sonnet`) is only how Anthropic named Claude 1.x-3.x; a
 // major of 4+ in that shape (e.g. `claude-4-sonnet`) is not a real canonical id and must still
 // go through the family/version rebuild below so it comes out as `claude-sonnet-4`, the same as
@@ -33,6 +33,17 @@ export function normalizeClaudeModel(raw: string): string {
   if (!family || version.length === 0 || version.length > 2) return model;
   const major = Number(version[0]);
   return major < 4 ? `claude-${version.join('-')}-${family}` : `claude-${family}-${version.join('-')}`;
+}
+
+/**
+ * The id a stored model key has under today's normaliser, for keys an earlier version wrote differently.
+ * Up to 0.2.2 the normaliser did not know the Mythos family, so `claude-mythos-5.1` or a Cursor slug such as
+ * `claude-mythos-5-1-thinking-high` was stored as given; every other stored id is already what
+ * {@link normalizeClaudeModel} returns. Only for sources whose adapter normalises ids: an adapter that stores
+ * the agent's own id keeps writing it, so renaming its keys would count the same usage twice.
+ */
+export function migrateStoredModelId(model: string): string {
+  return model.startsWith('claude-') && model.split('-').includes('mythos') ? normalizeClaudeModel(model) : model;
 }
 
 /**

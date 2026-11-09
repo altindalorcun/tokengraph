@@ -75,8 +75,16 @@ const XAI_LONG_CONTEXT: LongContextMultipliers = { input: 2, output: 2, threshol
  * retroactively until a real dated entry supersedes it.
  */
 const RATES: Record<string, ModelRateEntry[]> = {
-  // Anthropic, from platform.claude.com/docs/en/about-claude/pricing, checked 2026-10-12. Fast mode
-  // (Claude Code's usage.speed) is published only for Opus 5.5, Opus 5 and Opus 4.8, at 2x every rate.
+  // Anthropic, from platform.claude.com/docs/en/about-claude/pricing, checked 2026-10-12, rechecked
+  // 2026-11-09 (Fable 5.2 and Mythos 5.2 launched that day; no other row changed). Fast mode (Claude
+  // Code's usage.speed) is published only for Fable 5.2, Mythos 5.2, Opus 5.5, Opus 5 and Opus 4.8,
+  // at 2x every rate.
+  'claude-fable-5-2': [
+    { effectiveFrom: '2000-01-01', inputPerMillion: 8, outputPerMillion: 40, cacheReadMultiplier: 0.025, fastMultiplier: 2 },
+  ],
+  'claude-mythos-5-2': [
+    { effectiveFrom: '2000-01-01', inputPerMillion: 8, outputPerMillion: 40, cacheReadMultiplier: 0.025, fastMultiplier: 2 },
+  ],
   'claude-fable-5-1': [
     { effectiveFrom: '2000-01-01', inputPerMillion: 10, outputPerMillion: 50, cacheReadMultiplier: 0.025 },
   ],

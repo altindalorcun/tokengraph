@@ -44,6 +44,9 @@ describe('parse / serialize', () => {
   it('round-trips and rejects junk', () => {
     const original = file(A, ledgerWith('2026-10-01', 5));
     expect(parseMachineFile(serializeMachineFile(original))).toEqual(original);
+    // A file another machine published with 0.2.2 or earlier: its Mythos ids move like the ledger's.
+    const old = { ...original, sources: { goose: { '2026-11-01': { 'claude-mythos-5.1': { standard: counts(4) } } } } };
+    expect(parseMachineFile(JSON.stringify(old))?.sources).toEqual({ goose: { '2026-11-01': { 'claude-mythos-5-1': { standard: counts(4) } } } });
     expect(parseMachineFile('not json')).toBeNull();
     expect(parseMachineFile(JSON.stringify({ ...original, schema: 2 }))).toBeNull();
     expect(parseMachineFile(JSON.stringify({ ...original, machineId: 'x' }))).toBeNull();

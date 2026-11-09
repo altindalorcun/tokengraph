@@ -284,6 +284,23 @@ describe('Anthropic pricing tiers', () => {
     expect(costForSplitCounts('claude-opus-4-8', TODAY, io, 'fast').dollars).toBeCloseTo(60, 9);
   });
 
+  it('prices Fable 5.2 and Mythos 5.2 fast mode at $16 / $80, cache reads at 0.025x on top', () => {
+    const c = counts({
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationTokens: 2_000_000,
+      cacheCreation5mTokens: 1_000_000,
+      cacheCreation1hTokens: 1_000_000,
+      cacheReadTokens: 1_000_000,
+    });
+    // $16 in, $80 out; 5m write 20, 1h write 32, read 16*0.025 = 0.4.
+    for (const model of ['claude-fable-5-2', 'claude-mythos-5-2']) {
+      expect(costForSplitCounts(model, TODAY, c, 'fast').dollars, model).toBeCloseTo(16 + 80 + 20 + 32 + 0.4, 9);
+    }
+    // Fable 5.1 publishes no fast row.
+    expect(costForSplitCounts('claude-fable-5-1', TODAY, c, 'fast').priced).toBe(false);
+  });
+
   it('still refuses to price an Anthropic row whose cache split is unknown', () => {
     const c = counts({ inputTokens: 1, cacheCreation5mTokens: null, cacheCreation1hTokens: null });
     expect(costForSplitCounts('claude-sonnet-5', TODAY, c).priced).toBe(false);
@@ -334,6 +351,8 @@ describe('rates checked against the published tables on 2026-10-12', () => {
   it('prices every listed Claude model, legacy ones included', () => {
     // [model, input, 5m write, 1h write, cache read, output] in $/M, from platform.claude.com pricing.
     const rows: [string, number, number, number, number, number][] = [
+      ['claude-fable-5-2', 8, 10, 16, 0.2, 40],
+      ['claude-mythos-5-2', 8, 10, 16, 0.2, 40],
       ['claude-fable-5-1', 10, 12.5, 20, 0.25, 50],
       ['claude-mythos-5-1', 10, 12.5, 20, 0.25, 50],
       ['claude-fable-5', 10, 12.5, 20, 1, 50],
