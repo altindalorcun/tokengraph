@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.4 — 2026-11-10
+
+- **Story cards go to your phone first.** `tokengraph story` (and Make story cards in the view) now shows
+  the QR code straight away instead of saving the PNGs to your Downloads folder first. Nothing is written
+  to your computer unless you press S while the code is up, or pass `--save` or `--out <dir>`. `--no-qr`
+  and runs without a terminal still only save the files.
+- **Save on an iPhone goes to Photos, not Files.** Save used to download the card into Files. It now opens
+  the card full screen and shows you to touch and hold it and tap Save to Photos, the one way Safari saves a
+  picture from a page on your local network. On Android, Save still puts the card in your gallery in one tap.
+
 ## 0.2.3 — 2026-11-09
 
 - **Claude Fable 5.2 and Claude Mythos 5.2 are priced.** Both launched on 2026-11-09 at $8 / $40 per million

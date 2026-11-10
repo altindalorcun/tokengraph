@@ -77,10 +77,12 @@ counts as "Other models".
   <img alt="Three story cards: a 3D skyline of the recent weeks, a receipt of the day's models, and a sticker with the day's total" src="docs/assets/story-strip.png" width="760">
 </p>
 
-`tokengraph story` draws three cards (a skyline, a receipt and a sticker) as PNG files sized for
-Instagram and TikTok stories, then offers to send them to your phone with a QR code. Scan it with
-your phone on the same Wi-Fi and save the cards straight to Photos. Nothing is uploaded anywhere: your computer serves the files to
-your phone until you have saved the cards, or after 10 idle minutes. It asks which period to cover (today, 7 days, 30 days or 12 months); skip the question with `--range today|7d|30d|1y`, and leave
+`tokengraph story` draws three cards (a skyline, a receipt and a sticker) sized for Instagram and
+TikTok stories and shows a QR code. Scan it with your phone on the same Wi-Fi and save each card: on
+an iPhone, touch and hold it and tap Save to Photos (Save shows you how); on Android, Save puts it in
+your gallery. Nothing is uploaded anywhere, and nothing is written to your computer unless you press
+S while the code is up (or pass `--save`, `--out <dir>` or `--no-qr`). Your computer serves the cards
+to your phone until you press Ctrl+C, or after 10 idle minutes. It asks which period to cover (today, 7 days, 30 days or 12 months); skip the question with `--range today|7d|30d|1y`, and leave
 the estimated cost off with `--no-cost`.
 
 ## How it works
@@ -160,7 +162,7 @@ Every command takes `--help`. An unknown option is an error. The full guide is a
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. With Cursor signed in it first fetches your Cursor usage from cursor.com (at most once an hour). `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
 | `tokengraph projects` | Shows tokens, share and estimated cost per project on this machine; `--range 7d\|30d\|90d\|1y\|all`, `--json`. `projects show <name>` adds its models, agents and folders. A project is a git repository, or the folder a session ran in when there is none. `projects name <name-or-folder> <new-name>` renames one, and folders with the same name count as one project, so that is also how you merge them; `--reset` removes a name. |
 | `tokengraph readme` | Prints the README snippet and copies it. `--compact`, `--colors model\|single`. |
-| `tokengraph story` | Draws story cards, saves the PNGs (to your Downloads folder unless `--out <dir>`) and offers to send them to your phone. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>` (default: your GitHub login, or your computer's user name when you are not logged in). |
+| `tokengraph story` | Draws story cards and shows a QR code that sends them to your phone; nothing is written to this computer unless you press S there or pass `--save` (your Downloads folder) or `--out <dir>`. `--no-qr` only saves the files, as does any run without a terminal. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--save`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>` (default: your GitHub login, or your computer's user name when you are not logged in). |
 | `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, which background syncs are installed and healthy, the folders each agent is read from (and which exist), and how long Claude Code, Gemini CLI and Qwen Code keep their logs, with a warning when a short retention puts history at risk. `--json` prints it as one JSON object for scripts and AI agents; it includes the secret gist's address and local paths, so don't paste it in public. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex\|gemini-cli>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. For Claude Code, `--event SessionEnd\|Stop\|SubagentStop` picks the hook event (default `SessionEnd`). |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off, `--dry-run` shows what would be installed. |

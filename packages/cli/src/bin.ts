@@ -367,17 +367,18 @@ Options:
   story: {
     help: `Usage: tokengraph story [options]
 
-Draws your usage as Instagram / TikTok story cards, saves them as PNG files, and can send them to
-your phone: scan the QR code it shows (same Wi-Fi) and save them from the page that opens.
-Reads local data only.
+Draws your usage as Instagram / TikTok story cards and sends them to your phone: scan the QR code
+it shows (same Wi-Fi) and save them from the page that opens. Nothing is written to this computer
+unless you press S while the code is up, or pass --save. Reads local data only.
 
 Options:
   --template <name>    skyline, receipt, sticker or all (default: all)
   --range <range>      today, 7d, 30d or 1y (default: asks in a terminal, otherwise today)
   --no-cost            Leave the estimated API cost off the cards
-  --out <dir>          Where to save (default: your Downloads folder)
-  --qr                 Send to the phone without asking
-  --no-qr              Only save the files
+  --save               Also save the PNG files on this computer
+  --out <dir>          Save the PNG files here (default with --save: your Downloads folder)
+  --qr                 Show the QR code even without a terminal
+  --no-qr              Only save the files (the default without a terminal)
   --no-preview         Do not draw the cards in the terminal
   --handle <name>      The name on the cards (default: your GitHub login, or your computer's user
                        name when you are not logged in)
@@ -386,6 +387,7 @@ Options:
       template: { type: 'string' },
       range: { type: 'string' },
       'no-cost': { type: 'boolean', default: false },
+      save: { type: 'boolean', default: false },
       out: { type: 'string' },
       qr: { type: 'boolean', default: false },
       'no-qr': { type: 'boolean', default: false },
