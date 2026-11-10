@@ -30,7 +30,10 @@ export interface StoryCommandOptions {
   range: StoryRange | 'ask';
   showCost: boolean;
   outDir?: string;
-  qr: 'ask' | 'yes' | 'no';
+  /** `auto`: a terminal shows the QR code; anything else only saves the files. */
+  qr: 'auto' | 'yes' | 'no';
+  /** Also save the PNGs on this computer (--save, --out or --no-qr). Without it a shared card stays in memory. */
+  save: boolean;
   preview: boolean;
   handle?: string;
 }
@@ -59,6 +62,8 @@ export interface StoryDeps {
   /** Raw output with no newline added, for the in-place progress line in a terminal. */
   write: (text: string) => void;
   onInterrupt: (handler: () => void) => () => void;
+  /** Reads single key presses while the QR code is up; returns the function that gives the terminal back. */
+  onKey: (handler: (key: string) => void) => () => void;
 }
 
 export function parseStoryArgs(values: Record<string, string | boolean | undefined>): StoryCommandOptions | string {
@@ -68,11 +73,13 @@ export function parseStoryArgs(values: Record<string, string | boolean | undefin
   const range = values['range'] ?? 'ask';
   if (range !== 'ask' && !STORY_RANGES.includes(range as StoryRange)) return '--range must be today, 7d, 30d or 1y.';
   if (values['qr'] && values['no-qr']) return 'Choose one of --qr and --no-qr.';
+  const qr = values['qr'] ? 'yes' : values['no-qr'] ? 'no' : 'auto';
   const options: StoryCommandOptions = {
     templates,
     range: range as StoryRange | 'ask',
     showCost: !values['no-cost'],
-    qr: values['qr'] ? 'yes' : values['no-qr'] ? 'no' : 'ask',
+    qr,
+    save: qr === 'no' || values['save'] === true || typeof values['out'] === 'string',
     preview: !values['no-preview'],
   };
   if (typeof values['out'] === 'string') options.outDir = values['out'];
@@ -112,6 +119,38 @@ function defaultDeps(): StoryDeps {
       process.once('SIGINT', handler);
       return () => process.off('SIGINT', handler);
     },
+    onKey: (handler) => listenForKeys(process.stdin, handler),
+  };
+}
+
+/** Raw mode turns Ctrl+C into the key "\x03", so the caller must handle it; the release puts the terminal back as it was. */
+export function listenForKeys(
+  stdin: Pick<NodeJS.ReadStream, 'on' | 'off' | 'setRawMode' | 'resume' | 'pause'> & { isTTY?: boolean; isRaw?: boolean },
+  handler: (key: string) => void,
+): () => void {
+  if (!stdin.isTTY) return () => undefined;
+  const wasRaw = stdin.isRaw === true;
+  const listener = (chunk: Buffer | string) => {
+    for (const key of String(chunk)) handler(key);
+  };
+  try {
+    stdin.setRawMode(true);
+  } catch {
+    return () => undefined;
+  }
+  stdin.on('data', listener);
+  stdin.resume();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    stdin.off('data', listener);
+    try {
+      stdin.setRawMode(wasRaw);
+    } catch {
+      /* the terminal is gone */
+    }
+    stdin.pause();
   };
 }
 
@@ -163,14 +202,13 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
       if (tty) deps.write(`${CLEAR_LINE}  ${dim(`Rendering ${label}…`, tty)}`);
       const png = await renderer.render(template, { data, showCost: options.showCost, cta: STORY_CTA });
       const fileName = storyFileName(fileHandle, data.endDate, { template, range, showCost: options.showCost });
-      await deps.writeFile(join(outDir, fileName), png);
       cards.push({ id: template, title: STORY_TEMPLATE_LABELS[template].name, fileName, png, ...STORY_SIZES[template] });
       deps.out(`${tty ? CLEAR_LINE : ''}  ${tty ? '✓' : '-'} ${label}`);
     }
   } catch (error) {
     if (tty) deps.write(CLEAR_LINE);
     deps.out('');
-    deps.out(`  Could not save the cards to ${outDir}: ${error instanceof Error ? error.message : String(error)}`);
+    deps.out(`  Could not draw the cards: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
 
@@ -184,11 +222,42 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
     }
   }
 
-  deps.out('');
-  deps.out(`  Saved to ${outDir}`);
-  for (const card of cards) deps.out(`    ${dim(card.fileName, tty)}`);
+  let savedLocally = false;
+  /** Writes every card to outDir and lists them; false (with the reason printed) when the folder cannot be written. */
+  const saveCards = async (): Promise<boolean> => {
+    try {
+      for (const card of cards) await deps.writeFile(join(outDir, card.fileName), card.png);
+    } catch (error) {
+      deps.out('');
+      deps.out(`  Could not save the cards to ${outDir}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+    savedLocally = true;
+    deps.out('');
+    deps.out(`  ${tty ? '✓ ' : ''}Saved to ${outDir}`);
+    for (const card of cards) deps.out(`    ${dim(card.fileName, tty)}`);
+    return true;
+  };
+  /** The way out when the phone cannot be reached: the cards are not lost, they can still go to disk. */
+  const offerSave = async (): Promise<number> => {
+    if (savedLocally) {
+      deps.out('');
+      return 0;
+    }
+    if (tty && (await deps.ask('\n  Save them to this computer instead?'))) {
+      const ok = await saveCards();
+      deps.out('');
+      return ok ? 0 : 1;
+    }
+    if (!tty) deps.out('  Run `tokengraph story --save` to save the cards on this computer.');
+    deps.out('');
+    return 0;
+  };
 
-  const share = options.qr === 'yes' || (options.qr === 'ask' && tty && (await deps.ask('\n  Send them to your phone?')));
+  const share = options.qr === 'yes' || (options.qr === 'auto' && tty);
+  if (options.save || !share) {
+    if (!(await saveCards())) return 1;
+  }
   if (!share) {
     if (tty && deps.platform === 'darwin' && (await deps.ask('\n  Show them in Finder?'))) deps.reveal(join(outDir, cards[0]!.fileName));
     deps.out('');
@@ -198,12 +267,12 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   const address = deps.lanAddress();
   if (!address) {
     deps.out('');
-    deps.out('  No Wi-Fi or Ethernet network found, so a phone cannot reach this computer. The cards are saved above;');
-    deps.out('  AirDrop them, or connect to a network and run `tokengraph story --qr`.');
-    deps.out('');
-    return 0;
+    deps.out('  No Wi-Fi or Ethernet network found, so a phone cannot reach this computer.');
+    deps.out('  Connect to a network and run `tokengraph story` again, or save the cards here and AirDrop them.');
+    return offerSave();
   }
 
+  let phoneConnected = false;
   let server;
   try {
     server = await deps.startShare({
@@ -211,16 +280,17 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
       cards,
       handle: data.handle,
       onEvent: (event) => {
-        if (event.kind === 'page') deps.out(`  ${tty ? '📱' : '-'} Phone connected`);
-        else if (event.kind === 'saved') deps.out(`  ${tty ? '✓' : '-'} ${cards.find((c) => c.id === event.id)?.title ?? event.id} downloaded`);
+        if (event.kind === 'page') {
+          deps.out(`  ${tty ? '📱' : '-'} Phone connected`);
+          if (!phoneConnected && tty && !savedLocally) deps.out(dim('  Press S to also save the cards on this computer.', tty));
+          phoneConnected = true;
+        } else if (event.kind === 'saved') deps.out(`  ${tty ? '✓' : '-'} ${cards.find((c) => c.id === event.id)?.title ?? event.id} downloaded`);
       },
     });
   } catch (error) {
     deps.out('');
     deps.out(`  Could not start sharing: ${error instanceof Error ? error.message : String(error)}`);
-    deps.out('  The cards are saved above.');
-    deps.out('');
-    return 1;
+    return offerSave();
   }
 
   // The code comes last so it sits at the bottom of the window, whole, with only one line under it.
@@ -237,10 +307,27 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   deps.out(dim('  Press Ctrl+C when you are done.', tty));
   deps.out('');
 
-  const release = deps.onInterrupt(() => server.stop());
+  const running = server;
+  let saving: Promise<boolean> | null = null;
+  const releaseInterrupt = deps.onInterrupt(() => running.stop());
+  const releaseKeys = tty
+    ? deps.onKey((key) => {
+        if (key === '\x03' || key === '\x04' || key === 'q' || key === 'Q') running.stop();
+        else if ((key === 's' || key === 'S') && !savedLocally && !saving) {
+          saving = saveCards().finally(() => {
+            saving = null;
+          });
+        }
+      })
+    : () => undefined;
   const reason = await server.done;
-  release();
+  releaseKeys();
+  releaseInterrupt();
+  if (saving) await saving;
   deps.out(`  ${STOP_MESSAGES[reason]}`);
+  if (!phoneConnected && !savedLocally) {
+    deps.out(dim('  The phone never opened the page? `tokengraph story --save` saves the cards on this computer instead.', tty));
+  }
   deps.out('');
   return 0;
 }
