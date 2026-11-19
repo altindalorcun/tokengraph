@@ -237,6 +237,27 @@ tier.
   taken into account, because the region of processing cannot be known locally.
 - The cost is API-equivalent; with a ChatGPT plan it is not a real bill.
 
+## Plan limits
+
+The same `token_count` events carry the plan's limit readings, as the server reported them on that turn:
+
+```json
+{ "limit_id": "codex", "limit_name": null,
+  "primary":   { "used_percent": 6.0, "window_minutes": 43200, "resets_at": 1792696765 },
+  "secondary": null,
+  "credits": { "has_credits": false, "unlimited": false, "balance": null },
+  "plan_type": "free", "rate_limit_reached_type": null }
+```
+
+- `primary` and `secondary` are limit windows; either can be `null`. `resets_at` is epoch seconds. Older
+  versions write `resets_in_seconds` instead, counted from the event's `timestamp`.
+- There can be more than one `limit_id`; each is its own limit.
+- `src/limits/codex.ts` reads the 8 most recently modified rollout files (by modification time, not by
+  day folder: a resumed session appends to its old file) and keeps the newest reading per `limit_id`.
+  Nothing is stored; `tokengraph limits`, `status` and the view read it again each time.
+- A reading is only as fresh as the last Codex turn on this machine. Usage in ChatGPT or on another
+  machine shows after the next local turn. Readings are never estimated from token counts.
+
 ## Background sync: `notify` or a `Stop` hook
 
 `tokengraph install-hook --agent codex` makes Codex run `hook-sync --min-interval 600` (the same command either way,
