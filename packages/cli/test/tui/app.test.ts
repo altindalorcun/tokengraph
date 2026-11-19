@@ -5,6 +5,7 @@ import { fitHints, initialState, reduce, renderFrame, requestAction, runApp, wit
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
 import { toPlainText } from '../../src/tui/screen.js';
 import { actionItems, type SetupStatus } from '../../src/tui/actions.js';
+import { limitViews } from '@tokengraph/core';
 import type { AppState } from '../../src/tui/app-state.js';
 import type { InputEvent } from '../../src/tui/input.js';
 import { qrMatrix } from '../../src/share/qr.js';
@@ -208,6 +209,23 @@ describe('setup tab', () => {
   });
 });
 
+describe('limits on the overview', () => {
+  const reading = {
+    source: 'codex-cli' as const, limitId: 'codex', plan: 'free', origin: 'session-log' as const, readAt: '2026-10-03T10:00:00.000Z', credits: null,
+    windows: [{ id: 'primary', minutes: 43200, usedPercent: 6, resetsAt: '2026-10-30T12:00:00.000Z' }],
+  };
+
+  it('a press on the missing Claude Code reading opens its Setup row', () => {
+    const s = { ...state(), limits: { views: limitViews([reading], new Date('2026-10-03T12:00:00Z')), wrapperOn: false } };
+    const frame = renderFrame(s, { theme: 'dark' }, 160, 48, STILL);
+    expect(toPlainText(frame.buffer)).toContain('LIMITS');
+    const hit = frame.hits.view.hits.find((h) => h.kind === 'action' && h.id === 'claude-limits')!;
+    const opened = reduce(s, { type: 'mouse', action: 'press', x: hit.rect.x, y: hit.rect.y, button: 0 }, frame.hits);
+    expect(opened.state.tab).toBe('setup');
+    expect(actionItems(opened.state.setup, opened.state.vm.sources)[opened.state.setupSel]!.id).toBe('claude-limits');
+  });
+});
+
 describe('withViewModel', () => {
   it('moves the year view and cursor off the old today when the date rolls over', () => {
     const s = state();
@@ -298,6 +316,31 @@ function fakeTerminal() {
 const NO_AUTO_SYNC = async () => ({ claudeHook: null, cursorHook: null, codexNotify: null, geminiHook: null, schedule: null });
 
 describe('runApp', () => {
+  it('loads the limit readings at start and after every scan', async () => {
+    const term = fakeTerminal();
+    let loads = 0;
+    let last = '';
+    const done = runApp({
+      onFrame: (buffer) => void (last = toPlainText(buffer)),
+      terminal: term.terminal as never, depth: 'none', theme: 'dark', motion: false, live: false,
+      clock: () => 0, today: () => TODAY,
+      loadLedger: async () => emptyLedger(),
+      scan: async (ledger) => ({
+        ledger: mergeUsage(ledger, 'codex-cli', [{ date: TODAY, model: 'gpt-5', pricingTier: 'standard', counts: c(500) }]),
+        results: [], failures: [], detected: ['codex'],
+      }),
+      persist: async () => 'saved',
+      modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
+      limits: async () => (loads += 1, { views: [], wrapperOn: false }),
+      setTimer: (fn, ms) => { const t = setTimeout(fn, Math.min(ms, 5)); return () => clearTimeout(t); },
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(loads).toBeGreaterThanOrEqual(2);
+    expect(last).toContain('turn on in Setup');
+    term.send([{ type: 'char', char: 'q' }]);
+    expect(await done).toBe(0);
+  });
+
   it('keeps the merge in memory when the ledger is busy, then quits cleanly', async () => {
     const term = fakeTerminal();
     let persisted = 0;

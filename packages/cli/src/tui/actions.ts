@@ -5,10 +5,10 @@ import type { AutoSyncStatus, CodexSetup } from './auto-sync.js';
 export type { HookAgent };
 export type ActionId =
   | 'sync' | 'login' | 'logout' | 'readme' | 'colors'
-  | 'hook:claude-code' | 'hook:cursor' | 'hook:codex' | 'hook:gemini-cli' | 'schedule'
+  | 'hook:claude-code' | 'hook:cursor' | 'hook:codex' | 'hook:gemini-cli' | 'schedule' | 'claude-limits'
   | 'cursor-fetch-now' | 'cursor-fetch' | 'import-cursor'
   | 'export-csv' | 'export-json' | 'story' | 'status' | 'uninstall' | 'update';
-export type ActionSection = 'Account' | 'Auto-sync' | 'Cursor' | 'Your data' | 'Updates';
+export type ActionSection = 'Account' | 'Auto-sync' | 'Plan limits' | 'Cursor' | 'Your data' | 'Updates';
 
 /** What the action list needs to know about this machine; read from the config and the installed hooks. */
 export interface SetupStatus {
@@ -16,6 +16,8 @@ export interface SetupStatus {
   autoSync: AutoSyncStatus | null;
   cursorFetch: boolean | null;
   graphColors: GraphColors;
+  /** Whether Claude Code's status line goes through tokengraph (`tokengraph limits on`); null when unknown. */
+  claudeLimits?: boolean | null;
   /** This copy's version and the newer one the last check found, if any. */
   update: { current: string; latest: string | null } | null;
 }
@@ -150,6 +152,18 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
     recommended: schedule !== 'on' && needsSchedule(usedSources, status),
   });
 
+  const limits = toggleState(status?.claudeLimits);
+  items.push({
+    id: 'claude-limits',
+    section: 'Plan limits',
+    title: 'Claude Code limits',
+    detail: 'read through its status line',
+    state: limits,
+    kind: 'inline',
+    confirm: limits === 'on' ? 'Put your old Claude Code status line back?' : "Wrap Claude Code's status line to read its limits? Your own status line keeps showing.",
+    recommended: false,
+  });
+
   const fetching = status?.cursorFetch !== false;
   items.push({
     id: 'cursor-fetch',
@@ -198,6 +212,7 @@ export function cliCommand(item: ActionItem): string {
     case 'readme': return 'tokengraph readme';
     case 'colors': return `tokengraph readme --colors ${item.next ?? 'single'}`;
     case 'schedule': return `tokengraph schedule${on ? ' --remove' : ''}`;
+    case 'claude-limits': return `tokengraph limits ${on ? 'off' : 'on'}`;
     case 'cursor-fetch': return `tokengraph cursor ${on ? 'off' : 'on'}`;
     case 'cursor-fetch-now': return 'tokengraph cursor fetch';
     case 'import-cursor': return 'tokengraph import cursor <file.csv>';

@@ -1,3 +1,4 @@
+import type { LimitsBlock } from './views/limits.js';
 import type { StoryRange, Theme } from '@tokengraph/core';
 import type { CollectProgress, LocalCollection } from '../collect-local.js';
 import type { Ledger } from '../ledger.js';
@@ -47,6 +48,8 @@ export interface AppDeps {
   /** 'local only' | '↑ publishing as @user' */
   modeLabel: () => Promise<string>;
   autoSync: () => Promise<AutoSyncStatus>;
+  /** Plan limit readings for the Overview (`tokengraph limits`); without it the Overview shows none. */
+  limits?: () => Promise<LimitsBlock>;
   /** Returns a cancel function. */
   setTimer: (fn: () => void, ms: number) => () => void;
   /** Config and installed hooks, for the action list. */
@@ -297,6 +300,9 @@ export async function runApp(deps: AppDeps): Promise<number> {
         if (finished) return;
         const lastScanMs = deps.clock() - started;
         state = { ...state, scan: { ...state.scan, running: false, current: null, lastScanAt: deps.clock() } };
+        // A scan may have found a limit hit, and readings age: read them again.
+        await loadLimits();
+        if (finished) return;
         if (deps.live) {
           nextScan = after(() => startScan(LIVE_SCAN_DAYS), Math.min(60_000, Math.max(5000, 10 * lastScanMs)));
         }
@@ -327,6 +333,16 @@ export async function runApp(deps: AppDeps): Promise<number> {
         return true;
       };
 
+      const loadLimits = async (): Promise<void> => {
+        if (!deps.limits) return;
+        try {
+          const limits = await deps.limits();
+          if (!finished) state = { ...state, limits };
+        } catch {
+          // Keep the last readings.
+        }
+      };
+
       const refreshSetup = async (): Promise<void> => {
         try {
           const setup = await deps.setupStatus();
@@ -351,6 +367,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
           refreshSetup(),
           deps.modeLabel().then((mode) => { if (!finished) state = { ...state, mode }; }, () => {}),
           deps.autoSync().then((autoSync) => { if (!finished) state = { ...state, autoSync }; }, () => {}),
+          loadLimits(),
         ]);
       };
 
@@ -545,6 +562,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
         }),
         () => {},
       );
+      void loadLimits().then(() => { if (!finished) draw(); });
       startScan(FIRST_SCAN_DAYS);
     });
   } finally {

@@ -22,7 +22,8 @@ import { drawSparkline } from '../widgets/sparkline.js';
 import { drawStackedColumns } from '../widgets/stacked-columns.js';
 import { drawTiles, type Tile } from '../widgets/tiles.js';
 import { shortDate, truncate } from './dates.js';
-import { blit, type OverviewState, type ViewProps, type ViewResult } from './props.js';
+import { drawLimits, limitsBlockHeight, type LimitsBlock } from './limits.js';
+import { blit, type Hit, type OverviewState, type ViewProps, type ViewResult } from './props.js';
 
 const TILE_HEIGHT = 3;
 const BIG_TILE_HEIGHT = 5;
@@ -215,7 +216,7 @@ function drawTopModels(view: ScreenBuffer, rect: Rect, props: ViewProps): void {
 }
 
 /** Tiles, the year heatmap, then the 30-day stacked chart with the day panel and top models, clipped to `rect`. */
-export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & { state: OverviewState }): ViewResult {
+export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & { state: OverviewState; limits?: LimitsBlock | null }): ViewResult {
   const { vm, theme, motion, colorMode, state } = props;
   const view = new ScreenBuffer(rect.width, rect.height);
   const s = stats(vm);
@@ -253,8 +254,15 @@ export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
 
   const day = vm.byDate.get(state.cursor) ?? null;
   const panelProps = { day, date: state.cursor, theme };
-  // Chart band: everything below the heatmap, after one blank row.
-  const chartY = heatmapY + HEATMAP_HEIGHT + 1;
+  // Plan limits under the heatmap, only when the chart keeps its minimum height (`tokengraph limits` shows them anyway).
+  let chartY = heatmapY + HEATMAP_HEIGHT + 1;
+  let limitsHits: Hit[] = [];
+  const limitsHeight = props.limits ? limitsBlockHeight(props.limits.views, props.limits.wrapperOn) : 0;
+  if (props.limits && limitsHeight > 0 && view.height - (chartY + limitsHeight + 1) >= CHART_MIN_HEIGHT) {
+    limitsHits = drawLimits(view, { x: heatmapX, y: chartY, width: view.width - heatmapX, height: limitsHeight }, { ...props, ...props.limits }).hits;
+    chartY += limitsHeight + 1;
+  }
+  // Chart band: everything below the heatmap (and the limits), after one blank row.
   const chartHeight = view.height - chartY;
   if (chartHeight >= CHART_MIN_HEIGHT) {
     const column = view.width >= CHART_PANEL_MIN_WIDTH;
@@ -302,7 +310,7 @@ export function drawOverview(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
 
   blit(buf, view, rect.x, rect.y);
   return {
-    hits: [],
+    hits: limitsHits.map((hit) => ({ ...hit, rect: { ...hit.rect, x: hit.rect.x + rect.x, y: hit.rect.y + rect.y } })),
     heatmap: { layout: { ...layout, originX: layout.originX + rect.x, originY: layout.originY + rect.y }, grid },
   };
 }

@@ -1,3 +1,4 @@
+import type { LimitsBlock } from './views/limits.js';
 import type { ColorMode } from '@tokengraph/core';
 import { actionItems, type ActionId, type ActionItem, type SetupStatus } from './actions.js';
 import type { AutoSyncStatus } from './auto-sync.js';
@@ -34,6 +35,8 @@ export interface AppState {
   scan: { running: boolean; current: string | null; done: number; total: number; lastScanAt: number | null; note: string | null };
   detected: string[];
   autoSync: AutoSyncStatus | null;
+  /** Plan limit readings for the Overview, as of the last load; null until read (or when the app has no source for them). */
+  limits: LimitsBlock | null;
   /** Weighted tokens per minute over the last 15 minutes, null until two samples exist. */
   burnRate: number | null;
   /** No usage and the first scan found no agents. */
@@ -90,6 +93,7 @@ export function initialState(vm: ViewModel, mode: string, live = true): AppState
     scan: { running: false, current: null, done: 0, total: 0, lastScanAt: null, note: null },
     detected: [],
     autoSync: null,
+    limits: null,
     burnRate: null,
     empty: false,
     setup: null,
@@ -342,6 +346,10 @@ function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>,
     if (tab) return withTab(state, TABS[tab.index]!);
   }
   if (state.tab === 'overview') {
+    if (event.action === 'press') {
+      const action = hits.view.hits.find((h) => h.kind === 'action' && x >= h.rect.x && x < h.rect.x + h.rect.width && y >= h.rect.y && y < h.rect.y + h.rect.height);
+      if (action?.kind === 'action') return openSetup(state, action.id);
+    }
     const heat = hits.view.heatmap;
     const date = heat ? hitTest(heat.layout, heat.grid, x, y) : null;
     if (date && (event.action === 'move' || event.action === 'press')) return { state: setCursor(state, date), effects: [] };

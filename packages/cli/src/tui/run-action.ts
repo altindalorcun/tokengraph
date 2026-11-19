@@ -1,3 +1,4 @@
+import { runLimits } from '../commands/limits.js';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
@@ -99,6 +100,7 @@ function command(id: ActionId, status: SetupStatus | null): () => Promise<number
     case 'hook:gemini-cli': return hook('gemini-cli', auto?.geminiHook === true);
     case 'schedule': return () => runSchedule({ remove: auto?.schedule === true, dryRun: false });
     case 'cursor-fetch': return () => runCursor(status?.cursorFetch === false ? 'on' : 'off');
+    case 'claude-limits': return () => runLimits([status?.claudeLimits === true ? 'off' : 'on'], { json: false });
     case 'cursor-fetch-now': return () => runCursorFetchNow();
     case 'import-cursor': return importCursor;
     case 'export-csv': return () => exportFile('csv');

@@ -13,6 +13,19 @@ const ids = (items: { id: string }[]) => items.map((item) => item.id);
 const find = (items: ReturnType<typeof actionItems>, id: string) => items.find((item) => item.id === id)!;
 
 describe('actionItems', () => {
+  it('offers the Claude Code limits toggle under Plan limits', () => {
+    const item = find(actionItems(status({ claudeLimits: true }), []), 'claude-limits');
+    expect(item).toMatchObject({ section: 'Plan limits', title: 'Claude Code limits', state: 'on', kind: 'inline', recommended: false });
+    expect(item.confirm).toBe('Put your old Claude Code status line back?');
+    expect(cliCommand(item)).toBe('tokengraph limits off');
+    const off = find(actionItems(status({ claudeLimits: false }), []), 'claude-limits');
+    expect(off.state).toBe('off');
+    expect(cliCommand(off)).toBe('tokengraph limits on');
+    expect(find(actionItems(status(), []), 'claude-limits').state).toBe('unknown');
+    const sections = [...new Set(actionItems(status(), []).map((i) => i.section))];
+    expect(sections.indexOf('Plan limits')).toBe(sections.indexOf('Auto-sync') + 1);
+  });
+
   it('offers login and a local sync while logged out', () => {
     const account = actionItems(status(), []).filter((item) => item.section === 'Account');
     expect(ids(account)).toEqual(['login', 'sync']);
@@ -35,6 +48,7 @@ describe('actionItems', () => {
     expect(ids(items)).toEqual([
       'sync', 'readme', 'colors', 'logout',
       'hook:claude-code', 'hook:cursor', 'hook:codex', 'hook:gemini-cli', 'schedule',
+      'claude-limits',
       'cursor-fetch', 'cursor-fetch-now', 'import-cursor',
       'story', 'export-csv', 'export-json', 'status', 'uninstall',
       'update',
@@ -66,8 +80,8 @@ describe('actionItems', () => {
 
   it('gives every section and unknown hooks without a status', () => {
     const items = actionItems(null, []);
-    expect(new Set(items.map((item) => item.section))).toEqual(new Set(['Account', 'Auto-sync', 'Cursor', 'Your data', 'Updates']));
-    for (const id of ['hook:claude-code', 'hook:cursor', 'hook:codex', 'hook:gemini-cli', 'schedule']) {
+    expect(new Set(items.map((item) => item.section))).toEqual(new Set(['Account', 'Auto-sync', 'Plan limits', 'Cursor', 'Your data', 'Updates']));
+    for (const id of ['hook:claude-code', 'hook:cursor', 'hook:codex', 'hook:gemini-cli', 'schedule', 'claude-limits']) {
       expect(find(items, id).state).toBe('unknown');
     }
     expect(ids(items).slice(0, 2)).toEqual(['login', 'sync']);

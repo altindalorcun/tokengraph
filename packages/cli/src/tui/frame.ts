@@ -150,7 +150,7 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
   const props: ViewProps = { vm: state.vm, theme, motion, colorMode: state.colorMode };
   switch (state.tab) {
     case 'overview':
-      return drawOverview(buf, rect, { ...props, state: state.overview });
+      return drawOverview(buf, rect, { ...props, state: state.overview, limits: state.limits });
     case 'models':
       return drawModels(buf, rect, { ...props, state: state.table });
     case 'agents':

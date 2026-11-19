@@ -4,6 +4,7 @@ import { dateKey, type Theme } from '@tokengraph/core';
 import { binPath, cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
 import { recordLimitHits } from '../limits/store.js';
+import { claudeWrapperOn, limitRows, readLimits } from './limits.js';
 import { readConfig } from '../config.js';
 import { editProjects } from './projects.js';
 import type { SetupStatus } from '../tui/actions.js';
@@ -67,8 +68,9 @@ async function modeLabel(): Promise<string> {
 
 /** What the action list needs: the login and colours from the config, the Cursor fetch switch and the installed hooks. */
 async function setupStatus(): Promise<SetupStatus> {
-  const [config, autoSync] = await Promise.all([readConfig(), detectAutoSync()]);
+  const [config, autoSync, claudeLimits] = await Promise.all([readConfig(), detectAutoSync(), claudeWrapperOn()]);
   return {
+    claudeLimits,
     update: { current: cliVersion(), latest: await knownUpdate({ config }) },
     login: config.github?.login ?? null,
     autoSync,
@@ -107,6 +109,8 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
     mode: await modeLabel(),
   });
   console.log(out);
+  const { views, wrapperOn } = await readLimits();
+  console.log(['', ' Plan limits', ...limitRows(views, wrapperOn).map((line) => ` ${line}`)].join('\n'));
   return 0;
 }
 
@@ -138,6 +142,7 @@ export async function runView(options: ViewOptions): Promise<number> {
     persist: persistLedger,
     modeLabel,
     autoSync: () => detectAutoSync(),
+    limits: () => readLimits(),
     setupStatus,
     checkForUpdate: () => refreshUpdateCheck(),
     runAction,
