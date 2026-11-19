@@ -164,16 +164,29 @@ Every command takes `--help`. An unknown option is an error. The full guide is a
 | `tokengraph readme` | Prints the README snippet and copies it. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | Draws story cards and shows a QR code that sends them to your phone; nothing is written to this computer unless you press S there or pass `--save` (your Downloads folder) or `--out <dir>`. `--no-qr` only saves the files, as does any run without a terminal. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--save`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>` (default: your GitHub login, or your computer's user name when you are not logged in). |
 | `tokengraph status [--json]` | Shows the GitHub account, the ledger, your machines, which background syncs are installed and healthy, the folders each agent is read from (and which exist), and how long Claude Code, Gemini CLI and Qwen Code keep their logs, with a warning when a short retention puts history at risk. `--json` prints it as one JSON object for scripts and AI agents; it includes the secret gist's address and local paths, so don't paste it in public. |
+| `tokengraph limits [on\|off] [--json]` | Shows how much of each Claude Code and Codex plan limit is used, when it resets and how old the reading is, as the agents report it. Codex readings come from its session logs. Claude Code passes its readings only to its status line, so `limits on` wraps your status line (your own command keeps running and looks the same) and `limits off` puts it back. `--json` prints the readings and today's totals for menu bars and other tools; it reads no agent logs. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex\|gemini-cli>` | Makes that agent start a background sync when it finishes. `--remove` uninstalls it, `--dry-run` shows what would change. For Claude Code, `--event SessionEnd\|Stop\|SubagentStop` picks the hook event (default `SessionEnd`). For Codex it uses `notify`, or a `Stop` hook when another program holds `notify`. |
 | `tokengraph schedule` | Installs an hourly background sync: launchd on macOS, cron on Linux, Task Scheduler on Windows. `schedule --remove` turns it off, `--dry-run` shows what would be installed. |
 | `tokengraph export` | Writes your daily usage as CSV or JSON, one row per day, agent, model and pricing tier, with weighted tokens and estimated cost. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. `--hours` writes one row per day, local hour and agent instead (date, hour, source, weighted tokens; this machine only). `--projects` adds a `project` column with one row per day, project, agent, model and tier; it holds the name, never the path, and covers this machine only. Reads the ledger only. |
 | `tokengraph cursor fetch\|on\|off` | Fetches your Cursor usage from cursor.com now (ignoring the hourly pause), or turns the automatic fetch on or off. `tokengraph import cursor --fetch` does the same as `cursor fetch`. `status` shows its state. If Cursor's sign-in has expired, open Cursor once. |
 | `tokengraph import cursor <file.csv>` | Adds Cursor history by hand, for when fetching is off: download the usage CSV from the Cursor dashboard (Usage, export CSV) and pass it here. Importing the same or an overlapping file twice adds nothing twice. Import on one machine only: machines are added together, so the same file on two machines counts twice. Never publishes. |
 | `tokengraph update` | Installs the latest version with npm, after showing the command and asking (`--yes` skips the question). The terminal view checks once a day in the background and, when a new version is out, says so in its status bar and updates on `u`, then reopens. Offline it stays silent. A copy run through `npx`, or installed some other way, is left alone and you get the command to run. `update off` stops the daily check, as do `TOKENGRAPH_NO_UPDATE_CHECK=1` and `NO_UPDATE_NOTIFIER=1`; it never runs in CI. |
-| `tokengraph uninstall` | Removes the Claude Code, Cursor, Codex and Gemini CLI hooks and the hourly schedule. `--purge` also deletes tokengraph's own files in `~/.tokengraph` (ledger, login, logs, the Cursor event, import and fetched-account files) and keeps anything else there, `--yes` skips the question, `--dry-run` changes nothing. Your gists are never touched. |
+| `tokengraph uninstall` | Removes the Claude Code, Cursor, Codex and Gemini CLI hooks and the hourly schedule, and puts your Claude Code status line back. `--purge` also deletes tokengraph's own files in `~/.tokengraph` (ledger, login, logs, the Cursor event, import and fetched-account files) and keeps anything else there, `--yes` skips the question, `--dry-run` changes nothing. Your gists are never touched. |
 
 Hooks and the schedule store the path of the installed program, so install tokengraph globally
 (`npm install -g tokengraph`) before using them; both refuse to run from an `npx` cache.
+
+### Plan limits
+
+Claude Code and Codex plans have usage limits measured over a window (five hours, seven days, thirty
+days). tokengraph shows the share of each window the agent last reported, never an estimate: a window
+whose reset time has passed shows no percentage until the next reading. Readings stay on your machine
+and never go into a gist. The view's Overview tab shows them under the heatmap.
+
+`tokengraph limits --json` is the stable way for other tools to read them (`schema: 1`; fields are only
+ever added). It returns `today` (date, weighted tokens, estimated cost, when the ledger was last written)
+and `limits`, one entry per agent and limit with its windows (`label`, `usedPercent`, `resetsAt`,
+`reset`). A macOS menu bar or notch app, Waybar or a shell prompt can poll it.
 
 ## Several machines
 

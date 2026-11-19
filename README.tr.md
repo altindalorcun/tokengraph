@@ -156,16 +156,30 @@ Her komut `--help` alır. Bilinmeyen bir seçenek hata verir. Ayrıntılı kıla
 | `tokengraph readme` | README kod parçasını yazdırır ve kopyalar. `--compact`, `--colors model\|single`. |
 | `tokengraph story` | Hikâye kartlarını çizer, PNG'leri kaydeder (`--out <dir>` verilmezse İndirilenler klasörüne) ve telefonunuza göndermeyi önerir. `--template skyline\|receipt\|sticker\|all`, `--range today\|7d\|30d\|1y`, `--no-cost`, `--qr` / `--no-qr`, `--no-preview`, `--handle <name>` (varsayılan: GitHub kullanıcı adınız; giriş yapmadıysanız bilgisayarınızdaki kullanıcı adı). |
 | `tokengraph status [--json]` | GitHub hesabını, kullanım defterini, makinelerinizi, hangi arka plan senkronizasyonlarının kurulu ve sağlıklı olduğunu, her ajanın hangi klasörlerden okunduğunu (ve hangilerinin var olduğunu), Claude Code, Gemini CLI ve Qwen Code'un günlükleri ne kadar süre tuttuğunu gösterir; kısa bir saklama süresi geçmişi riske attığında uyarır. `--json`, betikler ve yapay zekâ ajanları için bunu tek bir JSON nesnesi olarak yazdırır; çıktı gizli gist'in adresini ve yerel yolları içerdiğinden onu herkese açık bir yere yapıştırmayın. |
+| `tokengraph limits [on\|off] [--json]` | Claude Code ve Codex plan limitlerinin her birinin ne kadarının kullanıldığını, ne zaman sıfırlanacağını ve okumanın ne kadar eski olduğunu, ajanların bildirdiği şekliyle gösterir. Codex okumaları oturum günlüklerinden gelir. Claude Code okumalarını yalnızca durum satırına (status line) verir; bu yüzden `limits on` durum satırınızı sarar (kendi komutunuz çalışmaya ve aynı görünmeye devam eder), `limits off` onu geri koyar. `--json`, okumaları ve bugünün toplamlarını menü çubukları ve diğer araçlar için yazdırır; hiçbir ajan günlüğünü okumaz. |
 | `tokengraph install-hook --agent <claude-code\|cursor\|codex\|gemini-cli>` | O ajanın işi bitince arka planda bir senkronizasyon başlatmasını sağlar. `--remove` kaldırır, `--dry-run` nelerin değişeceğini gösterir. Claude Code için `--event SessionEnd\|Stop\|SubagentStop` hook olayını seçer (varsayılan `SessionEnd`). Codex için `notify` ayarını, bu ayarı başka bir program kullanıyorsa bir `Stop` hook'unu kullanır. |
 | `tokengraph schedule` | Her saat çalışan bir arka plan senkronizasyonu kurar: macOS'ta launchd, Linux'ta cron, Windows'ta Görev Zamanlayıcı. `schedule --remove` kapatır, `--dry-run` neyin kurulacağını gösterir. |
 | `tokengraph export` | Günlük kullanımınızı CSV veya JSON olarak yazar; gün, ajan, model ve fiyat katmanı başına bir satır olup ağırlıklı token sayısını ve tahmini maliyeti içerir. `--format csv\|json`, `--out <file>`, `--since <date>`, `--all-machines`. `--hours` bunun yerine gün, yerel saat ve ajan başına bir satır yazar (tarih, saat, kaynak, ağırlıklı token; yalnızca bu makine). `--projects` bir `project` sütunu ekler ve gün, proje, ajan, model ve fiyat katmanı başına bir satır yazar; sütunda yol değil ad bulunur ve yalnızca bu makineyi kapsar. Yalnızca kullanım defterini okur. |
 | `tokengraph cursor fetch\|on\|off` | Cursor kullanımınızı cursor.com'dan hemen çeker (saatlik beklemeyi yok sayar) ya da otomatik çekmeyi açar veya kapatır. `tokengraph import cursor --fetch`, `cursor fetch` ile aynı işi yapar. `status` durumunu gösterir. Cursor oturumunun süresi dolmuşsa Cursor'ı bir kez açın. |
 | `tokengraph import cursor <file.csv>` | Cursor geçmişini elle ekler, çekme kapalıyken işe yarar: Cursor panosundan kullanım CSV'sini indirin (Usage, export CSV) ve buraya verin. Aynı dosyayı ya da çakışan bir dosyayı iki kez içe aktarmak hiçbir şeyi iki kez eklemez. Yalnızca tek bir makinede içe aktarın: makinelerin sayıları toplanır, bu yüzden aynı dosya iki makinede içe aktarılırsa iki kez sayılır. Hiçbir zaman yayımlamaz. |
 | `tokengraph update` | Komutu gösterip onayınızı aldıktan sonra en son sürümü npm ile kurar (`--yes` soruyu atlar). Terminal görünümü günde bir kez arka planda kontrol eder; yeni sürüm çıktığında durum çubuğunda söyler, `u` ile güncelleyip yeniden açılır. Çevrimdışıyken sessiz kalır. `npx` ile çalışan ya da başka bir yolla kurulan kopyaya dokunmaz, çalıştırmanız gereken komutu gösterir. `update off`, `TOKENGRAPH_NO_UPDATE_CHECK=1` ve `NO_UPDATE_NOTIFIER=1` günlük kontrolü durdurur; CI ortamında hiç çalışmaz. |
-| `tokengraph uninstall` | Claude Code, Cursor, Codex ve Gemini CLI hook'larını ve saatlik zamanlamayı kaldırır. `--purge` ayrıca `~/.tokengraph` içindeki tokengraph'ın kendi dosyalarını (kullanım defteri, giriş bilgisi, günlükler, Cursor olay, içe aktarma ve çekilen hesap dosyaları) siler, oradaki diğer hiçbir şeye dokunmaz; `--yes` soruyu atlar, `--dry-run` hiçbir şeyi değiştirmez. Gist'lerinize asla dokunulmaz. |
+| `tokengraph uninstall` | Claude Code, Cursor, Codex ve Gemini CLI hook'larını ve saatlik zamanlamayı kaldırır, Claude Code durum satırınızı geri koyar. `--purge` ayrıca `~/.tokengraph` içindeki tokengraph'ın kendi dosyalarını (kullanım defteri, giriş bilgisi, günlükler, Cursor olay, içe aktarma ve çekilen hesap dosyaları) siler, oradaki diğer hiçbir şeye dokunmaz; `--yes` soruyu atlar, `--dry-run` hiçbir şeyi değiştirmez. Gist'lerinize asla dokunulmaz. |
 
 Hook'lar ve zamanlama, kurulu programın yolunu saklar; bu yüzden onları kullanmadan önce tokengraph'ı global olarak kurun
 (`npm install -g tokengraph`). İkisi de bir `npx` cache'inden çalışmayı reddeder.
+
+### Plan limitleri
+
+Claude Code ve Codex planlarının bir pencere (beş saat, yedi gün, otuz gün) üzerinden ölçülen kullanım
+limitleri vardır. tokengraph her pencerenin, ajanın en son bildirdiği kullanılmış payını gösterir; asla
+tahmin etmez: sıfırlanma zamanı geçmiş bir pencere, bir sonraki okumaya kadar yüzde göstermez. Okumalar
+makinenizde kalır ve hiçbir gist'e girmez. Görünümün Overview sekmesi bunları ısı haritasının altında gösterir.
+
+`tokengraph limits --json`, diğer araçların bunları okumasının kararlı yoludur (`schema: 1`; alanlar
+yalnızca eklenir). `today` (tarih, ağırlıklı token, tahmini maliyet, kullanım defterinin en son yazıldığı an)
+ve `limits` döndürür; `limits`, ajan ve limit başına pencereleriyle (`label`, `usedPercent`, `resetsAt`,
+`reset`) bir kayıttır. Bir macOS menü çubuğu veya çentik uygulaması, Waybar ya da bir kabuk istemi onu
+düzenli olarak sorgulayabilir.
 
 ## Birden fazla makine
 

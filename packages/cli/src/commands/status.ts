@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { formatTokens, isKnownSource } from '@tokengraph/core';
+import { formatTokens, isKnownSource, type LimitView } from '@tokengraph/core';
 import { readFetchState } from '../adapters/cursor/fetch-state.js';
 import { agentRootsReport, type AgentRootsReport } from '../agent-roots-store.js';
 import { inspectAutoSync, type AutoSyncEntry, type AutoSyncHealth } from '../auto-sync-health.js';
@@ -13,6 +13,7 @@ import { activeDayCount, machineLabel } from '../publish/machines.js';
 import { readLastPublish, readMachinesCache } from '../publish/machines-cache.js';
 import { formatDays, readRetentionPolicies, retentionWarnings, type RetentionPolicy } from '../retention.js';
 import { summariseByDay } from './sync.js';
+import { limitJsonEntries, limitRows, readLimits, type LimitJsonEntry } from './limits.js';
 
 export interface StatusDeps {
   autoSync: () => Promise<AutoSyncHealth>;
@@ -22,12 +23,15 @@ export interface StatusDeps {
   retention: () => Promise<RetentionPolicy[]>;
   /** The folders each adapter scans, from this process's environment plus the roots remembered in the config. */
   agentRoots: (remembered: Record<string, string[]>) => Promise<AgentRootsReport[]>;
+  /** Plan limit readings (`tokengraph limits`). */
+  limits: () => Promise<{ views: LimitView[]; wrapperOn: boolean | null }>;
 }
 
 const DEFAULT_DEPS: StatusDeps = {
   autoSync: () => inspectAutoSync(),
   retention: () => readRetentionPolicies(),
   agentRoots: (remembered) => agentRootsReport(remembered),
+  limits: () => readLimits(),
   legacyData: () => {
     const legacy = legacyConfigHome();
     if (legacy === configHome()) return [];
@@ -65,6 +69,8 @@ export interface StatusReport {
   agentRoots: AgentRootsReport[];
   warnings: string[];
   legacyData: string[];
+  /** The same entries as `tokengraph limits --json`. */
+  limits: LimitJsonEntry[];
 }
 
 async function readHookSync(): Promise<StatusReport['lastHookSync']> {
@@ -79,7 +85,7 @@ async function readHookSync(): Promise<StatusReport['lastHookSync']> {
   }
 }
 
-async function buildReport(deps: StatusDeps, autoSync: AutoSyncHealth): Promise<StatusReport> {
+async function buildReport(deps: StatusDeps, autoSync: AutoSyncHealth, limits: { views: LimitView[] }): Promise<StatusReport> {
   const config = await readConfig();
   const ledger = await readLedger(ledgerPath());
   const days = summariseByDay(allLedgerUsage(ledger));
@@ -120,15 +126,21 @@ async function buildReport(deps: StatusDeps, autoSync: AutoSyncHealth): Promise<
     agentRoots: await deps.agentRoots(config.agentRoots ?? {}),
     warnings: retentionWarnings(retention, autoSync),
     legacyData: deps.legacyData(),
+    limits: limitJsonEntries(limits.views),
   };
 }
 
 export async function runStatus(overrides: Partial<StatusDeps> = {}, options: { json?: boolean } = {}): Promise<number> {
   const deps = { ...DEFAULT_DEPS, ...overrides };
   const autoSync = await deps.autoSync();
-  const report = await buildReport(deps, autoSync);
+  const limits = await deps.limits();
+  const report = await buildReport(deps, autoSync, limits);
   if (options.json) console.log(JSON.stringify(report, null, 2));
-  else printReport(report, autoSync);
+  else {
+    printReport(report, autoSync);
+    console.log('plan limits:');
+    for (const line of limitRows(limits.views, limits.wrapperOn)) console.log(`  ${line}`);
+  }
   return 0;
 }
 

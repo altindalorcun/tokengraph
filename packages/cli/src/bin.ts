@@ -8,6 +8,7 @@ import { runCursorHook } from './commands/cursor-hook.js';
 import { parseExportArgs, runExport } from './commands/export.js';
 import { runHookSync } from './commands/hook-sync.js';
 import { runStatusline } from './commands/statusline.js';
+import { LIMITS_HELP, runLimits } from './commands/limits.js';
 import { parseImportArgs, runImportCursor } from './commands/import.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
 import { runLogin } from './commands/login.js';
@@ -37,6 +38,7 @@ Commands:
   logout               Disconnect GitHub on this machine
   projects             Show tokens and estimated cost per project on this machine
   status               Show the account, ledger and background syncs on this machine
+  limits               Show how much of your Claude Code and Codex plan limits is used
   install-hook         Sync automatically when Claude Code, Cursor, Codex or Gemini CLI finishes
   schedule             Sync every hour in the background
   story                Turn your usage into story cards and send them to your phone
@@ -415,6 +417,13 @@ Options:
       }
       return runStory(options);
     },
+  },
+
+  limits: {
+    help: LIMITS_HELP,
+    options: { json: { type: 'boolean', default: false } },
+    positionals: true,
+    run: (values, positionals) => runLimits(positionals, { json: values['json'] === true }),
   },
 
   cursor: {

@@ -1,4 +1,5 @@
 import { rm } from 'node:fs/promises';
+import { limitViews, type LimitReading } from '@tokengraph/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runStatus } from '../src/commands/status.js';
 import { writeConfig } from '../src/config.js';
@@ -7,6 +8,15 @@ import { configPath, machinesCachePath } from '../src/paths.js';
 import { writeMachinesCache } from '../src/publish/machines-cache.js';
 
 const HEALTH = { installed: false, missing: [], detail: undefined };
+const LIMIT_READING: LimitReading = {
+  source: 'codex-cli',
+  limitId: 'codex',
+  plan: 'free',
+  origin: 'session-log',
+  readAt: '2026-11-19T10:00:00.000Z',
+  credits: null,
+  windows: [{ id: 'primary', minutes: 43200, usedPercent: 6, resetsAt: '2026-12-15T12:00:00.000Z' }],
+};
 
 describe('status with a GitHub login', () => {
   let lines: string[];
@@ -26,6 +36,10 @@ describe('status with a GitHub login', () => {
     autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, geminiHook: HEALTH, schedule: HEALTH }) as never,
     legacyData: () => [],
     retention: async () => [],
+    limits: async () => ({
+      views: limitViews([LIMIT_READING], new Date('2026-11-19T12:00:00Z')),
+      wrapperOn: true,
+    }),
   };
 
   it('shows the gist links and the other machines', async () => {
@@ -69,6 +83,13 @@ describe('status with a GitHub login', () => {
     await runStatus(deps);
     expect(lines.some((line) => line.startsWith('graph:') || line.startsWith('data:') || line.startsWith('other machines'))).toBe(false);
   });
+  it('prints the plan limits', async () => {
+    await runStatus(deps);
+    const at = lines.indexOf('plan limits:');
+    expect(at).toBeGreaterThan(-1);
+    expect(lines[at + 1]).toBe('  Claude Code   no reading yet');
+    expect(lines[at + 2]).toMatch(/^  Codex · free  30d {2}6% {2}resets in 26d/);
+  });
 });
 
 describe('status --json', () => {
@@ -89,6 +110,7 @@ describe('status --json', () => {
     autoSync: async () => ({ claudeHook: HEALTH, cursorHook: HEALTH, codexNotify: HEALTH, geminiHook: HEALTH, schedule: HEALTH }) as never,
     legacyData: () => [],
     retention: async () => [],
+    limits: async () => ({ views: limitViews([LIMIT_READING], new Date('2026-11-19T12:00:00Z')), wrapperOn: true }),
   };
 
   it('prints one JSON object and never the token', async () => {
@@ -120,7 +142,19 @@ describe('status --json', () => {
     });
     expect(Object.keys(report.backgroundSync).sort()).toEqual(['claudeHook', 'codexNotify', 'cursorHook', 'geminiHook', 'schedule']);
     expect(report.warnings.length).toBeGreaterThan(0);
+    expect(report.limits).toEqual([
+      {
+        source: 'codex',
+        limitId: 'codex',
+        plan: 'free',
+        origin: 'session-log',
+        readAt: '2026-11-19T10:00:00.000Z',
+        credits: null,
+        windows: [{ id: 'primary', label: '30d', minutes: 43200, usedPercent: 6, resetsAt: '2026-12-15T12:00:00.000Z', reset: false }],
+      },
+    ]);
   });
+
 
   it('reports a logged-out, empty machine with nulls', async () => {
     await runStatus(deps, { json: true });

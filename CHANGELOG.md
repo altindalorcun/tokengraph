@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Plan limits for Claude Code and Codex.** `tokengraph limits` shows how much of each plan limit window (five
+  hours, seven days, thirty days) is used, when it resets and how old the reading is, exactly as the agents report
+  it; a window that has reset shows no percentage until the next reading. Codex readings come from its session
+  logs. Claude Code hands its readings only to its status line, so `tokengraph limits on` (or Claude Code limits
+  in the Setup tab) wraps your status line: your own command keeps running and looks the same, and `limits off` or
+  `uninstall` puts it back. The Overview tab shows the limits under the heatmap and `status` lists them.
+  `tokengraph limits --json` gives menu bars and other tools the readings and today's totals without reading any
+  agent logs. Readings stay on your machine and never go into a gist.
 - **The Codex hook works when Codex's Computer Use is on.** Computer Use takes Codex's single `notify` setting, so
   Codex notify in the Setup tab stayed recommended and pressing it only flashed a cut-off error. tokengraph now
   leaves that `notify` alone and adds a `Stop` hook to `~/.codex/hooks.json` instead, which syncs after each turn.
