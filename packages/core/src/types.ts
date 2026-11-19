@@ -1,3 +1,4 @@
+import type { LimitReading } from './limits.js';
 import type { PricingTier } from './pricing-tiers.js';
 import type { KnownSource } from './sources.js';
 import type { SplitTokenCounts } from './tokens.js';
@@ -36,6 +37,8 @@ export interface CollectResult {
   hours?: HourlyUsage[];
   /** Usage per working folder. A request with no known folder is left out, so this may sum to less than `usage`. */
   projects?: ProjectUsage[];
+  /** Limit readings the logs hold, newest per window; not usage. Local only, never in a machine file or a gist. */
+  limits?: LimitReading[];
   /** Human-readable caveats about this run (skipped or approximated records), printed by sync. */
   notes?: string[];
 }
