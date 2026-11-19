@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { dateKey, type Theme } from '@tokengraph/core';
 import { binPath, cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
+import { recordLimitHits } from '../limits/store.js';
 import { readConfig } from '../config.js';
 import { editProjects } from './projects.js';
 import type { SetupStatus } from '../tui/actions.js';
@@ -77,8 +78,10 @@ async function setupStatus(): Promise<SetupStatus> {
 }
 
 /** Scans with sync's adapter set, so the view matches what sync records. */
-function scan(ledger: Ledger, since: Date, onProgress: Parameters<AppDeps['scan']>[2]) {
-  return collectLocal(ledger, since, { adapters: defaultAdapters(), onProgress });
+async function scan(ledger: Ledger, since: Date, onProgress: Parameters<AppDeps['scan']>[2]) {
+  const collected = await collectLocal(ledger, since, { adapters: defaultAdapters(), onProgress });
+  await recordLimitHits(collected.results);
+  return collected;
 }
 
 async function printSnapshot(options: ViewOptions): Promise<number> {
@@ -86,6 +89,7 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
   const collected = await collectLocal(await readLedger(ledgerPath()), new Date(`${shiftDate(today, -SCAN_DAYS)}T00:00:00`), {
     adapters: defaultAdapters(),
   });
+  await recordLimitHits(collected.results);
   const vm = buildViewModel(collected.ledger, today);
   if (vm.days.length === 0 && collected.detected.length === 0) {
     console.log(noAgentsMessage());

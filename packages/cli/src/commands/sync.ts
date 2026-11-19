@@ -18,6 +18,7 @@ import { runCursorFetch, type CursorFetchDeps } from '../adapters/cursor/fetch.j
 import { readFetchState } from '../adapters/cursor/fetch-state.js';
 import { cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
+import { recordLimitHits } from '../limits/store.js';
 import { readConfig, writeConfig, type CliConfig, type GitHubAccount, type GitHubAuth } from '../config.js';
 import { clientFor } from '../github/auth.js';
 import { GitHubAuthError, GitHubError, GitHubNotFoundError, GitHubRateLimitError, type GitHubClient } from '../github/http.js';
@@ -158,6 +159,7 @@ async function runSyncLocked(options: SyncOptions, spinner: Spinner): Promise<nu
   }
   await mkdir(configHome(), { recursive: true, mode: 0o700 });
   await writeLedger(ledgerPath(), ledger);
+  await recordLimitHits(collected);
 
   const days = summariseByDay(allLedgerUsage(ledger, sinceKey));
   say(`\nwindow: ${sinceKey} .. ${dateKey(new Date())} (${options.sinceDays} days), all agents`);

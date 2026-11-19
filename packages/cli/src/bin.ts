@@ -7,6 +7,7 @@ import { parseCursorArgs, runCursor, runCursorFetchNow } from './commands/cursor
 import { runCursorHook } from './commands/cursor-hook.js';
 import { parseExportArgs, runExport } from './commands/export.js';
 import { runHookSync } from './commands/hook-sync.js';
+import { runStatusline } from './commands/statusline.js';
 import { parseImportArgs, runImportCursor } from './commands/import.js';
 import { DEFAULT_HOOK_EVENT, resolveHookAgent, runInstallHook } from './commands/install-hook.js';
 import { runLogin } from './commands/login.js';
@@ -533,6 +534,10 @@ Options:
     run: (values) =>
       runUninstall({ purge: values['purge'] === true, yes: values['yes'] === true, dryRun: values['dry-run'] === true }),
   },
+
+  // Claude Code's status line while `tokengraph limits on` is in force: saves the limit readings on stdin and runs the
+  // user's own status line command with the same input. Prints only that command's output; never fails on arguments.
+  statusline: { options: {}, lenient: true, run: () => runStatusline() },
 
   // Run by Cursor's stop hook (see `install-hook --agent cursor`); not meant to be run by hand.
   'cursor-hook': { options: {}, lenient: true, run: () => runCursorHook() },
