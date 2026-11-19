@@ -32,7 +32,8 @@ mode 0600), `state.json` (the ledger, including the local-only hour tables), `ma
 machines' files from the last publish) and, for Cursor, `cursor-events.jsonl`, `cursor-import.jsonl`
 (rows imported from a dashboard CSV by `tokengraph import cursor`), `cursor-account-<accountKey>.jsonl`
 (rows fetched from cursor.com, one file per account) and `cursor-fetch.json` (last attempt, back-off, how
-far each account is covered; no secrets). None of the Cursor usage files is ever pruned.
+far each account is covered; no secrets). None of the Cursor usage files is ever pruned. `limits.json`
+holds the Claude Code limit readings (see Plan limits below); local only.
 
 ## Data flow
 
@@ -185,10 +186,38 @@ reloads the ledger, the mode, the hooks and the config and restarts the scans; a
 installed a new version it ends the view so `commands/view.ts` starts the new one, and after an
 uninstall that deleted the data it ends the view, since a rescan would write a new ledger.
 
+## Plan limits
+
+`tokengraph limits`, `status`, the Overview tab and `limits --json` show how much of each Claude Code and
+Codex plan limit window is used (terms in [GLOSSARY.md](../GLOSSARY.md)). Only what the agents report is
+shown; nothing is estimated from token counts.
+
+- **Codex** writes its readings into every `token_count` event of its rollouts. `src/limits/codex.ts` reads
+  the 8 most recently modified rollout files on demand and keeps the newest reading per `limit_id`
+  (`docs/agents/codex-usage.md`). Nothing is stored.
+- **Claude Code** passes its five-hour and seven-day readings only to its `statusLine` command
+  ([ADR 0001](adr/0001-claude-limits-via-statusline.md)). `tokengraph limits on` (or the Setup toggle) stores
+  the user's `statusLine` object whole in `config.json` (`claudeStatusline.previous`) and installs the hidden
+  `statusline` command (`claude-statusline.ts`, `commands/statusline.ts`). It saves the reading to
+  `limits.json` (atomic, only on change, every error silent) and runs the previous command through the shell
+  with the same stdin, passing its stdout and exit code through. It prints nothing of its own, never writes
+  to stderr, never chains to itself and runs no adapter or ledger code. `limits off` and `uninstall` write the
+  previous object back exactly, and leave a `statusLine` that is no longer ours alone.
+- **Limit hits**: a transcript record with `apiErrorParams.rate_limit_info` (`status: "rejected"`) is a
+  100% reading of that window at its timestamp. The Claude Code aggregator returns the newest per window in
+  `CollectResult.limits`; `sync` and the view store it when it is newer than the stored window.
+- `limitViews` in core turns readings and the current time into what every surface shows: labels (`5h`,
+  `7d`, `30d`), a level (good below 70%, warn from 70%, bad from 90%), the age, and `reset` once `resetsAt`
+  has passed, when the share is shown as unknown, never as 0%.
+- `limits --json` (schema 1, fields only ever added) adds today's weighted tokens and cost from the ledger.
+  It runs no adapter, so a menu bar can poll it.
+
 ## What never leaves the machine
 
 - Prompts, answers, code, file names and paths are never read or stored. Adapters read counters and
   model names only.
+- Plan limit readings stay in `limits.json` and memory. They never go into a machine file or a gist, and
+  reading them makes no network call.
 - Nothing is sent to a tokengraph server, because there is none. The CLI talks only to GitHub
   (`api.github.com`, `github.com`, `gist.githubusercontent.com`) for the logged-in user and, while
   the Cursor fetch is on (the default once Cursor is signed in; `tokengraph cursor off`), to
@@ -270,7 +299,7 @@ Code's roots also include Claude Desktop's Code and Cowork session folders (`ada
 `install-hook` makes an agent (Claude Code, Cursor, Codex, Gemini CLI) run the hidden `hook-sync` command (Gemini: a `SessionEnd` entry in `<GEMINI_CLI_HOME or home>/.gemini/settings.json`, foreign hooks and keys kept, `docs/agents/gemini-cli-usage.md`) (Codex: its single `notify` when free, otherwise a `Stop` entry in `$CODEX_HOME/hooks.json` that Codex runs once the user trusts it (a startup prompt, or `/hooks`); never another program's `notify`, nothing written when Codex hooks are off or Codex is too old, `docs/agents/codex-usage.md`), which only spawns a detached
 `sync`, so the hook returns instantly. `schedule` installs an hourly `sync --since 30` (launchd,
 cron or Task Scheduler). Both take `~/.tokengraph/sync.lock`, so two syncs never run at once, and
-`status` checks that the installed commands still point at an existing node and script. `status` also reports the log-retention policy of Claude Code, Gemini CLI and Qwen Code (`--json` for scripts). `uninstall` removes the hooks and the schedule; `--purge` also deletes only tokengraph's own files in the state folder (anything else there is kept), never the user's gists or the agents' logs.
+`status` checks that the installed commands still point at an existing node and script. `status` also reports the log-retention policy of Claude Code, Gemini CLI and Qwen Code (`--json` for scripts). `uninstall` removes the hooks and the schedule, and puts back the Claude Code status line if `limits on` wrapped it; `--purge` also deletes only tokengraph's own files in the state folder (anything else there is kept), never the user's gists or the agents' logs.
 
 ## Invariants
 

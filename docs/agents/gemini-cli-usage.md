@@ -404,6 +404,10 @@ Checked against gemini-cli v0.64.0 (commit `4a0749a`, the version pinned in `scr
 - **Command and stdin:** the string runs through `bash -c` (PowerShell with `-Command` on Windows, so tokengraph writes `& "<node>" "<bin>" hook-sync` there) with the event JSON written to stdin and the environment sanitised ([`hookRunner.ts`](https://github.com/google-gemini/gemini-cli/blob/4a0749aceac5643e6f85a36d7420314d85e13b52/packages/core/src/hooks/hookRunner.ts#L333-L370), [`getShellConfiguration`](https://github.com/google-gemini/gemini-cli/blob/4a0749aceac5643e6f85a36d7420314d85e13b52/packages/core/src/utils/shell-utils.ts#L658-L698)). `hook-sync` ignores stdin.
 - **Does a slow hook block exit?** The documentation says SessionEnd is "best effort" and not waited for ([`reference.md`](https://github.com/google-gemini/gemini-cli/blob/4a0749aceac5643e6f85a36d7420314d85e13b52/docs/hooks/reference.md#L260-L270)), but the cleanup callback `await`s `fireSessionEndEvent`, which waits for the hook process (up to its timeout) before the CLI exits. `hook-sync` only spawns a detached `sync` and returns at once, so exit is not delayed; the 5 s timeout caps a broken one.
 
+## Plan limits
+
+Not read yet. No local source found: the chat files Gemini CLI writes hold no quota readings.
+
 ## Sources
 
 - [gemini-cli @2fe7c2d, `chatRecordingTypes.ts`](https://github.com/google-gemini/gemini-cli/blob/2fe7c2d3f065dc40ad573d50b2091116f8a4aa18/packages/core/src/services/chatRecordingTypes.ts): `TokensSummary`, message and JSONL record types.

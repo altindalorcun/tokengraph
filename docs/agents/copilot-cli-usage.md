@@ -207,6 +207,10 @@ Every root below is read together with the default one and the ones remembered i
 - Roots: `~/.copilot` and `$COPILOT_HOME` (trimmed, `~` expanded, absolute only); the database is `session-store.db` in each. The same on every OS. Copilot CLI is closed source, so whether it trims or expands `COPILOT_HOME` is unconfirmed; a `--config-dir` flag given to one run cannot be seen later.
 - Every existing store is read. Rows are keyed by session id plus row id: another profile's database has other session ids, and a copy of one database collapses.
 
+## Plan limits
+
+Not read yet. No local source found: `session-store.db` holds no premium-request quota readings.
+
 ## Sources
 
 - tokscale `crates/tokscale-core/src/sessions/copilot_session_store.rs` and `utils.rs`, commit

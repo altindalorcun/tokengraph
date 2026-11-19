@@ -8,6 +8,7 @@ import { runSync } from '../src/commands/sync.js';
 import { readConfig, writeConfig } from '../src/config.js';
 import { pollForToken } from '../src/github/device-flow.js';
 import { mergeProjectRoots, mergeProjects, readLedger, writeLedger } from '../src/ledger.js';
+import { readLimitsFile, storeClaudeReading } from '../src/limits/store.js';
 import { startFakeGitHub } from './fake-github.js';
 import { writeClaudeTranscript } from './fixtures-claude.js';
 
@@ -111,6 +112,23 @@ describe('login → sync → readme, end to end', () => {
     expect(published).not.toContain('PLANTED-FOLDER');
     expect(published).not.toContain('secret-client');
     expect((await readLedger(path)).projects?.roots[planted]).toBe(planted);
+  });
+
+  it('never publishes limit readings and keeps them through a publish', async () => {
+    const path = join(root, 'tg', 'limits.json');
+    expect(
+      await storeClaudeReading({
+        source: 'claude-code', limitId: null, plan: null, origin: 'statusline', readAt: new Date().toISOString(), credits: null,
+        windows: [{ id: 'five_hour', minutes: 300, usedPercent: 37.123, resetsAt: '2031-01-02T03:04:05.000Z' }],
+      }, path),
+    ).toBe(true);
+    expect(await runSync({ sinceDays: 30, theme: 'light', quiet: true })).toBe(0);
+    const published = JSON.stringify([...github.gists.values()]);
+    expect(published).toContain('machine-');
+    expect(published).not.toContain('37.123');
+    expect(published).not.toContain('2031-01-02T03:04:05');
+    expect(published).not.toContain('five_hour');
+    expect((await readLimitsFile(path)).claudeCode?.windows[0]?.usedPercent).toBe(37.123);
   });
 
   it('a deleted graph gist comes back on the next sync', async () => {

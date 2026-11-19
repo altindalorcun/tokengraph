@@ -8,7 +8,7 @@ things:
 - a **graph**: a GitHub-contribution-style heatmap of daily token usage, as an SVG you can put in
   your profile README;
 - a **terminal view**: the same graph, plus totals, models, projects and estimated cost, right in
-  your terminal;
+  your terminal, with how much of your Claude Code and Codex plan limits is used;
 - **story cards**: PNGs sized for Instagram and TikTok stories, drawn on your machine and handed
   to your phone with a QR code.
 
@@ -59,8 +59,9 @@ an agent prunes its logs, is worse than no graph. So:
 ## Non-goals
 
 - A hosted service, accounts or a sign-up flow.
-- Invoices, budgets or quotas. The cost shown, per day or per project, is an estimate at public list
-  prices, not what a subscription plan charges.
+- Invoices or budgets, or limits of our own. The cost shown, per day or per project, is an estimate at
+  public list prices, not what a subscription plan charges. Plan limits are shown only as the agents
+  report them, never computed or estimated.
 - Collecting prompts, code or anything beyond token counters and the folder a session ran in.
 - Leaderboards or ranking people against each other. (A community wall built from pull requests
   may come later, see below; it would be opt-in and in the open.)
