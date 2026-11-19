@@ -86,6 +86,11 @@ export function machinesCachePath(): string {
   return join(configHome(), 'machines.json');
 }
 
+/** Claude Code limit readings (statusline and limit hits). Local only, never published. */
+export function limitsPath(): string {
+  return join(configHome(), 'limits.json');
+}
+
 /** What the Cursor history fetch remembers between runs: last attempt, back-off, how far each account is covered. No secrets. */
 export function cursorFetchStatePath(): string {
   return join(configHome(), 'cursor-fetch.json');
