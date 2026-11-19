@@ -86,6 +86,11 @@ export function hookCommand(): string {
   return `"${stableNodePath(process.execPath)}" "${bin}" hook-sync`;
 }
 
+/** Claude Code's `statusLine` command while `tokengraph limits on` is in force (see claude-statusline.ts). */
+export function statuslineCommand(bin: string = binPath()): string {
+  return `"${stableNodePath(process.execPath)}" "${bin}" statusline`;
+}
+
 /** Gemini CLI's user settings: `<GEMINI_CLI_HOME or home>/.gemini/settings.json` (Storage.getGlobalSettingsPath). */
 export function geminiSettingsPath(): string {
   return join(geminiHome(), '.gemini', 'settings.json');
@@ -108,7 +113,7 @@ export function cursorHookCommand(): string {
   return `"${stableNodePath(process.execPath)}" "${bin}" cursor-hook`;
 }
 
-async function readSettings(path: string): Promise<Settings> {
+export async function readSettings(path: string): Promise<Settings> {
   try {
     const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -121,7 +126,7 @@ async function readSettings(path: string): Promise<Settings> {
   }
 }
 
-async function writeJsonFile(path: string, value: unknown): Promise<void> {
+export async function writeJsonFile(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   // Keep a copy of the user's file before touching it.
   await copyFile(path, `${path}.tokengraph.bak`).catch(() => undefined);
