@@ -27,7 +27,7 @@ import { currentFingerprint } from '../publish/machine-identity.js';
 import { writeMachinesCache } from '../publish/machines-cache.js';
 import { publish, type PublishResult } from '../publish/publish.js';
 import { readmeSnippet } from '../readme-snippet.js';
-import { createSpinner, spinnerEnabled, type Spinner } from '../spinner.js';
+import { commandSpinner, spinnerEnabled, type Spinner } from '../spinner.js';
 import { acquireSyncLock } from '../sync-lock.js';
 
 /**
@@ -96,7 +96,7 @@ export async function runSync(options: SyncOptions): Promise<number> {
   // Also on for --quiet: `login` and `readme --colors` wait on this sync too, and the spinner is not output.
   const spinner =
     options.spinner ??
-    createSpinner(process.stderr, { enabled: (options.trigger ?? 'manual') === 'manual' && spinnerEnabled(process.stderr, process.env) });
+    commandSpinner(process.stderr, { enabled: (options.trigger ?? 'manual') === 'manual' && spinnerEnabled(process.stderr, process.env) });
   try {
     return await runSyncLocked(options, spinner);
   } finally {

@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mergeProjects, emptyLedger, mergeHours, mergeUsage } from '../../src/ledger.js';
 import { STILL } from '../../src/tui/animate.js';
-import { initialState, reduce, renderFrame, requestAction, runApp, withViewModel } from '../../src/tui/app.js';
+import { fitHints, initialState, reduce, renderFrame, requestAction, runApp, withViewModel } from '../../src/tui/app.js';
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
 import { toPlainText } from '../../src/tui/screen.js';
 import { actionItems, type SetupStatus } from '../../src/tui/actions.js';
 import type { AppState } from '../../src/tui/app-state.js';
 import type { InputEvent } from '../../src/tui/input.js';
+import { qrMatrix } from '../../src/share/qr.js';
+import type { StoryEvent } from '../../src/tui/story-session.js';
+import { startTaskSession, type TaskEvent, type TaskRun } from '../../src/tui/task-session.js';
+import { askText, askYesNo } from '../../src/prompt.js';
 
 const TODAY = '2026-10-03';
 const c = (input: number) => ({ inputTokens: input, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cacheCreation5mTokens: 0, cacheCreation1hTokens: 0 });
@@ -130,7 +134,9 @@ describe('requestAction', () => {
   });
 
   it('runs at once when there is nothing to confirm, and does nothing while another action runs', () => {
-    expect(requestAction(state(), 'status')).toMatchObject({ effects: [{ run: 'status' }] });
+    const opened = requestAction(state(), 'status');
+    expect(opened.effects).toEqual([{ task: 'start', id: 'status' }]);
+    expect(opened.state).toMatchObject({ running: 'status', task: { id: 'status', title: 'Show status', started: false } });
     const busy = { ...state(), running: 'sync' as const };
     expect(requestAction(busy, 'status')).toEqual({ state: busy, effects: [] });
     expect(requestAction(busy, 'schedule')).toEqual({ state: busy, effects: [] });
@@ -165,9 +171,9 @@ describe('setup tab', () => {
     expect(s.setupSel).toBe(count - 1);
   });
 
-  it('runs a screen item on Enter and asks first for a hook', () => {
+  it('opens a task item in its box on Enter and asks first for a hook', () => {
     const s = press(setup(), { type: 'char', char: '6' }).state;
-    expect(press(s, { type: 'key', key: 'enter' }).effects).toEqual([{ run: 'sync' }]);
+    expect(press(s, { type: 'key', key: 'enter' }).effects).toEqual([{ task: 'start', id: 'sync' }]);
     const items = actionItems(s.setup, s.vm.sources);
     const hook = press({ ...s, setupSel: items.findIndex((i) => i.id === 'hook:claude-code') }, { type: 'key', key: 'enter' });
     expect(hook.effects).toEqual([]);
@@ -191,7 +197,7 @@ describe('setup tab', () => {
     const first = reduce(s, click, hits);
     expect(actionItems(first.state.setup, first.state.vm.sources)[first.state.setupSel]!.id).toBe('readme');
     expect(first.effects).toEqual([]);
-    expect(reduce(first.state, click, hits).effects).toEqual([{ run: 'readme' }]);
+    expect(reduce(first.state, click, hits).effects).toEqual([{ task: 'start', id: 'readme' }]);
 
     const agents = press(setup(), { type: 'char', char: '3' }).state;
     const frame = renderFrame({ ...agents, autoSync: status('orcun').autoSync }, { theme: 'dark' }, 160, 48, STILL);
@@ -230,6 +236,17 @@ describe('renderFrame', () => {
     expect(bar('agents', 120)).not.toContain('1-6 tabs');
     expect(bar('insights', 160)).toContain('1-6 tabs  ←→ hour  s rescan  : actions  ? help  q quit');
     expect(bar('insights', 120)).not.toContain('range');
+  });
+
+  it('leaves out whole key hints, lowest value first, instead of cutting one mid-word', () => {
+    const projects = '↑↓ select  ←→ range  m merge  n rename  x split  s rescan  : actions  ? help  q quit';
+    expect(fitHints(projects, 200)).toBe(projects);
+    expect(fitHints(projects, 82)).toBe('↑↓ select  ←→ range  m merge  n rename  x split  : actions  ? help  q quit');
+    expect(fitHints(projects, 60)).toBe('↑↓ select  ←→ range  m merge  n rename  ? help  q quit');
+    expect(fitHints(projects, 40)).toBe('↑↓ select  ←→ range  ? help  q quit');
+    expect(fitHints(projects, 10)).toBe('↑↓ select…');
+    const bar = toPlainText(renderFrame({ ...state(), tab: 'projects' }, { theme: 'dark' }, 100, 40, STILL).buffer).split('\n').at(-1)!;
+    expect(bar).toContain('? help  q quit');
   });
 
   it('uses a short mode pill instead of clipping it at 80 columns', () => {
@@ -274,8 +291,6 @@ function fakeTerminal() {
       onInput: (fn: (events: unknown[]) => void) => void (input = fn),
       onResize: () => {},
       restore: () => void (restored += 1),
-      suspend: () => void calls.push('suspend'),
-      resume: () => void calls.push('resume'),
     },
   };
 }
@@ -512,12 +527,18 @@ describe('runApp', () => {
         expect(await app.done).toBe(0);
       });
 
-      it('u hands the terminal to the update command when a version is waiting', async () => {
+      it('u opens the update in the task box when a version is waiting', async () => {
         const app = start({ setupStatus: vi.fn(async () => WITH_UPDATE) });
         await wait();
         app.term.send([{ type: 'char', char: 'u' }]);
         await wait(60);
-        expect(app.term.calls).toEqual(['suspend', 'run:update:screen', 'enter', 'resume']);
+        expect(app.tasks).toEqual(['update']);
+        expect(app.text()).toContain('UPDATE TO 0.2.0');
+        app.emit({ kind: 'done', code: 0, after: 'reload', cancelled: false });
+        await wait();
+        app.term.send([{ type: 'key', key: 'enter' }]);
+        await wait();
+        expect(app.text()).not.toContain('UPDATE TO 0.2.0');
         app.term.send([{ type: 'char', char: 'q' }]);
         expect(await app.done).toBe(0);
       });
@@ -532,15 +553,22 @@ describe('runApp', () => {
         expect(await app.done).toBe(0);
       });
 
-      it('leaves the view after a finished update instead of going on with the old code', async () => {
-        const app = start({
-          setupStatus: vi.fn(async () => WITH_UPDATE),
-          runAction: vi.fn(async () => ({ code: 0, lines: [], reopen: true })),
-        });
+      it('leaves the view when the box of a finished update closes instead of going on with the old code', async () => {
+        let settled = false;
+        const app = start({ setupStatus: vi.fn(async () => WITH_UPDATE) });
+        void app.done.then(() => void (settled = true));
         await wait();
         app.term.send([{ type: 'char', char: 'u' }]);
+        await wait();
+        app.emit({ kind: 'line', text: 'Updated tokengraph to 0.2.0.', tone: 'out' });
+        app.emit({ kind: 'done', code: 0, after: 'restart', cancelled: false });
+        await wait();
+        expect(app.text()).toContain('starts again when you close this box');
+        expect(app.text()).toContain('enter restart tokengraph');
+        expect(settled).toBe(false);
+        app.term.send([{ type: 'key', key: 'enter' }]);
         expect(await app.done).toBe(0);
-        expect(app.term.calls).not.toContain('enter');
+        expect(app.term.restored).toBe(1);
       });
     });
 
@@ -548,9 +576,17 @@ describe('runApp', () => {
       const term = fakeTerminal();
       let last = '';
       let request: (id: string) => void = () => {};
-      const runAction = vi.fn(async (id: string, kind: string) => (term.calls.push(`run:${id}:${kind}`), { code: 0, lines: ['', 'Done it.', ''] }));
+      const runAction = vi.fn(async (id: string) => (term.calls.push(`run:${id}`), { code: 0, lines: ['', 'Done it.', ''] }));
       const setupStatus = vi.fn(async () => SETUP);
-      const writes: string[] = [];
+      const tasks: string[] = [];
+      const session = { answers: [] as unknown[], cancels: 0, stops: 0 };
+      let emit: (event: TaskEvent) => void = () => {};
+      const startTask = vi.fn((id: string, _status: unknown, onEvent: (event: TaskEvent) => void) => {
+        tasks.push(id);
+        emit = onEvent;
+        onEvent({ kind: 'started' });
+        return { answer: (value: unknown) => void session.answers.push(value), cancel: () => void (session.cancels += 1), stop: () => void (session.stops += 1) };
+      });
       const deps = {
         onFrame: (buffer: never) => void (last = toPlainText(buffer)),
         onReady: (controls: { request: (id: string) => void }) => void (request = controls.request),
@@ -559,15 +595,23 @@ describe('runApp', () => {
         loadLedger: async () => emptyLedger(),
         scan: async (l: never) => ({ ledger: l, results: [], failures: [], detected: [] }),
         persist: async () => 'saved', modeLabel: async () => 'local only', autoSync: NO_AUTO_SYNC, checkForUpdate: async () => {}, projectNames: async () => ({}),
+        editProjects: async () => ({ ok: false, error: 'not in this test' }),
         setTimer: (fn: () => void, ms: number) => { const t = setTimeout(fn, Math.min(ms, 5)); return () => clearTimeout(t); },
-        setupStatus, runAction,
-        waitForEnter: async () => void term.calls.push('enter'),
-        write: (t: string) => void writes.push(t),
+        setupStatus, runAction, startTask,
         ...over,
       };
       const done = runApp(deps as never);
-      return { term, done, runAction: deps.runAction as typeof runAction, setupStatus, writes, request: (id: string) => request(id), text: () => last };
+      return {
+        term, done, tasks, session, runAction: deps.runAction as typeof runAction, startTask: deps.startTask as typeof startTask, setupStatus,
+        emit: (event: TaskEvent) => emit(event), request: (id: string) => request(id), text: () => last,
+      };
     }
+
+    /** A clock a second further on at every read, so keys always come well after the question they answer. */
+    const ticking = () => { let t = 0; return () => (t += 1000); };
+
+    /** The real task session over `run`, as the view wires it. */
+    const realTask = (run: TaskRun) => (_id: string, _status: unknown, emit: (event: TaskEvent) => void) => startTaskSession(run, emit);
 
     it('runs an inline action after the confirmation, toasts its last line and reloads the setup status', async () => {
       const app = start();
@@ -577,38 +621,264 @@ describe('runApp', () => {
       expect(app.runAction).not.toHaveBeenCalled();
       app.term.send([{ type: 'char', char: 'y' }]);
       await wait();
-      expect(app.runAction).toHaveBeenCalledWith('hook:claude-code', 'inline', SETUP);
+      expect(app.runAction).toHaveBeenCalledWith('hook:claude-code', SETUP);
       expect(app.text()).toContain('✓ Done it.');
       expect(app.setupStatus.mock.calls.length).toBeGreaterThan(loads);
-      expect(app.term.calls).toEqual([expect.stringContaining('run:hook:claude-code:inline')]);
+      expect(app.term.calls).toEqual(['run:hook:claude-code']);
       app.term.send([{ type: 'char', char: 'q' }]);
       expect(await app.done).toBe(0);
     });
 
-    it('suspends the terminal around a screen action and waits for Enter before resuming', async () => {
+    it('runs a task action in a box inside the view: output as it is printed, a question, done, then Enter reloads', async () => {
+      let answer: (value: boolean) => void = () => {};
+      const asked = new Promise<boolean>((resolve) => { answer = resolve; });
+      const loads = { ledger: 0 };
+      const out = vi.spyOn(process.stdout, 'write');
+      const err = vi.spyOn(process.stderr, 'write');
+      const app = start({
+        clock: ticking(),
+        loadLedger: async () => (loads.ledger += 1, emptyLedger()),
+        startTask: realTask(async () => {
+          console.log('\x1b[1mAccount\x1b[22m  @octocat');
+          const yes = await askYesNo('Keep going?', { defaultYes: false });
+          answer(yes);
+          console.error('One warning.');
+          return { code: 0 };
+        }),
+      });
+      try {
+        await wait();
+        app.term.send([{ type: 'char', char: '6' }]);
+        app.request('status');
+        await wait();
+        expect(app.text()).toContain('SHOW STATUS');
+        expect(app.text()).toContain('Account  @octocat');
+        expect(app.text()).toContain('Keep going?  [y/N]');
+        expect(app.text()).not.toContain('q quit'); // the view's hints step aside for the box's keys
+        app.term.send([{ type: 'char', char: 'q' }]); // belongs to the box: the view stays open
+        app.term.send([{ type: 'char', char: 'y' }]);
+        expect(await asked).toBe(true);
+        await wait();
+        expect(app.text()).toContain('Keep going? Yes');
+        expect(app.text()).toContain('One warning.');
+        expect(app.text()).toContain('✓ Done');
+        expect(app.text()).toContain('enter close');
+        expect(out).not.toHaveBeenCalled();
+        expect(err).not.toHaveBeenCalled();
+        const before = loads.ledger;
+        app.term.send([{ type: 'key', key: 'enter' }]);
+        await wait();
+        expect(app.text()).not.toContain('SHOW STATUS');
+        expect(app.text()).toContain('Show status');
+        expect(loads.ledger).toBeGreaterThan(before);
+        expect(app.term.restored).toBe(0);
+      } finally {
+        out.mockRestore();
+        err.mockRestore();
+      }
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('takes a typed path in the box, and Esc answers a question as cancel', async () => {
+      const answers: string[] = [];
+      const app = start({
+        clock: ticking(),
+        startTask: realTask(async () => {
+          answers.push(await askText('Path to the CSV:'));
+          answers.push(await askText('Again:'));
+          return { code: 0 };
+        }),
+      });
+      await wait();
+      app.request('import-cursor');
+      await wait();
+      for (const char of '/tmp/a.csv') app.term.send([{ type: 'char', char }]);
+      app.term.send([{ type: 'key', key: 'left' }, { type: 'key', key: 'backspace' }]);
+      await wait();
+      expect(app.text()).toContain('› /tmp/a.cv');
+      app.term.send([{ type: 'key', key: 'enter' }]);
+      await wait();
+      app.term.send([{ type: 'char', char: 'x' }]);
+      app.term.send([{ type: 'key', key: 'escape' }]);
+      await wait();
+      expect(answers).toEqual(['/tmp/a.cv', '']);
+      expect(app.text()).toContain('Again: (cancelled)');
+      app.term.send([{ type: 'key', key: 'escape' }]);
+      await wait();
+      expect(app.text()).not.toContain('IMPORT A CURSOR USAGE CSV');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('keeps a quit choice of uninstall: closing its box ends the view', async () => {
       const app = start();
+      await wait();
+      app.request('uninstall');
+      await wait();
+      app.emit({ kind: 'done', code: 0, after: 'quit', cancelled: false });
+      await wait();
+      expect(app.text()).toContain('tokengraph closes with this box');
+      expect(app.text()).toContain('enter quit tokengraph');
+      app.term.send([{ type: 'key', key: 'escape' }]);
+      expect(await app.done).toBe(0);
+      expect(app.session.stops).toBe(1);
+    });
+
+    it('makes story cards in a box inside the view: period, cards, QR, s saves and Esc returns to Setup', async () => {
+      const story: string[] = [];
+      let emit: (event: StoryEvent) => void = () => {};
+      const startStory = vi.fn((range: string, onEvent: (event: StoryEvent) => void) => {
+        emit = onEvent;
+        story.push(`start:${range}`);
+        return { save: () => void story.push('save'), stop: () => void story.push('stop') };
+      });
+      const app = start({ startStory });
+      await wait();
+      app.term.send([{ type: 'char', char: '6' }]);
+      app.request('story');
+      await wait();
+      expect(app.text()).toContain('Which period should the cards cover?');
+      app.term.send([{ type: 'key', key: 'down' }, { type: 'key', key: 'enter' }]);
+      await wait();
+      expect(story).toEqual(['start:7d']);
+      const url = 'http://192.168.1.20:50123/AbCdEfGhIjKlMnOpQrStUv/';
+      emit({ kind: 'loaded', handle: 'octocat', empty: false });
+      for (const id of ['skyline', 'receipt', 'sticker'] as const) emit({ kind: 'drawn', id });
+      emit({ kind: 'sharing', url, qr: qrMatrix(url) });
+      await wait();
+      expect(app.text()).toContain("Scan with your phone's camera");
+      app.term.send([{ type: 'char', char: 's' }]);
+      app.term.send([{ type: 'char', char: 'q' }]); // belongs to the box: the view stays open
+      await wait();
+      expect(story).toEqual(['start:7d', 'save']);
+      app.term.send([{ type: 'key', key: 'escape' }]);
+      await wait();
+      expect(story).toEqual(['start:7d', 'save', 'stop']);
+      emit({ kind: 'phone' }); // late events from the stopped session change nothing
+      await wait();
+      expect(app.text()).not.toContain('STORY CARDS');
+      expect(app.text()).toContain('Make story cards');
+      expect(app.term.calls).not.toContain('suspend');
+      expect(app.runAction).not.toHaveBeenCalled();
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('starts no session when the story box closes before a period is chosen', async () => {
+      const startStory = vi.fn();
+      const app = start({ startStory });
+      await wait();
+      app.request('story');
+      await wait();
+      app.term.send([{ type: 'key', key: 'escape' }]);
+      await wait();
+      expect(startStory).not.toHaveBeenCalled();
+      expect(app.text()).not.toContain('STORY CARDS');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('shows a command that throws as a failed box, and Ctrl-C does not quit while it runs', async () => {
+      let fail: (error: Error) => void = () => {};
+      let settled = false;
+      const app = start({ startTask: realTask(() => new Promise((_resolve, reject) => { fail = reject; })) });
+      void app.done.then(() => void (settled = true));
       await wait();
       app.request('status');
       await wait();
-      expect(app.term.calls).toEqual(['suspend', 'run:status:screen', 'enter', 'resume']);
-      expect(app.writes.join('')).toContain('› Show status');
-      expect(app.writes.join('')).toContain('Press Enter to return to tokengraph.');
+      app.term.send([{ type: 'ctrl', char: 'c' }]);
+      await wait();
+      expect(settled).toBe(false);
+      expect(app.text()).toContain('Press Ctrl-C again to quit tokengraph.');
+      fail(new Error('command exploded'));
+      await wait();
+      expect(app.text()).toContain('command exploded');
+      expect(app.text()).toContain('✗ Failed (exit code 1)');
+      app.term.send([{ type: 'ctrl', char: 'c' }]); // closes the finished box, still no quit
+      await wait();
+      expect(settled).toBe(false);
+      expect(app.text()).not.toContain('SHOW STATUS');
       app.term.send([{ type: 'char', char: 'q' }]);
       expect(await app.done).toBe(0);
     });
 
-    it('resumes the terminal and shows a red toast when a screen action throws', async () => {
+    it('quits tokengraph on a second Ctrl-C within two seconds while a command hangs, putting everything back', async () => {
+      let now = 0;
+      const log = console.log;
       const app = start({
-        runAction: vi.fn(async () => { throw new Error('command exploded'); }),
+        clock: () => now,
+        startTask: realTask(async () => {
+          console.log('Installing…');
+          return new Promise(() => {}); // npm that never returns
+        }),
+      });
+      await wait();
+      app.request('update');
+      await wait();
+      expect(console.log).not.toBe(log);
+      now = 10_000;
+      app.term.send([{ type: 'ctrl', char: 'c' }]);
+      await wait();
+      expect(app.text()).toContain('Press Ctrl-C again to quit tokengraph.');
+      now = 13_000; // too late: arms again
+      app.term.send([{ type: 'ctrl', char: 'c' }]);
+      await wait();
+      expect(app.term.restored).toBe(0);
+      now = 14_500;
+      app.term.send([{ type: 'ctrl', char: 'c' }]);
+      expect(await app.done).toBe(130);
+      expect(app.term.restored).toBe(1);
+      expect(console.log).toBe(log);
+      // The prompts answer on the terminal again (none under vitest, so the default comes back at once).
+      expect(await askYesNo('Still the box?', { defaultYes: false })).toBe(false);
+    });
+
+    it('lets the person leave a box that waits for a scan that never ends', async () => {
+      let scans = 0;
+      const app = start({
+        scan: () => (scans += 1, new Promise(() => {})),
       });
       await wait();
       app.request('status');
       await wait();
-      expect(app.term.calls).toEqual(['suspend', 'enter', 'resume']);
-      expect(app.text()).toContain('✗ command exploded');
+      expect(app.text()).toContain('Waiting for the scan to finish…');
+      expect(app.text()).toContain('esc close');
+      app.term.send([{ type: 'key', key: 'escape' }]);
+      await wait();
+      expect(app.text()).not.toContain('SHOW STATUS');
+      expect(app.startTask).not.toHaveBeenCalled();
+      // The view is usable again: another action can be asked for, and q quits.
+      app.request('export-csv');
+      await wait();
+      expect(app.text()).toContain('EXPORT AS CSV');
+      app.term.send([{ type: 'ctrl', char: 'c' }]);
+      await wait();
+      expect(app.text()).not.toContain('EXPORT AS CSV');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+      expect(app.startTask).not.toHaveBeenCalled();
+      expect(scans).toBe(1);
+    });
+
+    it('draws a burst of output lines in one frame', async () => {
+      let frames = 0;
+      const app = start({
+        onFrame: () => void (frames += 1),
+        // Only zero-delay timers run, so the spinner and the clock tick add no frames of their own.
+        setTimer: (fn: () => void, ms: number) => { if (ms > 0) return () => {}; const t = setTimeout(fn, 0); return () => clearTimeout(t); },
+      });
+      await wait();
       app.request('status');
       await wait();
-      expect(app.term.calls.filter((c) => c === 'resume')).toHaveLength(2);
+      const before = frames;
+      for (let i = 0; i < 200; i += 1) app.emit({ kind: 'line', text: `line ${i}`, tone: 'out' });
+      await wait();
+      expect(frames - before).toBe(1);
+      app.emit({ kind: 'done', code: 0, after: 'reload', cancelled: false });
+      await wait();
+      app.term.send([{ type: 'key', key: 'enter' }]);
+      await wait();
       app.term.send([{ type: 'char', char: 'q' }]);
       expect(await app.done).toBe(0);
     });
@@ -633,31 +903,36 @@ describe('runApp', () => {
       await bad.done;
     });
 
-    it('writes nothing while a screen action runs, then redraws; typed-ahead input after resume is ignored', async () => {
-      let release: () => void = () => {};
-      let resize: () => void = () => {};
-      const app = start({
-        runAction: vi.fn(() => new Promise((resolve) => { release = () => resolve({ code: 0, lines: [] }); })),
-        setTimer: (fn: () => void, ms: number) => { const t = setTimeout(fn, ms > 100 ? Math.min(ms, 20) : ms); return () => clearTimeout(t); },
-      });
-      (app.term.terminal as { onResize: (fn: () => void) => void }).onResize = (fn) => void (resize = fn);
+    it('cancels a command that says it can stop, and scrolls its output', async () => {
+      const app = start();
       await wait();
-      app.request('status');
+      app.request('login');
       await wait();
-      expect(app.term.calls).toEqual(['suspend']);
-      const before = app.term.writes.length;
-      resize();
-      await wait(80);
-      expect(app.term.writes.length).toBe(before);
-      // A key typed during the command and delivered on resume must not reach the view.
-      const terminal = app.term.terminal as { resume: () => void; write: (s: string) => void };
-      const resume = terminal.resume;
-      terminal.resume = () => { resume(); app.term.send([{ type: 'char', char: 'q' }]); };
-      release();
-      await wait(10);
-      expect(app.term.calls).toEqual(['suspend', 'enter', 'resume']);
-      expect(app.term.writes.length).toBeGreaterThan(before);
-      await wait(60);
+      for (let i = 1; i <= 80; i += 1) app.emit({ kind: 'line', text: `line ${i}`, tone: 'out' });
+      app.emit({ kind: 'cancellable', value: true });
+      await wait();
+      expect(app.text()).toContain('line 80');
+      expect(app.text()).toContain('esc cancel');
+      app.term.send([{ type: 'key', key: 'home' }]);
+      await wait();
+      expect(app.text()).toMatch(/line 1\s/);
+      expect(app.text()).not.toContain('line 80');
+      app.term.send([{ type: 'key', key: 'end' }]);
+      await wait();
+      expect(app.text()).toContain('line 80');
+      app.term.send([{ type: 'key', key: 'escape' }]);
+      await wait();
+      expect(app.session.cancels).toBe(1);
+      expect(app.text()).toContain('Cancelling…');
+      app.emit({ kind: 'line', text: 'Login cancelled.', tone: 'err' });
+      app.emit({ kind: 'done', code: 1, after: 'reload', cancelled: true });
+      await wait();
+      expect(app.text()).toContain('Login cancelled.');
+      expect(app.text()).toContain('– Cancelled');
+      expect(app.text()).not.toContain('Failed');
+      app.term.send([{ type: 'key', key: 'enter' }]);
+      await wait();
+      expect(app.text()).not.toContain('CONNECT GITHUB');
       app.term.send([{ type: 'char', char: 'q' }]);
       expect(await app.done).toBe(0);
     });
@@ -687,12 +962,17 @@ describe('runApp', () => {
       await wait();
       app.request('status');
       await wait();
-      expect(app.runAction).not.toHaveBeenCalled();
-      expect(app.term.calls).toEqual([]);
+      expect(app.startTask).not.toHaveBeenCalled();
+      expect(app.text()).toContain('Waiting for the scan to finish…');
       finishScan();
       await wait(60);
-      expect(app.runAction).toHaveBeenCalledTimes(1);
-      expect(app.term.calls).toEqual(['suspend', 'run:status:screen', 'enter', 'resume']);
+      expect(app.tasks).toEqual(['status']);
+      expect(app.text()).not.toContain('Waiting for the scan to finish…');
+      app.emit({ kind: 'done', code: 0, after: 'reload', cancelled: false });
+      await wait();
+      app.term.send([{ type: 'key', key: 'enter' }]);
+      await wait();
+      expect(scans).toBe(2); // the view scans again once the box is closed
       app.term.send([{ type: 'char', char: 'q' }]);
       expect(await app.done).toBe(0);
     });

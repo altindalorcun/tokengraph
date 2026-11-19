@@ -1,15 +1,20 @@
-import type { Theme } from '@tokengraph/core';
+import type { StoryRange, Theme } from '@tokengraph/core';
 import type { CollectProgress, LocalCollection } from '../collect-local.js';
 import type { Ledger } from '../ledger.js';
+import type { ProjectEdit, ProjectEditResult } from '../project-names.js';
 import { easeOutCubic, MotionController } from './animate.js';
 import { actionItems, type ActionId, type SetupStatus } from './actions.js';
-import { initialState, reduce, requestAction, withViewModel, type AppState, type Effect } from './app-state.js';
+import { initialState, reduce, requestAction, selectProject, withViewModel, type AppState, type Effect, type ToastTone } from './app-state.js';
 import type { AutoSyncStatus } from './auto-sync.js';
 import { mix, type ColorDepth } from './color.js';
 import { renderFrame, type FrameHits } from './frame.js';
 import type { InputEvent } from './input.js';
 import { buildViewModel, shiftDate } from './model.js';
 import { ScreenBuffer, diff } from './screen.js';
+import { applyStoryEvent, type StoryCommand } from './story-panel.js';
+import type { StoryEvent, StorySession } from './story-session.js';
+import { applyTaskEvent, type TaskAfter, type TaskCommand } from './task-panel.js';
+import type { TaskEvent, TaskSession } from './task-session.js';
 import type { Terminal } from './terminal.js';
 import { tuiTheme } from './theme.js';
 import { drawFlame } from './widgets/logo.js';
@@ -30,6 +35,13 @@ export interface AppDeps {
   loadLedger: () => Promise<Ledger>;
   /** The names the user gave projects (`tokengraph projects name`). */
   projectNames: () => Promise<Record<string, string>>;
+  /**
+   * Merges, renames or splits projects in the config (`editProjects` in commands/projects.ts); never touches a count.
+   * Planned against the ledger the view shows, so the edit names the folders on screen.
+   */
+  editProjects: (edit: ProjectEdit, ledger: Ledger) => Promise<ProjectEditResult>;
+  /** The home folder project names are worked out against; the real one unless a test says otherwise. */
+  home?: string;
   scan: (ledger: Ledger, since: Date, onProgress: (p: CollectProgress) => void) => Promise<LocalCollection>;
   persist: (ledger: Ledger) => Promise<'saved' | 'busy'>;
   /** 'local only' | '↑ publishing as @user' */
@@ -41,12 +53,12 @@ export interface AppDeps {
   setupStatus: () => Promise<SetupStatus>;
   /** Asks npm for the latest version in the background; the answer arrives through `setupStatus`. */
   checkForUpdate: () => Promise<void>;
-  /** Runs a tokengraph command; `screen` ones print and prompt on the real terminal. */
-  runAction: (id: ActionId, kind: 'inline' | 'screen', status: SetupStatus | null) => Promise<{ code: number; lines: string[]; reopen?: boolean }>;
-  /** Resolves when the person presses Enter on the normal screen. */
-  waitForEnter: () => Promise<void>;
-  /** Writes to the normal screen while the terminal is suspended. */
-  write: (text: string) => void;
+  /** Runs an `inline` action behind the view and returns its output for a toast. */
+  runAction: (id: ActionId, status: SetupStatus | null) => Promise<{ code: number; lines: string[] }>;
+  /** Runs a `task` action for the task box; its output, questions and end arrive through `emit`. Never writes to the terminal. */
+  startTask: (id: ActionId, status: SetupStatus | null, emit: (event: TaskEvent) => void) => TaskSession;
+  /** Draws and shares story cards for the story box; everything it has to say arrives through `emit`. */
+  startStory: (range: StoryRange, emit: (event: StoryEvent) => void) => StorySession;
   /** Test hook: hands over the means to request an action, as the setup tab and palette will. */
   onReady?: (controls: { request: (id: ActionId) => void }) => void;
   /** Test hook: called with every composed frame before it is diffed and written. */
@@ -60,8 +72,7 @@ const TICK_MS = 1000;
 const SAMPLE_WINDOW_MS = 15 * 60_000;
 const MIN_SAMPLE_SPAN_MS = 30_000;
 const PERSIST_GRACE_MS = 2000;
-// Input that arrives this soon after a screen action returns was typed ahead during the command, not meant for the view.
-const SETTLE_MS = 150;
+const SPINNER_FRAME_MS = 80; // the task box's busy line turns while a command works
 const FLAME_WIDTH = 8;
 const FLAME_HEIGHT = 6;
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -98,7 +109,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
   try {
     const loaded = await deps.loadLedger();
     let names = await deps.projectNames().catch(() => ({}));
-    const viewModel = (from: Ledger) => buildViewModel(from, deps.today(), { projectNames: names });
+    const viewModel = (from: Ledger) => buildViewModel(from, deps.today(), { projectNames: names, home: deps.home });
     return await new Promise<number>((resolve, reject) => {
       let ledger = loaded;
       let state: AppState = initialState(viewModel(ledger), '…', deps.live);
@@ -114,13 +125,18 @@ export async function runApp(deps: AppDeps): Promise<number> {
       let samples: { t: number; weighted: number }[] = [];
       let persisting: Promise<unknown> | null = null;
       let scanTask: Promise<void> = Promise.resolve();
-      // True while a command owns the normal screen: nothing may be painted and typed-ahead input is dropped.
-      let suspended = false;
-      let settling = false;
+      // The story box's session; a closed box's late events are dropped by comparing against it.
+      let story: StorySession | null = null;
+      // The task box's session, the same way.
+      let task: TaskSession | null = null;
 
       const finish = (code: number | Error): void => {
         if (finished) return;
         finished = true;
+        story?.stop();
+        story = null;
+        task?.stop();
+        task = null;
         for (const cancel of cancels) cancel();
         cancels.clear();
         restore();
@@ -179,10 +195,19 @@ export async function runApp(deps: AppDeps): Promise<number> {
         prev = buffer;
       };
 
+      const taskBusy = (): boolean => state.task?.status === 'running' && state.task.prompt === null;
+
+      // A command printing many lines in a row gets one frame for them, not one per line.
+      let soonTimer: (() => void) | null = null;
+      const drawSoon = (): void => {
+        if (!soonTimer) soonTimer = after(() => { soonTimer = null; draw(); }, 0);
+      };
+
       const draw = (): void => {
-        if (suspended) return;
         cancelTimer(frameTimer);
         frameTimer = null;
+        cancelTimer(soonTimer);
+        soonTimer = null;
         paint();
         if (motion.active()) {
           animating = true;
@@ -192,6 +217,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
           animating = false;
           paint();
         }
+        if (!frameTimer && taskBusy()) frameTimer = after(draw, SPINNER_FRAME_MS);
       };
 
       const tick = (): void => {
@@ -290,7 +316,13 @@ export async function runApp(deps: AppDeps): Promise<number> {
           if (effect === 'rescan') startScan(LIVE_SCAN_DAYS);
           else if (effect === 'bars') motion.startBars();
           else if (effect === 'wipe') motion.startWipe();
-          else if (typeof effect === 'object') void execute(effect.run);
+          else if (typeof effect === 'object') {
+            if ('run' in effect) void execute(effect.run);
+            else if ('task' in effect) taskCommand(effect);
+            else if ('projects' in effect) editProjects(effect).catch((error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
+            else if ('toast' in effect) toast(effect.toast, effect.tone);
+            else storyCommand(effect);
+          }
         }
         return true;
       };
@@ -304,7 +336,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
         }
       };
 
-      /** Re-reads what an action may have changed: the ledger (screen actions), the mode pill, the hooks and the config. */
+      /** Re-reads what an action may have changed: the ledger (task actions), the mode pill, the hooks and the config. */
       const reload = async (ledgerChanged: boolean): Promise<void> => {
         if (ledgerChanged) {
           try {
@@ -322,68 +354,47 @@ export async function runApp(deps: AppDeps): Promise<number> {
         ]);
       };
 
-      const toast = (text: string, tone: 'good' | 'bad'): void => {
+      const toast = (text: string, tone: ToastTone): void => {
         state = { ...state, toast: { text, tone, at: deps.clock() } };
       };
 
       const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-      /** Hands the terminal to a command: normal screen, its output, then a pause so the output can be read. */
-      const runOnScreen = async (id: ActionId, title: string): Promise<void> => {
-        suspended = true;
-        terminal.suspend();
-        try {
-          deps.write(`\n› ${title}\n\n`);
-          let code: number;
-          let reopen = false;
-          try {
-            ({ code, reopen = false } = await deps.runAction(id, 'screen', state.setup));
-          } catch (error) {
-            deps.write(`${errorText(error)}\n`);
-            toast(errorText(error), 'bad');
-            code = -1;
-          }
-          if (reopen) return finish(0);
-          if (code > 0) toast(`${title} did not finish`, 'bad');
-          deps.write('\nPress Enter to return to tokengraph.');
-          await deps.waitForEnter();
-        } finally {
-          settling = true;
-          after(() => { settling = false; }, SETTLE_MS);
-          terminal.resume();
-          suspended = false;
-          prev = null;
+      /** Starts the story box's session once a scan or ledger write in flight is done, so the cards see the newest ledger. */
+      const startStory = async (range: StoryRange): Promise<void> => {
+        await settleScans();
+        if (finished || state.story?.step !== 'drawing' || state.story.range !== range || story) return;
+        const session: StorySession = deps.startStory(range, guard((event: StoryEvent) => {
+          if (story !== session || !state.story) return;
+          state = { ...state, story: applyStoryEvent(state.story, event) };
+          draw();
+        }));
+        story = session;
+      };
+
+      /** Carries out what the story box asks for; closing stops sharing and lets the scans run again. */
+      const storyCommand = (command: StoryCommand): void => {
+        if (command.story === 'start') {
+          startStory(command.range).catch((error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
+        } else if (command.story === 'save') {
+          story?.save();
+        } else {
+          story?.stop();
+          story = null;
+          startScan(LIVE_SCAN_DAYS);
         }
       };
 
-      /** Runs one action. Waits for a scan or ledger write in flight first, so it never meets the sync lock held by us. */
-      const execute = async (id: ActionId): Promise<void> => {
-        if (state.running !== null || finished) return;
-        const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
-        const kind = item?.kind ?? 'screen';
-        state = { ...state, running: id };
-        draw();
-        let ledgerChanged = false;
-        try {
-          cancelTimer(nextScan);
-          nextScan = null;
-          while (scanning) await scanTask;
-          await persisting?.catch(() => {});
-          if (finished) return;
-          if (kind === 'inline') {
-            const { code, lines } = await deps.runAction(id, 'inline', state.setup);
-            // Success reads best as the first line ("Installed ..."), failure as the last (the reason); hints trail the first.
-            const shown = lines.map((line) => line.replace(ANSI, '').trim()).filter(Boolean);
-            const line = code === 0 ? shown[0] : shown.at(-1);
-            toast(line ?? (code === 0 ? 'Done.' : 'Failed.'), code === 0 ? 'good' : 'bad');
-          } else {
-            ledgerChanged = true;
-            await runOnScreen(id, item?.title ?? id);
-          }
-        } catch (error) {
-          if (!finished) toast(errorText(error), 'bad');
-        }
-        if (finished) return;
+      /** Waits for a scan or ledger write in flight, so a command never meets the sync lock held by the view itself. */
+      const settleScans = async (): Promise<void> => {
+        cancelTimer(nextScan);
+        nextScan = null;
+        while (scanning) await scanTask;
+        await persisting?.catch(() => {});
+      };
+
+      /** Lets go of an action: reloads what it may have changed, then the scans run again. */
+      const release = async (ledgerChanged: boolean): Promise<void> => {
         await reload(ledgerChanged);
         if (finished) return;
         state = { ...state, running: null };
@@ -391,8 +402,99 @@ export async function runApp(deps: AppDeps): Promise<number> {
         startScan(LIVE_SCAN_DAYS);
       };
 
+      /** Starts the task box's command once the scans are out of the way; its events fold into the box. */
+      const startTask = async (id: ActionId): Promise<void> => {
+        await settleScans();
+        if (finished || state.task?.id !== id || task) return;
+        // An event may arrive before startTask returns; until then the box belongs to this session as no other runs.
+        let session: TaskSession | null = null;
+        const onEvent = guard((event: TaskEvent) => {
+          if (task !== session || !state.task) return;
+          state = { ...state, task: applyTaskEvent(state.task, event, deps.clock()) };
+          drawSoon();
+        });
+        try {
+          session = deps.startTask(id, state.setup, onEvent);
+        } catch (error) {
+          // The box reports a command that could not even start, like any other failure, and closes as usual.
+          onEvent({ kind: 'line', text: errorText(error), tone: 'err' });
+          onEvent({ kind: 'done', code: 1, after: 'reload', cancelled: false });
+          return;
+        }
+        task = session;
+      };
+
+      /** Closing a finished box: the view reloads, or leaves for the new version or because the data is gone. */
+      const closeTask = async (after: TaskAfter): Promise<void> => {
+        task?.stop();
+        task = null;
+        if (after !== 'reload') return finish(0);
+        await release(true);
+      };
+
+      /** Carries out what the task box asks for. */
+      const taskCommand = (command: TaskCommand): void => {
+        const fail = (error: unknown): void => finish(error instanceof Error ? error : new Error(String(error)));
+        if (command.task === 'start') startTask(command.id).catch(fail);
+        else if (command.task === 'answer') task?.answer(command.value);
+        else if (command.task === 'cancel') task?.cancel();
+        // A second Ctrl-C while a command that cannot stop hangs: finish stops the session (putting the console, the
+        // prompts and the spinner back) and restores the terminal; the command is abandoned with the process.
+        else if (command.task === 'quit') finish(130);
+        else closeTask(command.after).catch(fail);
+      };
+
+      /** Runs an `inline` action behind the view and reports with a toast. */
+      const execute = async (id: ActionId): Promise<void> => {
+        if (state.running !== null || finished) return;
+        const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
+        if (item?.kind !== 'inline') return;
+        state = { ...state, running: id };
+        draw();
+        try {
+          await settleScans();
+          if (finished) return;
+          const { code, lines } = await deps.runAction(id, state.setup);
+          // Success reads best as the first line ("Installed ..."), failure as the last (the reason); hints trail the first.
+          const shown = lines.map((line) => line.replace(ANSI, '').trim()).filter(Boolean);
+          const line = code === 0 ? shown[0] : shown.at(-1);
+          toast(line ?? (code === 0 ? 'Done.' : 'Failed.'), code === 0 ? 'good' : 'bad');
+        } catch (error) {
+          if (!finished) toast(errorText(error), 'bad');
+        }
+        if (finished) return;
+        await release(false);
+      };
+
+      /**
+       * Applies a project edit from the Projects tab. A scan in flight finishes first (it re-reads the names when it
+       * ends, so it must not end after this write), none starts until the new names are in the view, and the next one
+       * reads them again.
+       */
+      const editProjects = async (edit: ProjectEdit): Promise<void> => {
+        try {
+          await settleScans();
+          if (finished) return;
+          const result = await deps.editProjects(edit, ledger);
+          if (finished) return;
+          if (result.ok) {
+            names = await deps.projectNames().catch(() => result.names);
+            if (finished) return;
+            state = selectProject(withViewModel(state, viewModel(ledger)), result.select);
+            toast(result.message, 'good');
+          } else {
+            toast(result.error, 'bad');
+          }
+        } catch (error) {
+          if (!finished) toast(errorText(error), 'bad');
+        }
+        if (finished) return;
+        state = { ...state, running: null };
+        draw();
+        startScan(LIVE_SCAN_DAYS);
+      };
+
       const onInput = guard((events: InputEvent[]): void => {
-        if (suspended || settling) return;
         // An Alt+key chord arrives as an escape immediately followed by the key; the escape alone must not quit.
         const list = events.filter((event, i) => !(event.type === 'key' && event.key === 'escape' && i < events.length - 1));
         if (intro) {
@@ -400,7 +502,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
           intro = false;
         }
         for (const event of list) {
-          const out = reduce(state, event, hits);
+          const out = reduce(state, event, hits, deps.clock());
           state = out.state;
           if (!applyEffects(out.effects)) return;
         }

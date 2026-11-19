@@ -1,6 +1,6 @@
 import type { HookAgent } from '../commands/install-hook.js';
 import type { GraphColors } from '../config.js';
-import type { AutoSyncStatus } from './auto-sync.js';
+import type { AutoSyncStatus, CodexSetup } from './auto-sync.js';
 
 export type { HookAgent };
 export type ActionId =
@@ -27,12 +27,17 @@ export interface ActionItem {
   detail: string;
   /** Only toggles have a state; null for plain actions. */
   state: 'on' | 'off' | 'unknown' | null;
-  /** `inline` runs behind the TUI and reports with a toast; `screen` hands the terminal to the command. */
-  kind: 'inline' | 'screen';
+  /**
+   * `inline` runs behind the view and reports with a toast; `task` runs the command in the task box, which shows its
+   * output and asks its questions; `panel` opens its own box (the story cards). None of them leaves the view.
+   */
+  kind: 'inline' | 'task' | 'panel';
   confirm: string | null;
   recommended: boolean;
   /** Graph colours only: the mode the action switches to. */
   next?: GraphColors;
+  /** On, but pressing it installs again rather than removing: the Codex hook while Codex has not trusted it (shows the steps). */
+  reinstall?: boolean;
 }
 
 interface HookDef {
@@ -41,13 +46,13 @@ interface HookDef {
   name: string;
   /** The ledger source this hook syncs. */
   source: string;
-  field: keyof AutoSyncStatus;
+  field: Exclude<keyof AutoSyncStatus, 'codex'>;
 }
 
 const HOOKS: readonly HookDef[] = [
   { agent: 'claude-code', title: 'Claude Code hook', name: 'Claude Code', source: 'claude-code', field: 'claudeHook' },
   { agent: 'cursor', title: 'Cursor hook', name: 'Cursor', source: 'cursor', field: 'cursorHook' },
-  { agent: 'codex', title: 'Codex notify', name: 'Codex', source: 'codex-cli', field: 'codexNotify' },
+  { agent: 'codex', title: 'Codex hook', name: 'Codex', source: 'codex-cli', field: 'codexNotify' },
   { agent: 'gemini-cli', title: 'Gemini CLI hook', name: 'Gemini CLI', source: 'gemini-cli', field: 'geminiHook' },
 ];
 
@@ -57,28 +62,64 @@ function toggleState(value: boolean | null | undefined): ToggleState {
   return value === true ? 'on' : value === false ? 'off' : 'unknown';
 }
 
-function screen(id: ActionId, section: ActionSection, title: string, detail: string): ActionItem {
-  return { id, section, title, detail, state: null, kind: 'screen', confirm: null, recommended: false };
+function task(id: ActionId, section: ActionSection, title: string, detail: string): ActionItem {
+  return { id, section, title, detail, state: null, kind: 'task', confirm: null, recommended: false };
 }
 
-/** An unknown state counts as not installed: the toggle installs, it never removes what it cannot see. */
+/** Which Codex mechanism the item uses or would use, in a few words. */
+function codexDetail(codex: CodexSetup | null | undefined): string {
+  if (!codex) return 'sync after each turn';
+  if (codex.via === 'notify') return 'sync after each turn (notify)';
+  if (codex.via === 'hook') {
+    if (codex.approval === 'pending') return 'trust it in Codex (Enter for steps)';
+    if (codex.approval === 'disabled') return 'turned off in Codex (Enter for steps)';
+    return 'sync after each turn (Stop hook)';
+  }
+  if (codex.blocked) return 'notify taken, hooks off: use hourly sync';
+  return codex.notifyTaken ? 'notify is taken: adds a Stop hook' : 'sync after each turn (notify)';
+}
+
+/** Codex can take neither our notify (another program holds it) nor a hook (turned off): only the hourly sync covers it. */
+function codexBlocked(status: SetupStatus | null): boolean {
+  return Boolean(status?.autoSync?.codex?.blocked);
+}
+
+/** Installed, but Codex does not run it yet (a hook Codex has not trusted, or one turned off in Codex). */
+export function codexAwaitsTrust(status: SetupStatus | null): boolean {
+  const codex = status?.autoSync?.codex;
+  return codex?.via === 'hook' && codex.approval !== 'approved';
+}
+
+/** A hook this machine can use: every hook but Codex's when Codex is blocked. */
+function usable(def: HookDef, status: SetupStatus | null): boolean {
+  return def.agent !== 'codex' || !codexBlocked(status);
+}
+
+/**
+ * An unknown state counts as not installed: the toggle installs, it never removes what it cannot see. The Codex
+ * item runs in the task box, since what it prints (the steps to trust the hook in Codex) is the point; while Codex
+ * has not trusted the hook, pressing it shows those steps again instead of removing it.
+ */
 function hookItem(def: HookDef, status: SetupStatus | null, used: readonly string[]): ActionItem {
   const state = toggleState(status?.autoSync?.[def.field]);
+  const codex = def.agent === 'codex';
+  const reinstall = codex && state === 'on' && codexAwaitsTrust(status);
   return {
     id: `hook:${def.agent}`,
     section: 'Auto-sync',
     title: def.title,
-    detail: 'sync when a session ends',
+    detail: codex ? codexDetail(status?.autoSync?.codex) : 'sync when a session ends',
     state,
-    kind: 'inline',
-    confirm: state === 'on' ? `Remove the ${def.title}?` : `Install the ${def.title}? It edits ${def.name}'s settings.`,
-    recommended: state !== 'on' && used.includes(def.source),
+    kind: codex ? 'task' : 'inline',
+    confirm: reinstall ? null : state === 'on' ? `Remove the ${def.title}?` : `Install the ${def.title}? It edits ${def.name}'s settings.`,
+    recommended: state !== 'on' && used.includes(def.source) && usable(def, status),
+    ...(reinstall ? { reinstall } : {}),
   };
 }
 
-/** Sources that have no hook of their own and rely on the hourly sync. */
-function needsSchedule(used: readonly string[]): boolean {
-  return used.some((source) => !HOOKS.some((def) => def.source === source));
+/** Sources that have no usable hook of their own and rely on the hourly sync. */
+function needsSchedule(used: readonly string[], status: SetupStatus | null): boolean {
+  return used.some((source) => !HOOKS.some((def) => def.source === source && usable(def, status)));
 }
 
 /** The actions the terminal view offers, grouped by section in display order. */
@@ -86,14 +127,14 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
   const login = status?.login ?? null;
   const items: ActionItem[] = [];
   if (login === null) {
-    items.push({ ...screen('login', 'Account', 'Connect GitHub', 'publish your graph to your own gist'), recommended: true });
-    items.push(screen('sync', 'Account', 'Sync now', 'read your agents; publishes nothing'));
+    items.push({ ...task('login', 'Account', 'Connect GitHub', 'publish your graph to your own gist'), recommended: true });
+    items.push(task('sync', 'Account', 'Sync now', 'read your agents; publishes nothing'));
   } else {
-    items.push(screen('sync', 'Account', 'Sync and publish now', 'update your gist graph'));
-    items.push(screen('readme', 'Account', 'Copy the README snippet', 'show your graph in a GitHub README'));
+    items.push(task('sync', 'Account', 'Sync and publish now', 'update your gist graph'));
+    items.push(task('readme', 'Account', 'Copy the README snippet', 'show your graph in a GitHub README'));
     const single = status?.graphColors === 'single';
-    items.push({ ...screen('colors', 'Account', 'Graph colours', single ? 'single colour' : 'by model family'), next: single ? 'model' : 'single' });
-    items.push(screen('logout', 'Account', `Disconnect @${login}`, 'forget the login on this machine'));
+    items.push({ ...task('colors', 'Account', 'Graph colours', single ? 'single colour' : 'by model family'), next: single ? 'model' : 'single' });
+    items.push(task('logout', 'Account', `Disconnect @${login}`, 'forget the login on this machine'));
   }
 
   for (const def of HOOKS) items.push(hookItem(def, status, usedSources));
@@ -106,7 +147,7 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
     state: schedule,
     kind: 'inline',
     confirm: schedule === 'on' ? 'Turn off the hourly sync?' : 'Turn on the hourly sync?',
-    recommended: schedule !== 'on' && needsSchedule(usedSources),
+    recommended: schedule !== 'on' && needsSchedule(usedSources, status),
   });
 
   const fetching = status?.cursorFetch !== false;
@@ -120,19 +161,19 @@ export function actionItems(status: SetupStatus | null, usedSources: readonly st
     confirm: fetching ? 'Stop fetching your Cursor history from cursor.com?' : null,
     recommended: false,
   });
-  items.push(screen('cursor-fetch-now', 'Cursor', 'Fetch Cursor usage now', 'ask cursor.com once'));
-  items.push(screen('import-cursor', 'Cursor', 'Import a Cursor usage CSV', 'from the Cursor dashboard'));
+  items.push(task('cursor-fetch-now', 'Cursor', 'Fetch Cursor usage now', 'ask cursor.com once'));
+  items.push(task('import-cursor', 'Cursor', 'Import a Cursor usage CSV', 'from the Cursor dashboard'));
 
-  items.push(screen('story', 'Your data', 'Make story cards', 'images to share'));
-  items.push(screen('export-csv', 'Your data', 'Export as CSV', 'one row per day, agent and model'));
-  items.push(screen('export-json', 'Your data', 'Export as JSON', 'one row per day, agent and model'));
-  items.push(screen('status', 'Your data', 'Show status', 'account, ledger and background syncs'));
-  items.push(screen('uninstall', 'Your data', 'Uninstall tokengraph', 'remove the hooks and the schedule'));
+  items.push({ ...task('story', 'Your data', 'Make story cards', 'images to share'), kind: 'panel' });
+  items.push(task('export-csv', 'Your data', 'Export as CSV', 'one row per day, agent and model'));
+  items.push(task('export-json', 'Your data', 'Export as JSON', 'one row per day, agent and model'));
+  items.push(task('status', 'Your data', 'Show status', 'account, ledger and background syncs'));
+  items.push(task('uninstall', 'Your data', 'Uninstall tokengraph', 'remove the hooks and the schedule'));
 
-  // No confirmation here: `tokengraph update` shows the exact command and asks on the normal screen.
+  // No confirmation here: `tokengraph update` shows the exact command and asks in the task box.
   const update = status?.update ?? null;
   items.push({
-    ...screen('update', 'Updates', update?.latest ? `Update to ${update.latest}` : 'Check for updates', update ? `you have ${update.current}` : 'ask npm for a newer version'),
+    ...task('update', 'Updates', update?.latest ? `Update to ${update.latest}` : 'Check for updates', update ? `you have ${update.current}` : 'ask npm for a newer version'),
     recommended: Boolean(update?.latest),
   });
   return items;
@@ -144,7 +185,7 @@ function unreachable(id: never): never {
 
 /** The command line that does what the item does now (a toggle shows the direction it would flip). */
 export function cliCommand(item: ActionItem): string {
-  const on = item.state === 'on';
+  const on = item.state === 'on' && !item.reinstall;
   const hook = (agent: HookAgent): string => `tokengraph install-hook --agent ${agent}${on ? ' --remove' : ''}`;
   switch (item.id) {
     case 'hook:claude-code': return hook('claude-code');
@@ -170,16 +211,18 @@ export function cliCommand(item: ActionItem): string {
   return unreachable(item.id);
 }
 
-/** Setup steps done out of those that apply: GitHub, one hook per hook-capable agent in use, and the hourly sync for the rest. */
+/** Setup steps done out of those that apply: GitHub, one hook per agent in use that can take one, and the hourly sync for the rest. */
 export function setupProgress(
   items: readonly ActionItem[],
   status: SetupStatus | null,
   usedSources: readonly string[],
 ): { done: number; total: number } {
   const on = (id: ActionId): boolean => items.find((item) => item.id === id)?.state === 'on';
-  const hooks = HOOKS.filter((def) => usedSources.includes(def.source));
-  const schedule = needsSchedule(usedSources);
+  const hooks = HOOKS.filter((def) => usedSources.includes(def.source) && usable(def, status));
+  const schedule = needsSchedule(usedSources, status);
   const total = 1 + hooks.length + (schedule ? 1 : 0);
-  const done = (status?.login ? 1 : 0) + hooks.filter((def) => on(`hook:${def.agent}`)).length + (schedule && on('schedule') ? 1 : 0);
+  // A Codex hook still waiting for approval in Codex does not sync yet, so that step is not done.
+  const working = (def: HookDef) => on(`hook:${def.agent}`) && !(def.agent === 'codex' && codexAwaitsTrust(status));
+  const done = (status?.login ? 1 : 0) + hooks.filter(working).length + (schedule && on('schedule') ? 1 : 0);
   return { done, total };
 }

@@ -102,4 +102,34 @@ describe('pollForToken', () => {
     await pollForToken(code, { fetch, ...clock() });
     expect(seen[0]).toBeInstanceOf(AbortSignal);
   });
+
+  it('stops waiting when its signal aborts, during the wait or a request', async () => {
+    const controller = new AbortController();
+    const { fetch, calls } = sequence([{ error: 'authorization_pending' }]);
+    let sleeps = 0;
+    const sleep = async () => {
+      sleeps += 1;
+      if (sleeps === 2) controller.abort();
+    };
+    await expect(pollForToken(code, { fetch, sleep, now: () => 0, signal: controller.signal })).rejects.toMatchObject({ reason: 'cancelled', message: 'Login cancelled.' });
+    expect(calls).toHaveLength(1);
+
+    const hanging = new AbortController();
+    const slow = (async (_url: string | URL, init: RequestInit = {}) =>
+      new Promise<Response>((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(new Error('aborted'))))) as typeof globalThis.fetch;
+    const polling = pollForToken(code, { fetch: slow, sleep: async () => {}, now: () => 0, signal: hanging.signal });
+    setTimeout(() => hanging.abort(), 5);
+    await expect(polling).rejects.toBeInstanceOf(DeviceFlowError);
+    await expect(polling).rejects.toMatchObject({ reason: 'cancelled' });
+  });
+
+  it('cuts its own wait short on abort', async () => {
+    const controller = new AbortController();
+    const { fetch } = sequence([{ error: 'authorization_pending' }]);
+    const started = Date.now();
+    const polling = pollForToken({ ...code, interval: 30 }, { fetch, signal: controller.signal });
+    setTimeout(() => controller.abort(), 5);
+    await expect(polling).rejects.toMatchObject({ reason: 'cancelled' });
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
 });

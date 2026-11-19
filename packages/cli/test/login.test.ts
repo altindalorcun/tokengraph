@@ -36,6 +36,21 @@ beforeEach(async () => {
 });
 
 describe('login', () => {
+  it('passes its signal to the wait for approval, and a cancelled wait stores nothing', async () => {
+    const controller = new AbortController();
+    const { DeviceFlowError } = await import('../src/github/device-flow.js');
+    const pollForToken = vi.fn(async (_code: unknown, signal?: AbortSignal) => {
+      expect(signal).toBe(controller.signal);
+      throw new DeviceFlowError('cancelled');
+    });
+    const firstPublish = vi.fn(async () => 0);
+    expect(await runLogin({ method: 'device', openBrowser: false, signal: controller.signal }, deps({ pollForToken, firstPublish }))).toBe(1);
+    expect(pollForToken).toHaveBeenCalledOnce();
+    expect(firstPublish).not.toHaveBeenCalled();
+    expect((await readConfig()).github).toBeUndefined();
+    expect(console.error).toHaveBeenCalledWith('Login cancelled.');
+  });
+
   it('device flow: stores the token and publishes', async () => {
     const firstPublish = vi.fn(async () => 0);
     expect(await runLogin({ method: 'auto', openBrowser: false }, deps({ firstPublish }))).toBe(0);

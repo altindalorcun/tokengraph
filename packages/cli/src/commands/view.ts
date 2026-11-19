@@ -4,6 +4,7 @@ import { dateKey, type Theme } from '@tokengraph/core';
 import { binPath, cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
 import { readConfig } from '../config.js';
+import { editProjects } from './projects.js';
 import type { SetupStatus } from '../tui/actions.js';
 import { ledgerToUsage, mergeLedgerAccounts, mergeLedgerHours, mergeLedgerProjects, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
@@ -13,7 +14,9 @@ import { detectAutoSync } from '../tui/auto-sync.js';
 import { detectColorDepth, openTerminal } from '../tui/terminal.js';
 import { buildViewModel, shiftDate } from '../tui/model.js';
 import { renderSnapshot } from '../tui/print.js';
-import { runAction, waitForEnter } from '../tui/run-action.js';
+import { runAction, taskRun } from '../tui/run-action.js';
+import { startStorySession } from '../tui/story-session.js';
+import { startTaskSession } from '../tui/task-session.js';
 import { knownUpdate, refreshUpdateCheck } from '../update-check.js';
 
 export interface ViewOptions {
@@ -126,25 +129,28 @@ export async function runView(options: ViewOptions): Promise<number> {
     today: () => dateKey(new Date()),
     loadLedger: () => readLedger(ledgerPath()),
     projectNames: async () => (await readConfig()).projects?.names ?? {},
+    editProjects: (edit, ledger) => editProjects(edit, { ledger: async () => ledger }),
     scan,
     persist: persistLedger,
     modeLabel,
     autoSync: () => detectAutoSync(),
     setupStatus,
     checkForUpdate: () => refreshUpdateCheck(),
-    runAction: async (id, kind, status) => {
-      const result = await runAction(id, kind, status);
-      reopen ||= result.reopen === true;
-      return result;
-    },
-    waitForEnter,
-    write: (text) => void process.stdout.write(text),
+    runAction,
+    startTask: (id, status, emit) =>
+      startTaskSession(taskRun(id, status), (event) => {
+        // An update put a new version on disk: closing its box ends the view, and the new version starts below.
+        if (event.kind === 'done' && event.after === 'restart') reopen = true;
+        emit(event);
+      }),
+    startStory: (range, emit) => startStorySession(range, emit),
     setTimer: (fn, ms) => {
       const timer = setTimeout(fn, ms);
       return () => clearTimeout(timer);
     },
   });
-  // The bundle on disk is the new version now; this process still holds the old one.
+  // The bundle on disk is the new version now; this process still holds the old one. The view has given the
+  // terminal back by now, so the new version may take it over the same way.
   if (!reopen) return code;
   return spawnSync(process.execPath, [binPath(), ...process.argv.slice(2)], { stdio: 'inherit' }).status ?? 1;
 }

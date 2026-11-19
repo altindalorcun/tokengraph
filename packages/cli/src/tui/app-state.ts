@@ -6,6 +6,10 @@ import type { InputEvent } from './input.js';
 import { RANGES, agentBreakdown, hourProfile, modelBreakdown, projectSummaries, shiftDate, type RangeKey, type ViewModel } from './model.js';
 import type { OverviewState, TableState } from './views/props.js';
 import { clampSelection, filterEntries, paletteEntries } from './views/palette.js';
+import { openStoryPanel, storyKey, type StoryCommand, type StoryPanel } from './story-panel.js';
+import { openTaskPanel, taskKey, type TaskCommand, type TaskPanel } from './task-panel.js';
+import { openProjectPanel, projectPanelKey, type ProjectPanel, type ProjectPanelKind } from './project-panel.js';
+import type { ProjectEdit } from '../project-names.js';
 import { hitTest } from './widgets/heatmap.js';
 
 export type TabKey = 'overview' | 'models' | 'agents' | 'projects' | 'insights' | 'setup';
@@ -37,14 +41,31 @@ export interface AppState {
   /** Config and installed hooks as of the last load; null until read. */
   setup: SetupStatus | null;
   /** The outcome of the last action, shown in the status bar for a few seconds. `at` is on the app clock. */
-  toast: { text: string; tone: 'good' | 'bad'; at: number } | null;
+  toast: { text: string; tone: ToastTone; at: number } | null;
   /** An action waiting for y / n. */
   confirm: { id: ActionId; text: string } | null;
-  /** The action being run. */
-  running: ActionId | null;
+  /** The action being run, or `projects` while a project edit is written and the view reloads its names. */
+  running: ActionId | 'projects' | null;
+  /** The story cards box while open; it counts as running `story`, so scans wait until it closes. */
+  story: StoryPanel | null;
+  /** The task box of a running or finished `task` action; `running` stays set until the app has reloaded after it. */
+  task: TaskPanel | null;
+  /** The merge, rename or split box of the Projects tab while open. */
+  projectPanel: ProjectPanel | null;
 }
 
-export type Effect = 'quit' | 'rescan' | 'bars' | 'wipe' | { run: ActionId };
+/** `info` is a neutral note, such as why a key did nothing. */
+export type ToastTone = 'good' | 'bad' | 'info';
+
+export type Effect =
+  | 'quit' | 'rescan' | 'bars' | 'wipe'
+  | { run: ActionId }
+  | StoryCommand
+  | TaskCommand
+  /** Write the edit to the config, then reload the project names; `running` is `projects` until that is done. */
+  | ProjectEdit
+  /** A toast on the app clock, which the reducer does not have. */
+  | { toast: string; tone: ToastTone };
 export interface Reduced {
   state: AppState;
   effects: Effect[];
@@ -75,6 +96,9 @@ export function initialState(vm: ViewModel, mode: string, live = true): AppState
     toast: null,
     confirm: null,
     running: null,
+    story: null,
+    task: null,
+    projectPanel: null,
   };
 }
 
@@ -165,6 +189,29 @@ function openSetup(state: AppState, id: ActionId): Reduced {
   return { state: index < 0 ? moved.state : selectSetup(moved.state, index), effects: moved.effects };
 }
 
+/** Selects the Projects row of `project` in the current range; a project the range does not show keeps the row in bounds. */
+export function selectProject(state: AppState, project: string): AppState {
+  const index = projectSummaries(state.vm, state.table.range).findIndex((row) => row.name === project);
+  return selectRow(state, index < 0 ? state.table.selected : index);
+}
+
+const PROJECT_KEYS: Readonly<Record<string, ProjectPanelKind>> = { m: 'merge', n: 'rename', x: 'split' };
+
+/**
+ * Opens the merge, rename or split box for the selected project; only one box at a time, and never while an action
+ * or another edit runs. A project the box cannot work on (Not assigned, one folder to split) gets a neutral toast.
+ */
+function openProjectBox(state: AppState, kind: ProjectPanelKind): Reduced {
+  const busy = state.running !== null || state.task || state.story || state.confirm || state.palette || state.projectPanel || state.help;
+  if (busy || state.tab !== 'projects') return { state, effects: [] };
+  const rows = projectSummaries(state.vm, state.table.range);
+  const project = rows[Math.min(Math.max(0, state.table.selected), rows.length - 1)];
+  if (!project) return { state, effects: [] };
+  const opened = openProjectPanel(kind, state.vm.projectRows, project.name, state.vm.home);
+  if (typeof opened === 'string') return { state, effects: [{ toast: opened, tone: 'info' }] };
+  return { state: { ...state, projectPanel: opened }, effects: [] };
+}
+
 function isTable(tab: TabKey): boolean {
   return tab === 'models' || tab === 'agents' || tab === 'projects';
 }
@@ -199,6 +246,8 @@ function onChar(state: AppState, char: string): Reduced {
   } else if (isTable(state.tab) && char === 'r') {
     return stepRange(state, 1);
   }
+  const kind = PROJECT_KEYS[char];
+  if (kind && state.tab === 'projects') return openProjectBox(state, kind);
   return none();
 }
 
@@ -236,6 +285,11 @@ function onPalette(state: AppState, event: InputEvent, palette: NonNullable<AppS
   if (!target) return none();
   if ('action' in target) return requestAction(closed, target.action);
   if ('tab' in target) return withTab(closed, target.tab);
+  if ('project' in target) {
+    const moved = withTab(closed, 'projects');
+    const opened = openProjectBox(moved.state, target.project);
+    return { state: opened.state, effects: [...moved.effects, ...opened.effects] };
+  }
   switch (target.command) {
     case 'rescan': return { state: closed, effects: ['rescan'] };
     case 'colour': return none(toggleColour(closed));
@@ -319,6 +373,15 @@ export function requestAction(state: AppState, id: ActionId): Reduced {
   if (state.running !== null) return { state, effects: [] };
   const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
   if (item?.confirm) return { state: { ...state, confirm: { id, text: item.confirm } }, effects: [] };
+  return startAction(state, id);
+}
+
+/** Runs a confirmed action: story cards and `task` actions open their box at once (the app starts the command), the rest run behind the view. */
+function startAction(state: AppState, id: ActionId): Reduced {
+  if (state.running !== null) return { state, effects: [] };
+  const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
+  if (item?.kind === 'panel') return { state: { ...state, story: openStoryPanel(), running: id }, effects: [] };
+  if (item?.kind === 'task') return { state: { ...state, task: openTaskPanel(id, item.title), running: id }, effects: [{ task: 'start', id }] };
   return { state, effects: [{ run: id }] };
 }
 
@@ -327,7 +390,7 @@ function onConfirm(state: AppState, event: InputEvent, id: ActionId): Reduced {
   if (event.type === 'ctrl' && event.char === 'c') return { state, effects: ['quit'] };
   const cleared = { ...state, confirm: null };
   if ((event.type === 'char' && event.char === 'y') || (event.type === 'key' && event.key === 'enter')) {
-    return { state: cleared, effects: [{ run: id }] };
+    return startAction(cleared, id);
   }
   if ((event.type === 'char' && event.char === 'n') || (event.type === 'key' && event.key === 'escape')) {
     return { state: cleared, effects: [] };
@@ -335,8 +398,37 @@ function onConfirm(state: AppState, event: InputEvent, id: ActionId): Reduced {
   return { state, effects: [] };
 }
 
-/** Pure reducer for input events; returns the next state and side-effect requests. */
-export function reduce(state: AppState, event: InputEvent, hits: FrameHits | null): Reduced {
+/** While the story box is open it takes every key; closing it ends the run, and the app stops the session. */
+function onStory(state: AppState, event: InputEvent, story: StoryPanel): Reduced {
+  const { panel, command } = storyKey(story, event);
+  if (command?.story === 'close') return { state: { ...state, story: null, running: null }, effects: [command] };
+  return { state: { ...state, story: panel }, effects: command ? [command] : [] };
+}
+
+/**
+ * While the task box is open it takes every key, Ctrl-C included: one Ctrl-C never quits mid-command (only a second
+ * one soon after, see `taskKey`). Closing it hides the box; `running` stays until the app has reloaded what the
+ * command may have changed.
+ */
+function onTask(state: AppState, event: InputEvent, task: TaskPanel, hits: FrameHits | null, now: number | null): Reduced {
+  const { panel, command } = taskKey(task, event, hits?.task ?? null, now);
+  if (command?.task === 'close') return { state: { ...state, task: null }, effects: [command] };
+  return { state: { ...state, task: panel }, effects: command ? [command] : [] };
+}
+
+/** While a project box is open it takes every key. An edit closes it, and `running` holds the view until it is applied. */
+function onProjectPanel(state: AppState, event: InputEvent, current: ProjectPanel): Reduced {
+  const { panel, command } = projectPanelKey(current, event);
+  if (!command) return { state: { ...state, projectPanel: panel }, effects: [] };
+  if (command.projects === 'close') return { state: { ...state, projectPanel: null }, effects: [] };
+  return { state: { ...state, projectPanel: null, running: 'projects' }, effects: [command] };
+}
+
+/** Pure reducer for input events; returns the next state and side-effect requests. `now` is the app clock (the task box's key timing). */
+export function reduce(state: AppState, event: InputEvent, hits: FrameHits | null, now: number | null = null): Reduced {
+  if (state.task) return onTask(state, event, state.task, hits, now);
+  if (state.story) return onStory(state, event, state.story);
+  if (state.projectPanel) return onProjectPanel(state, event, state.projectPanel);
   if (state.confirm) return onConfirm(state, event, state.confirm.id);
   if (state.palette) return onPalette(state, event, state.palette);
   switch (event.type) {

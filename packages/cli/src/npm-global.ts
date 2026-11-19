@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
+import { forwardLines } from './child-output.js';
 
 const NPM_ROOT_TIMEOUT_MS = 10_000;
 
@@ -34,10 +35,17 @@ export function globalBinPath(npmRoot: string): string {
   return join(npmRoot, 'tokengraph', 'bundle', 'bin.js');
 }
 
-/** `npm install -g tokengraph@<version>` with npm's own output on this terminal. Resolves with npm's exit code. */
-export function installGlobally(version: string): Promise<number> {
+/**
+ * `npm install -g tokengraph@<version>`. Resolves with npm's exit code. npm's own output goes to this terminal, or
+ * line by line to `output` when given (the terminal view, which owns the screen); npm then gets no stdin either.
+ */
+export function installGlobally(version: string, output?: (line: string) => void): Promise<number> {
   return new Promise((resolve) => {
-    const child = spawnNpm(['install', '-g', `tokengraph@${version}`], 'inherit');
+    const child = spawnNpm(['install', '-g', `tokengraph@${version}`], output ? ['ignore', 'pipe', 'pipe'] : 'inherit');
+    if (output) {
+      forwardLines(child.stdout, output);
+      forwardLines(child.stderr, output);
+    }
     child.on('error', () => resolve(1));
     child.on('close', (code) => resolve(code ?? 1));
   });

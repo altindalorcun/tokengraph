@@ -5,14 +5,32 @@ import { join } from 'node:path';
 import { eventsWithHook, isTokenGraphGeminiHookCommand, isTokenGraphHookCommand, matchingCommands, type Settings } from '../hook-settings.js';
 import { isTokenGraphCursorHookCommand, matchingCursorCommands, type CursorHooksFile } from '../cursor-hooks-json.js';
 import { SCHEDULE_LABEL, hasCronEntry } from '../schedule-entries.js';
+import { codexNotifyOwner, tokenGraphNotifyArgs } from '../codex-config-toml.js';
+import { codexHookApproval, codexHookKey, codexHookPositions, codexHooksFileProblem, codexHooksOffReason, type CodexHooksFile } from '../codex-hooks.js';
 
 /** true installed, false not installed, null unknown (unreadable, unsupported platform, timed out). */
 export interface AutoSyncStatus {
   claudeHook: boolean | null;
   cursorHook: boolean | null;
+  /** tokengraph's Codex sync, by either mechanism: our `notify`, or our `Stop` hook in hooks.json. */
   codexNotify: boolean | null;
   geminiHook: boolean | null;
   schedule: boolean | null;
+  /** Which Codex mechanism is in use or would be used; absent or null when unknown. */
+  codex?: CodexSetup | null;
+}
+
+export interface CodexSetup {
+  /** The mechanism tokengraph's sync uses, null when neither is installed. */
+  via: 'notify' | 'hook' | null;
+  /** For the hook: whether Codex has an approval for it (Codex runs a user hook only once it is approved). */
+  approval: 'approved' | 'pending' | 'disabled' | null;
+  /** Another program holds Codex's single `notify`, so an install adds the hook instead. */
+  notifyTaken: boolean;
+  /** Why neither mechanism can be installed (notify taken and hooks turned off), else null. */
+  blocked: string | null;
+  /** The `"<node>" "<bin>" …` command the installed mechanism runs. */
+  commands: string[][];
 }
 
 export interface AutoSyncDeps {
@@ -56,19 +74,38 @@ function crontab(): Promise<string | null> {
 
 export const DEFAULT_AUTO_SYNC_DEPS: AutoSyncDeps = { platform: process.platform, home: homedir, env: process.env, readText, exists, crontab };
 
-/** True when a top-level `notify` line in config.toml runs tokengraph's hook-sync. */
-export function hasTokenGraphNotify(toml: string): boolean {
-  const lines = toml.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^\s*\[/.test(line)) return false; // first table header: everything after is not top-level
-    if (!/^\s*notify\s*=/.test(line)) continue;
-    // The array may continue on the following lines until its closing `]`.
-    let text = line;
-    while (!text.includes(']') && i + 1 < lines.length) text += `\n${lines[++i]!}`;
-    return text.includes('hook-sync') && /token-?graph/.test(text);
+/** Reads tokengraph's Codex sync from config.toml and hooks.json under CODEX_HOME. Throws on an unreadable hooks.json. */
+export async function inspectCodexSetup(deps: AutoSyncDeps): Promise<CodexSetup> {
+  const home = deps.env['CODEX_HOME'] || join(deps.home(), '.codex');
+  const toml = (await deps.readText(join(home, 'config.toml'))) ?? '';
+  const owner = codexNotifyOwner(toml);
+  const hooksPath = join(home, 'hooks.json');
+  const hooksText = await deps.readText(hooksPath);
+  let hooks: unknown = {};
+  let problem: string | null = null;
+  try {
+    if (hooksText !== null) hooks = JSON.parse(hooksText);
+    problem = codexHooksFileProblem(hooks);
+  } catch (error) {
+    problem = `not valid JSON (${error instanceof Error ? error.message : String(error)})`;
   }
-  return false;
+  if (problem !== null && owner !== 'ours') throw new Error(`${hooksPath}: ${problem}`);
+  const positions = problem === null ? codexHookPositions(hooks as CodexHooksFile) : [];
+  const notifyTaken = owner === 'foreign';
+  if (owner === 'ours') return { via: 'notify', approval: null, notifyTaken, blocked: null, commands: [tokenGraphNotifyArgs(toml) ?? []] };
+  if (positions.length > 0) {
+    const approval = codexHookApproval(toml, codexHookKey(hooksPath, positions[0]!));
+    return { via: 'hook', approval, notifyTaken, blocked: null, commands: positions.map((p) => commandWords(p.command)) };
+  }
+  const requirements = deps.platform === 'win32' ? null : await deps.readText('/etc/codex/requirements.toml').catch(() => null);
+  const off = notifyTaken ? codexHooksOffReason(toml, requirements) : null;
+  return { via: null, approval: null, notifyTaken, blocked: off, commands: [] };
+}
+
+/** The node and script paths at the start of `"<node>" "<bin>" …`, then the rest. */
+function commandWords(command: string): string[] {
+  const match = /^"([^"]+)" "([^"]+)"(.*)$/.exec(command);
+  return match ? [match[1]!, match[2]!, ...match[3]!.trim().split(/\s+/).filter(Boolean)] : [];
 }
 
 /** Parses JSON from `path`: false when the file is missing, null when it is unreadable or invalid, else `check(json)`. */
@@ -105,7 +142,7 @@ async function guarded(check: () => Promise<boolean | null>): Promise<boolean | 
 /** Best-effort look at which auto-sync mechanisms are installed. Never throws. */
 export async function detectAutoSync(overrides: Partial<AutoSyncDeps> = {}): Promise<AutoSyncStatus> {
   const deps: AutoSyncDeps = { ...DEFAULT_AUTO_SYNC_DEPS, ...overrides };
-  const [claudeHook, cursorHook, codexNotify, geminiHook, schedule] = await Promise.all([
+  const [claudeHook, cursorHook, codex, geminiHook, schedule] = await Promise.all([
     guarded(() =>
       checkJsonFile(deps, join(deps.env['CLAUDE_CONFIG_DIR'] || join(deps.home(), '.claude'), 'settings.json'), (json) =>
         eventsWithHook(json as Settings, isTokenGraphHookCommand).length > 0),
@@ -114,15 +151,13 @@ export async function detectAutoSync(overrides: Partial<AutoSyncDeps> = {}): Pro
       checkJsonFile(deps, join(deps.home(), '.cursor', 'hooks.json'), (json) =>
         matchingCursorCommands(json as CursorHooksFile, isTokenGraphCursorHookCommand).length > 0),
     ),
-    guarded(async () => {
-      const toml = await deps.readText(join(deps.env['CODEX_HOME'] ?? join(deps.home(), '.codex'), 'config.toml'));
-      return toml === null ? false : hasTokenGraphNotify(toml);
-    }),
+    inspectCodexSetup(deps).catch(() => null),
     guarded(() =>
       checkJsonFile(deps, join(deps.env['GEMINI_CLI_HOME'] || deps.home(), '.gemini', 'settings.json'), (json) =>
         matchingCommands(json as Settings, 'SessionEnd', isTokenGraphGeminiHookCommand).length > 0),
     ),
     guarded(() => scheduleInstalled(deps)),
   ]);
-  return { claudeHook, cursorHook, codexNotify, geminiHook, schedule };
+  const codexNotify = codex === null ? null : codex.via !== null;
+  return { claudeHook, cursorHook, codexNotify, geminiHook, schedule, codex };
 }

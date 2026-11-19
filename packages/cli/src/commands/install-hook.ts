@@ -1,8 +1,29 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { binPath, ephemeralInstallError } from '../bin-path.js';
-import { codexConfigPath, codexNotifyArgs, removeCodexNotify, setCodexNotify } from '../codex-config-toml.js';
+import { codexConfigPath, codexNotifyArgs, codexNotifyOwner, removeCodexNotify, setCodexNotify } from '../codex-config-toml.js';
+import {
+  addCodexHook,
+  CODEX_HOOK_EVENT,
+  CODEX_HOOKS_MIN_VERSION,
+  codexHookApproval,
+  codexHookCommand,
+  codexHookKey,
+  codexHookPositions,
+  codexHooksFileProblem,
+  codexTrustSteps,
+  CODEX_TURN_ON_STEPS,
+  codexHooksOffReason,
+  codexHooksPath,
+  codexSupportsHooks,
+  parseCodexVersion,
+  removeCodexHook,
+  removeCodexHookApprovals,
+  type CodexHooksEdit,
+  type CodexHooksFile,
+} from '../codex-hooks.js';
 import {
   addCursorHook,
   hasCursorHook,
@@ -201,19 +222,193 @@ async function writeTextFile(path: string, text: string): Promise<void> {
   await renameWithRetry(temporary, path);
 }
 
-async function installCodexHook(options: InstallHookOptions): Promise<number> {
-  const path = codexConfigPath();
-  const text = await readTextOrEmpty(path);
-  const edit = options.remove ? removeCodexNotify(text) : setCodexNotify(text, codexNotifyArgs());
+export interface CodexInstallDeps {
+  /** `codex --version` output, or null when no `codex` answers on PATH (the desktop app ships its own copy). */
+  codexVersion: () => Promise<string | null>;
+  /** Codex's managed `requirements.toml`, or null when there is none. */
+  readRequirements: () => Promise<string | null>;
+}
 
-  if (edit.kind === 'foreign') {
-    console.log('Codex already runs another notify program:');
-    console.log(`  ${edit.existing}`);
-    console.log('Codex allows only one, so it was left alone. Run `tokengraph schedule` instead to sync every hour.');
+function codexVersion(): Promise<string | null> {
+  return new Promise((resolve) => {
+    // npm installs codex as a .cmd shim on Windows, which only a shell can start.
+    execFile('codex', ['--version'], { timeout: 5000, windowsHide: true, shell: process.platform === 'win32' }, (error, stdout) =>
+      resolve(error ? null : stdout),
+    );
+  });
+}
+
+const DEFAULT_CODEX_DEPS: CodexInstallDeps = {
+  codexVersion,
+  readRequirements: async () => (process.platform === 'win32' ? null : readTextOrNull('/etc/codex/requirements.toml')),
+};
+
+async function readTextOrNull(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** hooks.json as an object; `{}` when missing; a string saying why when it cannot be edited safely. */
+async function readCodexHooks(path: string): Promise<CodexHooksFile | string> {
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    return error instanceof Error ? error.message : String(error);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return `it is not valid JSON (${error instanceof Error ? error.message : String(error)})`;
+  }
+  return codexHooksFileProblem(parsed) ?? (parsed as CodexHooksFile);
+}
+
+/** Writes hooks.json (backup, then atomic rename), or deletes it when nothing but our hook was in it. */
+async function writeCodexHooks(path: string, file: CodexHooksFile | null): Promise<void> {
+  if (file !== null) return writeJsonFile(path, file);
+  await copyFile(path, `${path}.tokengraph.bak`).catch(() => undefined);
+  await rm(path, { force: true });
+}
+
+/** Why a hook would not run (Codex too old, hooks turned off), or null. */
+async function codexHookBlocker(configText: string, deps: CodexInstallDeps): Promise<{ reason: string | null; version: string | null }> {
+  const off = codexHooksOffReason(configText, await deps.readRequirements().catch(() => null));
+  if (off) return { reason: off, version: null };
+  const version = parseCodexVersion((await deps.codexVersion().catch(() => null)) ?? '');
+  if (version !== null && !codexSupportsHooks(version)) {
+    return { reason: `Codex ${version} is older than ${CODEX_HOOKS_MIN_VERSION}, the first release with hooks (update Codex to use them)`, version };
+  }
+  return { reason: null, version };
+}
+
+function approvalOf(configText: string, hooksPath: string, file: CodexHooksFile, command: string): 'approved' | 'pending' | 'disabled' {
+  const position = codexHookPositions(file).find((candidate) => candidate.command === command);
+  return position ? codexHookApproval(configText, codexHookKey(hooksPath, position)) : 'pending';
+}
+
+async function removeCodex(options: InstallHookOptions, configPath: string, configText: string): Promise<number> {
+  const hooksPath = codexHooksPath();
+  const notify = removeCodexNotify(configText);
+  const hooks = await readCodexHooks(hooksPath);
+  const hookEdit: CodexHooksEdit = typeof hooks === 'string' ? { kind: 'unchanged' } : removeCodexHook(hooks);
+  // With the hook goes the approval Codex recorded for it in config.toml, so the file is as it was before.
+  const keys = typeof hooks === 'string' || hookEdit.kind === 'unchanged' ? [] : codexHookPositions(hooks).map((position) => codexHookKey(hooksPath, position));
+  const afterNotify = notify.kind === 'written' ? notify.text : configText;
+  const nextConfig = removeCodexHookApprovals(afterNotify, keys);
+
+  if (options.dryRun) {
+    if (nextConfig !== configText) console.log(`Would write ${configPath}:\n\n${nextConfig}`);
+    if (hookEdit.kind === 'written') {
+      console.log(hookEdit.file === null ? `Would delete ${hooksPath} (it holds only the tokengraph hook).` : `Would write ${hooksPath}:\n\n${JSON.stringify(hookEdit.file, null, 2)}`);
+    }
+  } else {
+    if (hookEdit.kind === 'written') {
+      await writeCodexHooks(hooksPath, hookEdit.file);
+      console.log(`Removed the tokengraph Codex hook (${CODEX_HOOK_EVENT}).`);
+      console.log(`hooks: ${hooksPath}${hookEdit.file === null ? ' (deleted: nothing else was in it)' : ''}`);
+    }
+    if (nextConfig !== configText) {
+      await writeTextFile(configPath, nextConfig);
+      if (notify.kind === 'written') console.log('Removed the tokengraph Codex notify.');
+      if (nextConfig !== afterNotify) console.log("Removed Codex's approval of the tokengraph hook.");
+      console.log(`config: ${configPath}`);
+    }
+  }
+  if (typeof hooks === 'string') {
+    console.error(`Could not read ${hooksPath}: ${hooks}. It was left alone; remove a tokengraph entry there by hand.`);
+    console.error('hooks.json left alone: not readable.');
     return 1;
   }
+  if (notify.kind !== 'written' && hookEdit.kind !== 'written') console.log('No tokengraph Codex hook found. Nothing to do.');
+  return 0;
+}
+
+/**
+ * Codex: our `notify` when the slot is free (or already ours), otherwise a `Stop` hook in hooks.json, since `notify`
+ * holds one program and another one's (Codex's own Computer Use writes one) is never replaced. A hook Codex would
+ * ignore (too old, hooks turned off) is not written.
+ */
+async function installCodexHook(options: InstallHookOptions, deps: CodexInstallDeps): Promise<number> {
+  const configPath = codexConfigPath();
+  const configText = await readTextOrEmpty(configPath);
+  if (options.remove) return removeCodex(options, configPath, configText);
+
+  const hooksPath = codexHooksPath();
+  const hooks = await readCodexHooks(hooksPath);
+  const owner = codexNotifyOwner(configText);
+  const hookInstalled = typeof hooks !== 'string' && codexHookPositions(hooks).length > 0;
+  if (owner === 'ours' || (owner === 'none' && !hookInstalled)) return installCodexNotify(options, configPath, configText);
+
+  const notifyLine = owner === 'foreign' ? configText.split('\n').find((line) => /^\s*notify\s*=/.test(line))?.trim() : undefined;
+  if (typeof hooks === 'string') {
+    console.error(`Could not read ${hooksPath}: ${hooks}.`);
+    console.error('It was left alone. Fix it, or run `tokengraph schedule` to sync every hour instead.');
+    console.error('hooks.json left alone: not readable.');
+    return 1;
+  }
+  const blocker = await codexHookBlocker(configText, deps);
+  if (blocker.reason !== null) {
+    if (owner === 'foreign') {
+      console.error("Codex's notify already runs another program, which tokengraph leaves alone:");
+      if (notifyLine) console.error(`  ${notifyLine}`);
+    }
+    console.error(`A Codex hook would not run either: ${blocker.reason}.`);
+    console.error('Nothing was changed. Run `tokengraph schedule` to sync every agent hourly instead.');
+    console.error('Codex: use the hourly sync instead.');
+    return 1;
+  }
+
+  const command = codexHookCommand();
+  const edit = addCodexHook(hooks, command);
+  const steps = codexTrustSteps(blocker.version);
   if (edit.kind === 'unchanged') {
-    console.log(options.remove ? 'No tokengraph Codex hook found. Nothing to do.' : 'The tokengraph Codex hook is already installed.');
+    const approval = approvalOf(configText, hooksPath, hooks, command);
+    if (approval === 'approved') {
+      console.log(`The tokengraph Codex hook is already installed (${CODEX_HOOK_EVENT}), and Codex trusts it.`);
+      return 0;
+    }
+    if (approval === 'disabled') {
+      console.log('The tokengraph Codex hook is installed, but it is turned off in Codex. To turn it on:');
+      console.log(`  ${CODEX_TURN_ON_STEPS}`);
+      return 0;
+    }
+    console.log('The tokengraph Codex hook is installed. One step is left, in Codex.');
+    console.log('');
+    for (const line of steps) console.log(line);
+    return 0;
+  }
+  if (options.dryRun) {
+    console.log(`Would write ${hooksPath}:\n`);
+    console.log(JSON.stringify(edit.file, null, 2));
+    return 0;
+  }
+  await writeCodexHooks(hooksPath, edit.file);
+  console.log(`${edit.replacedOlder ? 'Updated' : 'Installed'} the tokengraph Codex hook. One step is left, in Codex.`);
+  console.log('');
+  for (const line of steps) console.log(line);
+  console.log('');
+  console.log('After that, Codex runs it at the end of each turn; it syncs at most every 10 minutes.');
+  if (owner === 'foreign') {
+    console.log("Codex's notify setting already runs another program, so tokengraph uses a hook instead and leaves it alone:");
+    if (notifyLine) console.log(`  ${notifyLine}`);
+  }
+  console.log(`hooks: ${hooksPath}`);
+  console.log(`log:   ${join(configHome(), 'hook-sync.log')}`);
+  if (blocker.version === null) console.log(`Codex hooks need Codex ${CODEX_HOOKS_MIN_VERSION} or newer (no \`codex\` on PATH to check).`);
+  return 0;
+}
+
+async function installCodexNotify(options: InstallHookOptions, path: string, text: string): Promise<number> {
+  const edit = setCodexNotify(text, codexNotifyArgs());
+  if (edit.kind === 'foreign') return 1; // not reached: the caller only comes here when notify is free or ours
+  if (edit.kind === 'unchanged') {
+    console.log('The tokengraph Codex hook is already installed (notify).');
     return 0;
   }
   if (options.dryRun) {
@@ -222,11 +417,10 @@ async function installCodexHook(options: InstallHookOptions): Promise<number> {
     return 0;
   }
   await writeTextFile(path, edit.text);
-  if (options.remove) console.log('Removed the tokengraph Codex hook.');
-  else if (edit.replacedOlder) console.log('Updated the tokengraph Codex hook (replaced an older command).');
+  if (edit.replacedOlder) console.log('Updated the tokengraph Codex hook (replaced an older command).');
   else console.log('Installed the tokengraph Codex hook (notify).');
   console.log(`config: ${path}`);
-  if (!options.remove) console.log('\nCodex runs it after each turn; it syncs at most every 10 minutes.');
+  console.log('\nCodex runs it after each turn; it syncs at most every 10 minutes.');
   return 0;
 }
 
@@ -251,14 +445,14 @@ export async function removeAllClaudeHooks(dryRun: boolean): Promise<number> {
   return 0;
 }
 
-export async function runInstallHook(options: InstallHookOptions): Promise<number> {
+export async function runInstallHook(options: InstallHookOptions, codexDeps: Partial<CodexInstallDeps> = {}): Promise<number> {
   const ephemeral = options.remove ? null : ephemeralInstallError(`tokengraph install-hook --agent ${options.agent}`);
   if (ephemeral) {
     console.error(ephemeral);
     return 1;
   }
   if (options.agent === 'cursor') return installCursorHook(options);
-  if (options.agent === 'codex') return installCodexHook(options);
+  if (options.agent === 'codex') return installCodexHook(options, { ...DEFAULT_CODEX_DEPS, ...codexDeps });
   if (options.agent === 'gemini-cli') return installGeminiHook(options);
 
   const path = settingsPath();

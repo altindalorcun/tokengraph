@@ -237,6 +237,7 @@ export async function runExport(options: ExportOptions, overrides: Partial<Expor
     console.error(`Could not write ${options.out}: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
-  process.stdout.write(`Wrote ${rowCount} rows to ${options.out}.\n`);
+  // Through the console rather than stdout itself, so the terminal view can show it in its task box.
+  console.log(`Wrote ${rowCount} rows to ${options.out}.`);
   return 0;
 }

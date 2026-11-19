@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { eventsWithHook, isTokenGraphGeminiHookCommand, isTokenGraphHookCommand, matchingCommands, type Settings } from './hook-settings.js';
 import { isTokenGraphCursorHookCommand, matchingCursorCommands, type CursorHooksFile } from './cursor-hooks-json.js';
 import { hasCronEntry, SCHEDULE_LABEL } from './schedule-entries.js';
-import { DEFAULT_AUTO_SYNC_DEPS, type AutoSyncDeps } from './tui/auto-sync.js';
+import { DEFAULT_AUTO_SYNC_DEPS, inspectCodexSetup, type AutoSyncDeps } from './tui/auto-sync.js';
 
 /**
  * One background-sync mechanism as installed on this machine. Hooks and the schedule store absolute node and
@@ -16,6 +16,8 @@ export interface AutoSyncEntry {
   detail?: string;
   /** Paths the installed command runs that are gone. Empty when healthy or not installed. */
   missing: string[];
+  /** A command that shows what is left to do (the Codex hook Codex has not trusted yet). */
+  next?: string;
 }
 
 export interface AutoSyncHealth {
@@ -77,28 +79,23 @@ async function geminiHook(deps: AutoSyncDeps): Promise<AutoSyncEntry> {
   return { installed: true, detail: 'SessionEnd', missing: await missingPaths(deps, commands.flatMap((c) => commandPaths(c.replace(/^& /, '')))) };
 }
 
-/** The string elements of the top-level `notify = [...]` when it runs our hook-sync, else null. */
-export function tokenGraphNotifyArgs(toml: string): string[] | null {
-  const lines = toml.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (/^\s*\[/.test(line)) return null; // first table header: everything after is not top-level
-    if (!/^\s*notify\s*=/.test(line)) continue;
-    let text = line;
-    while (!text.includes(']') && i + 1 < lines.length) text += `\n${lines[++i]!}`;
-    const args = [...text.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1]!.replace(/\\(.)/g, '$1'));
-    const [node, bin, ...rest] = args;
-    if (node === undefined || bin === undefined) return null;
-    return isTokenGraphHookCommand(`"${node}" "${bin}" ${rest.join(' ')}`) ? args : null;
-  }
-  return null;
-}
+export { tokenGraphNotifyArgs } from './codex-config-toml.js';
 
+/** Our notify or our Stop hook (only one is used at a time); the detail says which, and whether Codex approved the hook. */
 async function codexNotify(deps: AutoSyncDeps): Promise<AutoSyncEntry> {
-  const toml = await deps.readText(join(deps.env['CODEX_HOME'] ?? join(deps.home(), '.codex'), 'config.toml'));
-  const args = toml === null ? null : tokenGraphNotifyArgs(toml);
-  if (args === null) return ABSENT;
-  return { installed: true, missing: await missingPaths(deps, args.slice(0, 2)) };
+  const codex = await inspectCodexSetup(deps);
+  if (codex.via === null) return { installed: false, ...(codex.blocked ? { detail: `cannot install: notify is taken and ${codex.blocked}` } : {}), missing: [] };
+  const waiting = codex.via === 'hook' && codex.approval !== 'approved';
+  const detail =
+    codex.via === 'notify'
+      ? 'notify'
+      : codex.approval === 'approved'
+        ? 'Stop hook in hooks.json'
+        : codex.approval === 'disabled'
+          ? 'Stop hook in hooks.json, turned off in Codex'
+          : 'Stop hook in hooks.json, not trusted in Codex yet, so it does not run';
+  const next = waiting ? { next: 'tokengraph install-hook --agent codex  (shows the steps)' } : {};
+  return { installed: true, detail, ...next, missing: await missingPaths(deps, codex.commands.flatMap((words) => words.slice(0, 2))) };
 }
 
 function unescapeXml(text: string): string {

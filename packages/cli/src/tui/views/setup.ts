@@ -57,9 +57,11 @@ function drawHeader(view: ScreenBuffer, width: number, props: SetupProps): void 
   view.text(x, 0, '▱'.repeat(progress.total - filled), { fg: theme.faint });
 }
 
-/** The state mark of a toggle: ✓ on, — off, ? unknown; plain actions have none. */
-function drawMark(view: ScreenBuffer, x: number, y: number, state: ActionItem['state'], theme: TuiTheme, row: { bg?: string }): void {
-  if (state === 'on') view.text(x, y, '✓', { fg: theme.good, bold: true, ...row });
+/** The state mark of a toggle: ✓ on, ! installed but not working yet (its detail says what to do), — off, ? unknown; plain actions have none. */
+function drawMark(view: ScreenBuffer, x: number, y: number, item: ActionItem, theme: TuiTheme, row: { bg?: string }): void {
+  const { state } = item;
+  if (item.reinstall) view.text(x, y, '!', { fg: theme.accent, bold: true, ...row });
+  else if (state === 'on') view.text(x, y, '✓', { fg: theme.good, bold: true, ...row });
   else if (state === 'off') view.text(x, y, '—', { fg: theme.muted, ...row });
   else if (state === 'unknown') view.text(x, y, '?', { fg: theme.muted, ...row });
 }
@@ -100,7 +102,7 @@ export function drawSetup(buf: ScreenBuffer, rect: Rect, props: SetupProps): Vie
       const row: { bg?: string } = isSelected ? { bg: theme.panel } : {};
       if (isSelected) view.fill({ x: 0, y, width, height: 1 }, ' ', row);
       if (isSelected) view.text(0, y, '▸', { fg: theme.accent, bold: true, ...row });
-      drawMark(view, 2, y, item.state, theme, row);
+      drawMark(view, 2, y, item, theme, row);
       view.text(4, y, truncate(item.title, titleW), { fg: theme.ink, bold: isSelected, ...row });
       if (detailW > 0) view.text(detailX, y, truncate(item.detail, detailW), { fg: theme.muted, ...row });
       if (running === item.id) view.text(width - RUNNING.length, y, RUNNING, { fg: theme.accent, bold: true, ...row });

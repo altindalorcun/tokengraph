@@ -76,6 +76,8 @@ export interface ViewModel {
   hours: HourCell[];
   /** Usage per project, with the Not assigned rows, from `project-usage.ts`. This machine only. */
   projectRows: ProjectRow[];
+  /** The home folder the project names were worked out against; project boxes shorten folders to `~` with it. */
+  home: string;
 }
 
 export interface HourCell {
@@ -246,8 +248,10 @@ export function buildViewModel(ledger: Ledger, today: string, options: { project
   const days = [...rowsByDate]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, dayRows]) => buildDay(date, dayRows, families));
+  const home = options.home ?? homedir();
   return {
-    projectRows: projectRows(ledger, options.projectNames ?? {}, options.home ?? homedir()),
+    projectRows: projectRows(ledger, options.projectNames ?? {}, home),
+    home,
     today,
     days,
     byDate: new Map(days.map((day) => [day.date, day])),

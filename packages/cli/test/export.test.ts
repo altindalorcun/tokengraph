@@ -44,6 +44,9 @@ describe('tokengraph export', () => {
     vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
       err += `${String(line)}\n`;
     });
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      out += `${String(line)}\n`;
+    });
   });
   afterEach(async () => {
     vi.restoreAllMocks();

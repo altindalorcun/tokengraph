@@ -4,6 +4,7 @@ import { dateKey, formatTokens } from '@tokengraph/core';
 import { readConfig, writeConfig, type CliConfig } from '../config.js';
 import { readLedger, type Ledger } from '../ledger.js';
 import { ledgerPath } from '../paths.js';
+import { planProjectEdit, settleNames, type ProjectEdit, type ProjectEditResult } from '../project-names.js';
 import { normaliseFolder, resolveProjectRoot } from '../project-roots.js';
 import { cleanProjectName, NOT_ASSIGNED, projectDisplayNames, projectRows, stripControl, summariseProjects, type ProjectShare, type ProjectSummary } from '../project-usage.js';
 import { shortDate } from '../tui/dates.js';
@@ -12,7 +13,9 @@ import { formatCost, RANGE_LABELS, RANGES, type RangeKey } from '../tui/model.js
 export type ProjectsCommand =
   | { action: 'list'; range: RangeKey; json: boolean }
   | { action: 'show'; name: string; range: RangeKey; json: boolean }
-  | { action: 'name'; target: string; name: string | null };
+  | { action: 'name'; target: string; name: string | null }
+  | { action: 'merge'; project: string; into: string }
+  | { action: 'split'; project: string };
 
 export interface ProjectsDeps {
   ledger: () => Promise<Ledger>;
@@ -32,7 +35,7 @@ const DEFAULT_DEPS: ProjectsDeps = {
   cwd: () => process.cwd(),
 };
 
-const USAGE = 'Usage: tokengraph projects [--range <range>] [--json]\n       tokengraph projects show <name> [--range <range>] [--json]\n       tokengraph projects name <name-or-folder> <new-name>\n       tokengraph projects name <name-or-folder> --reset';
+const USAGE = 'Usage: tokengraph projects [--range <range>] [--json]\n       tokengraph projects show <name> [--range <range>] [--json]\n       tokengraph projects name <name-or-folder> <new-name>\n       tokengraph projects name <name-or-folder> --reset\n       tokengraph projects merge <project> <into-project>\n       tokengraph projects split <project>';
 const ESTIMATE_NOTE = 'This machine only. Cost is an estimate at public list prices, not what a subscription plan charges.';
 
 /** Validates the flags and positionals; returns the command, or the error message to print. */
@@ -48,6 +51,8 @@ export function parseProjectsArgs(values: Record<string, string | boolean | unde
     if (values['reset'] === true && rest.length === 1) return { action: 'name', target: rest[0]!, name: null };
     if (values['reset'] !== true && rest.length === 2) return { action: 'name', target: rest[0]!, name: rest[1]! };
   }
+  if (values['reset'] !== true && action === 'merge' && rest.length === 2) return { action: 'merge', project: rest[0]!, into: rest[1]! };
+  if (values['reset'] !== true && action === 'split' && rest.length === 1) return { action: 'split', project: rest[0]! };
   return USAGE;
 }
 
@@ -174,12 +179,77 @@ export async function runProjectsName(target: string, name: string | null, overr
     console.error(`"${cleanProjectName(target)}" fits several projects. Use one of: ${[...shown].join(', ')}.`);
     return 1;
   }
-  const next = { ...names };
-  for (const root of matches) {
-    if (newName === null) delete next[root];
-    else next[root] = newName;
-  }
+  // A name another project shows merges with it for good, and no other project changes its name.
+  const next = settleNames(names, ledger, deps.home(), new Map(matches.map((root) => [root, newName])));
   await deps.saveConfig({ ...config, projects: { names: next } });
   console.log(newName === null ? `Removed the name of "${cleanProjectName(target)}".` : `Named it "${newName}". Folders with the same name count as one project.`);
   return 0;
+}
+
+/**
+ * Merges, renames or splits projects by their exact names, as the view shows them. The config is read right before it
+ * is written, so a name set elsewhere in the meantime is kept. Nothing is written when the edit is refused.
+ */
+export async function editProjects(edit: ProjectEdit, overrides: Partial<ProjectsDeps> = {}): Promise<ProjectEditResult> {
+  const deps = { ...DEFAULT_DEPS, ...overrides };
+  const [ledger, config] = await Promise.all([deps.ledger(), deps.config()]);
+  const names = config.projects?.names ?? {};
+  const result = planProjectEdit(edit, names, ledger, deps.home());
+  if (result.ok) await deps.saveConfig({ ...config, projects: { names: result.names } });
+  return result;
+}
+
+/**
+ * The project a target means, like `projects name` reads it: an exact name, a folder, or the last part of a folder's
+ * path. `exact` drops the last of these, for an edit that must not reach past the folder that was meant.
+ */
+async function resolveProject(target: string, deps: ProjectsDeps, exact = false): Promise<{ name: string } | { error: string }> {
+  const [ledger, config] = await Promise.all([deps.ledger(), deps.config()]);
+  const names = config.projects?.names ?? {};
+  const rows = projectRows(ledger, names, deps.home());
+  if (target === NOT_ASSIGNED) return { error: `"${NOT_ASSIGNED}" is the row for usage with no known project; it cannot be merged or split.` };
+  if (rows.some((row) => row.project === target && row.folder !== null)) return { name: target };
+  if (exact && !looksLikePath(target)) {
+    return { error: `No project named "${cleanProjectName(target)}". Give a project's exact name (see \`tokengraph projects --range all\`) or a folder path.` };
+  }
+  const roots = [...new Set(rows.flatMap((row) => (row.folder === null ? [] : [row.folder])))];
+  const display = projectDisplayNames(roots, names, deps.home());
+  const matches = await matchRoots(target, roots, display, ledger.projects?.roots ?? {}, deps.cwd(), deps.home());
+  const shown = [...new Set(matches.map((root) => display.get(root)!))];
+  if (shown.length === 0) return { error: `No recorded usage for "${cleanProjectName(target)}". Run \`tokengraph projects --range all\` to see the names.` };
+  if (shown.length > 1) return { error: `"${cleanProjectName(target)}" fits several projects. Use one of: ${shown.join(', ')}.` };
+  return { name: shown[0]! };
+}
+
+function refuse(error: string): number {
+  console.error(error);
+  return 1;
+}
+
+async function runEdit(edit: ProjectEdit, deps: ProjectsDeps): Promise<number> {
+  const result = await editProjects(edit, deps);
+  if (!result.ok) return refuse(result.error);
+  console.log(result.message);
+  return 0;
+}
+
+/** `projects merge a b`: every folder of both projects gets b's name, so they count as one project called b. */
+export async function runProjectsMerge(project: string, into: string, overrides: Partial<ProjectsDeps> = {}): Promise<number> {
+  const deps = { ...DEFAULT_DEPS, ...overrides };
+  const from = await resolveProject(project, deps);
+  if ('error' in from) return refuse(from.error);
+  const to = await resolveProject(into, deps);
+  if ('error' in to) return refuse(to.error);
+  return runEdit({ projects: 'merge', project: from.name, into: to.name }, deps);
+}
+
+/**
+ * `projects split p`: removes the names of p's folders, so each counts as its own project again. It takes an exact name
+ * or a path only: a folder's last part alone would split the whole project that folder is in.
+ */
+export async function runProjectsSplit(project: string, overrides: Partial<ProjectsDeps> = {}): Promise<number> {
+  const deps = { ...DEFAULT_DEPS, ...overrides };
+  const target = await resolveProject(project, deps, true);
+  if ('error' in target) return refuse(target.error);
+  return runEdit({ projects: 'split', project: target.name }, deps);
 }

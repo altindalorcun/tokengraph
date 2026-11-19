@@ -22,12 +22,11 @@ const open = (s = state()): AppState => typed(s, ':');
 describe('filterEntries', () => {
   const entries = paletteEntries(state());
 
-  const hooks = ['Claude Code hook', 'Codex notify', 'Cursor hook', 'Gemini CLI hook'];
+  const hooks = ['Claude Code hook', 'Codex hook', 'Cursor hook', 'Gemini CLI hook'];
 
-  it('lists the four hook items first for "hook", Codex notify included', () => {
+  it('lists the four hook items first for "hook"', () => {
     const titles = filterEntries(entries, 'hook').map((e) => e.title);
     expect([...titles.slice(0, 4)].sort()).toEqual(hooks);
-    expect(titles.slice(0, 3)).toEqual(['Claude Code hook', 'Cursor hook', 'Gemini CLI hook']);
   });
 
   it('finds the hook entries by their CLI command name', () => {
@@ -111,7 +110,8 @@ describe('palette in the reducer', () => {
     expect(out.state.confirm).toMatchObject({ id: 'hook:claude-code' });
     const plain = press(typed(open(), 'show status'), key('enter'));
     expect(plain.state.palette).toBeNull();
-    expect(plain.effects).toEqual([{ run: 'status' }]);
+    expect(plain.effects).toEqual([{ task: 'start', id: 'status' }]);
+    expect(plain.state.task).toMatchObject({ id: 'status', title: 'Show status', status: 'running' });
   });
 
   it('switches tab on a navigation entry and closes', () => {

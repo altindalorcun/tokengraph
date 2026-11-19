@@ -174,14 +174,14 @@ function printCursorFetch(fetch: StatusReport['cursorFetch']): void {
 const AUTO_SYNC_ROWS: { key: keyof AutoSyncHealth; label: string; reinstall: string }[] = [
   { key: 'claudeHook', label: 'claude-code hook', reinstall: 'tokengraph install-hook --agent claude-code' },
   { key: 'cursorHook', label: 'cursor hook', reinstall: 'tokengraph install-hook --agent cursor' },
-  { key: 'codexNotify', label: 'codex notify', reinstall: 'tokengraph install-hook --agent codex' },
+  { key: 'codexNotify', label: 'codex hook', reinstall: 'tokengraph install-hook --agent codex' },
   { key: 'geminiHook', label: 'gemini-cli hook', reinstall: 'tokengraph install-hook --agent gemini-cli' },
   { key: 'schedule', label: 'hourly schedule', reinstall: 'tokengraph schedule' },
 ];
 
 function describe(entry: AutoSyncEntry): string {
   if (entry.installed === null) return 'unknown';
-  if (!entry.installed) return 'not installed';
+  if (!entry.installed) return entry.detail ? `not installed (${entry.detail})` : 'not installed';
   const where = entry.detail ? ` (${entry.detail})` : '';
   return entry.missing.length > 0 ? `BROKEN${where}` : `installed${where}`;
 }
@@ -191,6 +191,7 @@ export function printAutoSync(health: AutoSyncHealth): void {
   for (const row of AUTO_SYNC_ROWS) {
     const entry = health[row.key];
     console.log(`  ${`${row.label}:`.padEnd(18)}${describe(entry)}`);
+    if (entry.installed && entry.next) console.log(`    next: ${entry.next}`);
     if (entry.installed && entry.missing.length > 0) {
       for (const path of entry.missing) console.log(`    runs ${path}, which no longer exists`);
       console.log(`    fix: ${row.reinstall}`);

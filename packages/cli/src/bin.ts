@@ -14,7 +14,7 @@ import { runLogout } from './commands/logout.js';
 import { runReadme } from './commands/readme.js';
 import { runSchedule } from './commands/schedule.js';
 import { runStatus } from './commands/status.js';
-import { parseProjectsArgs, runProjects, runProjectsName, runProjectsShow } from './commands/projects.js';
+import { parseProjectsArgs, runProjects, runProjectsMerge, runProjectsName, runProjectsShow, runProjectsSplit } from './commands/projects.js';
 import { parseStoryArgs, runStory } from './commands/story.js';
 import { runSync } from './commands/sync.js';
 import { runUninstall } from './commands/uninstall.js';
@@ -268,15 +268,22 @@ Options:
        tokengraph projects show <name> [options]
        tokengraph projects name <name-or-folder> <new-name>
        tokengraph projects name <name-or-folder> --reset
+       tokengraph projects merge <project> <into-project>
+       tokengraph projects split <project>
 
 Shows how many tokens each project burned on this machine, its estimated cost, and how its models
 and agents split. A project is a git repository, or the folder a session ran in when there is none.
 Project data stays on this machine: it never reaches a gist, the graph or a story card.
 
-Folders with the same name count as one project, so naming is also how you merge them:
+Folders with the same name count as one project. \`merge\` gives every folder of the first project
+the second one's name; \`split\` takes the names off again, so each folder is its own project:
 
   tokengraph projects name cli tokengraph
-  tokengraph projects name token-graph tokengraph
+  tokengraph projects merge token-graph tokengraph
+  tokengraph projects split tokengraph
+
+In \`tokengraph view\`, the Projects tab does the same for the selected project: m merges it with
+another (likely matches first), n renames it and x splits it.
 
 Project numbers start from the logs still on disk when this version first ran. Usage with no known
 project, such as older logs that are gone and Cursor's account history, is in the Not assigned row.
@@ -297,6 +304,8 @@ Options:
       }
       if (command.action === 'list') return runProjects(command);
       if (command.action === 'show') return runProjectsShow(command.name, command);
+      if (command.action === 'merge') return runProjectsMerge(command.project, command.into);
+      if (command.action === 'split') return runProjectsSplit(command.project);
       return runProjectsName(command.target, command.name);
     },
   },
@@ -305,6 +314,9 @@ Options:
     help: `Usage: tokengraph install-hook --agent <name> [options]
 
 Makes an agent start a background sync when it finishes, so your graph stays current.
+Codex: uses its notify setting, or a Stop hook in $CODEX_HOME/hooks.json when another program
+(such as Codex's Computer Use) already holds notify. Codex runs a new hook once you approve it
+(/hooks in the CLI, Settings > Hooks in the app).
 
 Options:
   --agent <name>       claude-code, cursor, codex or gemini-cli (required)
@@ -527,7 +539,8 @@ Options:
 
   // Run by the Claude Code, Codex and Gemini CLI hooks (see `install-hook`); not meant to be run by hand. Launches a detached
   // `sync` and returns at once, since Claude Code cancels slow hooks. Codex's notify passes one extra JSON
-  // argument; it is ignored, and so is an invalid --min-interval, since a hook must never fail.
+  // argument and Codex's Stop hook a JSON object on stdin; both are ignored, and so is an invalid --min-interval, since a
+  // hook must never fail. It prints nothing and exits 0, which a Codex Stop hook reads as "continue normally".
   'hook-sync': {
     options: { 'min-interval': { type: 'string' } },
     lenient: true,

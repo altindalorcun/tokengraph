@@ -27,6 +27,21 @@ export function spinnerEnabled(stream: { isTTY?: boolean }, env: NodeJS.ProcessE
   return stream.isTTY === true && env['TERM'] !== 'dumb' && !env['CI'];
 }
 
+let redirect: (() => Spinner) | null = null;
+
+/**
+ * While set, `commandSpinner` hands out spinners from `factory` instead of drawing on a stream: the terminal view's
+ * task box owns the screen and shows the spinner's text on its own status line.
+ */
+export function setSpinnerRedirect(factory: (() => Spinner) | null): void {
+  redirect = factory;
+}
+
+/** The spinner a command shows while it works: the redirected one when the view runs the command, else `createSpinner`. */
+export function commandSpinner(stream: { write(text: string): boolean }, options: SpinnerOptions): Spinner {
+  return redirect ? redirect() : createSpinner(stream, options);
+}
+
 export function createSpinner(stream: { write(text: string): boolean }, options: SpinnerOptions): Spinner {
   if (!options.enabled) return { start: () => {}, clear: () => {}, stop: () => {} };
   let text = '';

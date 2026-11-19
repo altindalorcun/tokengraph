@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { askChoice, askYesNo } from '../src/prompt.js';
+import { askChoice, askText, askYesNo, setPromptHandler } from '../src/prompt.js';
 
 function io(answer: string, tty = true) {
   const input = Object.assign(new PassThrough(), { isTTY: tty });
@@ -60,5 +60,27 @@ describe('askChoice', () => {
     setTimeout(() => input.end(), 5);
     expect(await askChoice('Period?', choices, { io: { input, output: new PassThrough() } })).toBeNull();
     expect(await askChoice('Period?', choices, { defaultIndex: 1, io: io('', false) })).toBe(1);
+  });
+});
+
+describe('setPromptHandler', () => {
+  it('answers prompts without their own io through the handler, and stops once it is cleared', async () => {
+    const asked: string[] = [];
+    setPromptHandler({
+      yesNo: async (question, defaultYes) => (asked.push(`${question}:${defaultYes}`), true),
+      text: async (question) => (asked.push(question), '  typed  '),
+      choice: async (question, choices, defaultIndex) => (asked.push(`${question}:${choices.join('|')}:${defaultIndex}`), 1),
+    });
+    try {
+      expect(await askYesNo('Go?', { defaultYes: false })).toBe(true);
+      expect(await askText('Path?')).toBe('typed');
+      expect(await askChoice('Which?', ['a', 'b'], { defaultIndex: 0 })).toBe(1);
+      // A prompt given its own io still reads it.
+      expect(await askYesNo('Own?', { io: io('n') })).toBe(false);
+    } finally {
+      setPromptHandler(null);
+    }
+    expect(asked).toEqual(['Go?:false', 'Path?', 'Which?:a|b:0']);
+    expect(await askYesNo('Go?', { io: io('', false) })).toBe(true);
   });
 });

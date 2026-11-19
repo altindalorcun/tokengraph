@@ -81,6 +81,19 @@ function lineEnding(text: string): string {
   return text.includes('\r\n') ? '\r\n' : '\n';
 }
 
+/** Who holds Codex's single top-level `notify`: nobody, tokengraph, or another program (Codex's Computer Use, a script). */
+export function codexNotifyOwner(text: string): 'none' | 'ours' | 'foreign' {
+  const found = findNotify(text.split('\n'));
+  if (found === undefined) return 'none';
+  return isOurs(found.elements) ? 'ours' : 'foreign';
+}
+
+/** The string elements of the top-level `notify` when it runs our hook-sync, else null. */
+export function tokenGraphNotifyArgs(text: string): string[] | null {
+  const found = findNotify(text.split('\n'));
+  return found !== undefined && isOurs(found.elements) ? found.elements : null;
+}
+
 /** Adds our `notify` as the first line, or refreshes ours in place. Never replaces someone else's. */
 export function setCodexNotify(text: string, args: readonly string[]): NotifyEdit {
   const eol = lineEnding(text);

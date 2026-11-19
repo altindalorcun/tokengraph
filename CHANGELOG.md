@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+- **The Codex hook works when Codex's Computer Use is on.** Computer Use takes Codex's single `notify` setting, so
+  Codex notify in the Setup tab stayed recommended and pressing it only flashed a cut-off error. tokengraph now
+  leaves that `notify` alone and adds a `Stop` hook to `~/.codex/hooks.json` instead, which syncs after each turn.
+  Codex runs a new hook only after you trust it, so installing it now shows the steps in a box: quit and reopen
+  Codex, and when it asks "Hooks need review", press 2 ("Trust all and continue"), then Enter (Enter alone does not
+  trust it); or type /hooks, select Stop, press Enter, then t. The hook is listed there as "tokengraph: sync usage".
+  The Setup item is now called Codex hook; until Codex trusts it, it reads "trust it in Codex (Enter for steps)" and
+  pressing it shows the steps again, and `status` points to them. When Codex hooks are turned off or Codex is older
+  than 0.124, nothing is written, the item says why, and the hourly sync is recommended instead. `--remove` and
+  `uninstall` take out only tokengraph's hook.
+- **Merge projects from the Projects tab.** Select a project and press m: a box lists every other project, the
+  ones that look like the same project first (`tokengraph-cli` and `tokengraph-site`, or a folder inside one named
+  like the other). Type to filter, pick one, choose which name to keep, and Enter merges them. n renames the
+  selected project and x splits a merged project back into one project per folder. The palette has all three.
+- **`tokengraph projects merge` and `projects split`.** `projects merge <project> <into-project>` makes two projects
+  one under the second one's name, and `projects split <project>` turns a merged project back into one project
+  per folder. `merge` takes a name or a folder, like `projects name`; `split` takes the exact name or a folder path.
+  Neither, nor `projects name`, changes the name of any other project.
+- **A new folder no longer joins a project you named by chance.** A folder whose name matched a name you gave
+  another project (say a new `other/cli` beside a project you named `cli`) used to be counted as part of it. It is
+  now its own project, shown with its parent folder (`other/cli`). If a folder of yours was counted that way, it
+  now shows as its own row; name it like the project to put it back.
+- **Story cards stay inside the view.** Make story cards in the Setup tab used to leave the view for the
+  plain terminal and ask you to press Enter to come back. It now opens a box in the view: pick the period,
+  watch the cards being drawn, and scan the QR code shown beside them. Press S to also save the cards to
+  your Downloads folder, and Esc to stop sharing and go back to Setup.
+- **Every action stays inside the view.** Sync, Connect GitHub, Disconnect, the README snippet, graph
+  colours, the Cursor fetch and CSV import, the exports, status, uninstall and update used to leave the
+  view for the plain terminal and ask you to press Enter to come back. They now run in a box in the view:
+  their output appears as it is printed, questions are asked in the box (type the CSV path, pick y or n),
+  a spinner shows what a sync is doing, and ↑↓ / PgUp / PgDn scroll long output. Esc cancels Connect
+  GitHub while it waits for your approval, and closes the box while it still waits for a scan. A command
+  that cannot stop halfway keeps running, but pressing Ctrl-C twice quits tokengraph if one ever hangs.
+  When it is done, Enter or Esc closes the box. After an update
+  that installed a new version, closing the box starts the new one.
+- **Key hints no longer stop mid-word.** When the bar at the bottom of the view is too narrow for every key,
+  whole hints step aside (rescan and actions first) instead of the last one being cut, so `? help` and
+  `q quit` always show.
+
 ## 0.2.4 — 2026-11-10
 
 - **Story cards go to your phone first.** `tokengraph story` (and Make story cards in the view) now shows

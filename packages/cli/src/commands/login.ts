@@ -9,6 +9,8 @@ import { askYesNo } from '../prompt.js';
 export interface LoginOptions {
   method: 'auto' | 'gh' | 'device';
   openBrowser: boolean;
+  /** Stops waiting for the GitHub approval (Esc in the terminal view's task box). */
+  signal?: AbortSignal;
 }
 
 export interface LoginDeps {
@@ -17,7 +19,7 @@ export interface LoginDeps {
   ghToken: (ghPath: string) => Promise<string | null>;
   clientForToken: (token: string) => GitHubClient;
   requestDeviceCode: () => Promise<DeviceCode>;
-  pollForToken: (code: DeviceCode) => Promise<{ accessToken: string; scopes: string[] }>;
+  pollForToken: (code: DeviceCode, signal?: AbortSignal) => Promise<{ accessToken: string; scopes: string[] }>;
   ask: (question: string) => Promise<boolean>;
   copy: (text: string) => Promise<boolean>;
   open: (url: string) => void;
@@ -36,7 +38,7 @@ function defaultDeps(): LoginDeps {
     ghToken: (path) => ghToken(path),
     clientForToken: (token) => createGitHubClient({ token: async () => token }),
     requestDeviceCode: () => requestDeviceCode(),
-    pollForToken: (code) => pollForToken(code),
+    pollForToken: (code, signal) => pollForToken(code, signal ? { signal } : {}),
     ask: (question) => askYesNo(question),
     copy: (text) => copyToClipboard(text),
     open: openUrl,
@@ -73,7 +75,7 @@ async function deviceFlow(options: LoginOptions, deps: LoginDeps): Promise<{ aut
   console.log('');
   if (options.openBrowser && deps.isTTY) deps.open(code.verificationUri);
   console.log('Waiting for you to approve tokengraph on GitHub…');
-  const { accessToken } = await deps.pollForToken(code);
+  const { accessToken } = await deps.pollForToken(code, options.signal);
   const user = await deps.clientForToken(accessToken).getUser();
   if (!hasGistScope(user.scopes)) throw new DeviceFlowError('failed', 'the approved token cannot write gists');
   return { auth: { kind: 'token', token: accessToken }, login: user.login };
