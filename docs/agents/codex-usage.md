@@ -257,6 +257,13 @@ The same `token_count` events carry the plan's limit readings, as the server rep
   Nothing is stored; `tokengraph limits`, `status` and the view read it again each time.
 - A reading is only as fresh as the last Codex turn on this machine. Usage in ChatGPT or on another
   machine shows after the next local turn. Readings are never estimated from token counts.
+- Codex fills `rate_limits` from response headers: `x-codex-primary-used-percent`,
+  `x-codex-primary-window-minutes`, `x-codex-primary-reset-at` (and the same for `secondary`),
+  `x-codex-active-limit`, `x-codex-credits-*`. Checked on 20 November 2026 with Codex 0.170.0 against a fake
+  Responses server sending those headers (42% of 300 minutes, 10% of 10080 minutes): the rollout's
+  `token_count` carried them, `plan_type` and `credits` were `null` with an API key, and `tokengraph limits`
+  showed `5h 42%` and `7d 10%`. With a ChatGPT sign-in `plan_type` is filled (a real `free` rollout from
+  0.155 is the example above).
 
 ## Background sync: `notify` or a `Stop` hook
 

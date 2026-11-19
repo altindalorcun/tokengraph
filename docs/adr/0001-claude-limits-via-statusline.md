@@ -27,3 +27,10 @@ The 429 records in transcripts are kept as a fallback.
 - A project whose own `.claude/settings.json` sets `statusLine` bypasses the wrapper, so no readings are
   taken there.
 - Limit readings stay on the machine. They never go into a gist.
+- Claude Code fills `rate_limits` only for a claude.ai sign-in. Checked on 20 November 2026 with Claude Code
+  2.1.329 in a pseudo-terminal against a fake server sending the `anthropic-ratelimit-unified-*` headers with
+  an API key: the wrapper ran the user's command with the same stdin and its line showed unchanged, `limits off`
+  restored the setting exactly, and the status line input carried no `rate_limits`. The field names
+  (`five_hour` and `seven_day`, each with `used_percentage` and `resets_at`) come from Claude Code's own
+  status line documentation and code. On a gateway sign-in it also sends `spend_limit`, which tokengraph shows as a
+  window of unknown length.
