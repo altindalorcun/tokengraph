@@ -56,13 +56,18 @@ export async function readLimitsFile(path: string = limitsPath()): Promise<Limit
   }
 }
 
-/** Per window, the one from the newer reading wins; a window only one side has is kept. */
+/**
+ * Per window, the one from the newer reading wins. A window only the older reading has is kept while it is still
+ * open (a limit hit on a window the status line does not send), and dropped once it has reset, so it never
+ * lingers under the newer reading's age.
+ */
 export function mergeClaudeReading(stored: LimitReading | null, next: LimitReading): LimitReading {
   if (!stored) return next;
   const nextIsNewer = Date.parse(next.readAt) >= Date.parse(stored.readAt);
   const [older, newer] = nextIsNewer ? [stored, next] : [next, stored];
+  const at = Date.parse(newer.readAt);
   const windows = new Map<string, LimitWindowReading>();
-  for (const window of older.windows) windows.set(window.id, window);
+  for (const window of older.windows) if (Date.parse(window.resetsAt) > at) windows.set(window.id, window);
   for (const window of newer.windows) windows.set(window.id, window);
   return { ...newer, windows: [...windows.values()] };
 }

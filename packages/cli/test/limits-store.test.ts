@@ -52,6 +52,13 @@ describe('mergeClaudeReading', () => {
     expect(Object.fromEntries(merged.windows.map((w) => [w.id, w.usedPercent]))).toEqual({ five_hour: 40, seven_day: 12 });
   });
 
+  it('drops a window the newer reading lacks once it has reset, and keeps one still open', () => {
+    const stored = claude('2026-11-19T10:00:00Z', { five_hour: 40, seven_day_opus: 100, seven_day: 5 });
+    stored.windows.find((w) => w.id === 'seven_day_opus')!.resetsAt = '2026-11-19T10:30:00.000Z';
+    const next = claude('2026-11-19T11:00:00Z', { five_hour: 41 });
+    expect(mergeClaudeReading(stored, next).windows.map((w) => w.id).sort()).toEqual(['five_hour', 'seven_day']);
+  });
+
   it('takes the next reading whole when nothing is stored', () => {
     const next = claude('2026-11-19T11:00:00Z', { five_hour: 1 });
     expect(mergeClaudeReading(null, next)).toEqual(next);

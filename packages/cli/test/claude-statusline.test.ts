@@ -29,6 +29,19 @@ describe('installStatusline', () => {
     expect(installStatusline(settings, OURS, USERS)).toEqual({ settings, previous: USERS });
   });
 
+  it('treats the exact command it installs as its own, whatever the bin path is called', () => {
+    const linked = '"/usr/bin/node" "/Users/a/src/tg/packages/cli/dist/bin.js" statusline';
+    const settings = { statusLine: { type: 'command', command: linked } };
+    expect(installStatusline(settings, linked, USERS)).toEqual({ settings, previous: USERS });
+    expect(removeStatusline(settings, USERS, linked)).toEqual({ settings: { statusLine: USERS } });
+  });
+
+  it('points a stale wrapper at this copy and keeps the stored status line', () => {
+    const stale = '"/old/node" "/usr/local/lib/node_modules/tokengraph/bundle/bin.js" statusline';
+    const result = installStatusline({ statusLine: { type: 'command', command: stale, padding: 1 } }, OURS, USERS);
+    expect(result).toEqual({ settings: { statusLine: { type: 'command', command: OURS, padding: 1 } }, previous: USERS });
+  });
+
   it('refuses a status line it cannot read', () => {
     expect(installStatusline({ statusLine: 'bash x' }, OURS, null)).toHaveProperty('refusal');
     expect(installStatusline({ statusLine: { type: 'command' } }, OURS, null)).toHaveProperty('refusal');

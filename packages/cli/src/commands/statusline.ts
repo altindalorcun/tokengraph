@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { win32 } from 'node:path';
 import { CLAUDE_CODE_SOURCE, CLAUDE_WINDOW_MINUTES, type LimitReading, type LimitWindowReading } from '@tokengraph/core';
 import { readConfigSync } from '../config.js';
 import { storeClaudeReading } from '../limits/store.js';
@@ -41,6 +43,27 @@ export interface StatuslineDeps {
   store: (reading: LimitReading) => Promise<boolean>;
   write: (bytes: Buffer) => void;
   spawnShell: (command: string, input: Buffer) => Promise<{ stdout: Buffer; code: number }>;
+  /** True when this run was itself started by a status line command we ran: never chain again. */
+  inChain: () => boolean;
+}
+
+/** Set in the environment of the command we chain to; a copy of us that sees it never chains (no endless loop). */
+const CHAIN_MARK = 'TOKENGRAPH_STATUSLINE';
+
+/**
+ * The shell for the user's status line command. Claude Code runs commands through Git Bash on Windows, so a
+ * bash-style status line keeps working: `CLAUDE_CODE_GIT_BASH_PATH`, else Git's default install, else cmd.exe.
+ */
+export function statuslineShell(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, exists: (path: string) => boolean): string | true {
+  if (platform !== 'win32') return true;
+  const configured = env['CLAUDE_CODE_GIT_BASH_PATH'];
+  if (configured && exists(configured)) return configured;
+  for (const base of [env['ProgramFiles'], env['ProgramW6432'], 'C:\\Program Files']) {
+    if (!base) continue;
+    const bash = win32.join(base, 'Git', 'bin', 'bash.exe');
+    if (exists(bash)) return bash;
+  }
+  return true;
 }
 
 async function readStdin(): Promise<Buffer> {
@@ -55,7 +78,12 @@ function spawnShell(command: string, input: Buffer): Promise<{ stdout: Buffer; c
     const chunks: Buffer[] = [];
     let child;
     try {
-      child = spawn(command, { shell: true, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+      child = spawn(command, {
+        shell: statuslineShell(process.platform, process.env, existsSync),
+        stdio: ['pipe', 'pipe', 'ignore'],
+        windowsHide: true,
+        env: { ...process.env, [CHAIN_MARK]: '1' },
+      });
     } catch {
       resolve({ stdout: Buffer.alloc(0), code: 1 });
       return;
@@ -84,6 +112,7 @@ const DEFAULT_DEPS: StatuslineDeps = {
     process.stdout.write(bytes);
   },
   spawnShell,
+  inChain: () => process.env[CHAIN_MARK] === '1',
 };
 
 export async function runStatusline(overrides: Partial<StatuslineDeps> = {}): Promise<number> {
@@ -96,7 +125,7 @@ export async function runStatusline(overrides: Partial<StatuslineDeps> = {}): Pr
     // Not JSON, or the store failed: the user's status line must still show.
   }
   const command = deps.previous()?.['command'];
-  if (typeof command !== 'string' || command.trim() === '' || isTokenGraphStatuslineCommand(command)) return 0;
+  if (typeof command !== 'string' || command.trim() === '' || isTokenGraphStatuslineCommand(command) || deps.inChain()) return 0;
   const { stdout, code } = await deps.spawnShell(command, input);
   if (stdout.length > 0) deps.write(stdout);
   return code;

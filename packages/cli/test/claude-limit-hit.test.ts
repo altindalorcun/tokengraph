@@ -58,6 +58,7 @@ describe('Claude Code limit hits', () => {
     aggregator.addLine(limitHit('2026-11-05T19:00:00.000Z', 'five_hour', 'allowed'));
     aggregator.addLine(limitHit('2026-11-05T19:00:00.000Z', 'five_hour', 'rejected', '1793911800'));
     aggregator.addLine(limitHit('2026-11-04T19:00:00.000Z'));
+    aggregator.addLine(limitHit('2026-11-05T20:00:00.000Z', 'overage'));
     expect(aggregator.result('claude-code').limits ?? []).toEqual([]);
   });
 

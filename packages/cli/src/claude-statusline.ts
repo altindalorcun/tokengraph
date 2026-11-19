@@ -15,8 +15,10 @@ import { configPath as tokengraphConfigPath } from './paths.js';
 type Fields = Record<string, unknown>;
 const isObject = (value: unknown): value is Fields => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-function ourCommand(statusLine: unknown): boolean {
-  return isObject(statusLine) && typeof statusLine['command'] === 'string' && isTokenGraphStatuslineCommand(statusLine['command']);
+/** Ours by its shape, or exactly the command this copy installs (a bin path need not mention tokengraph, e.g. `npm link`). */
+function ourCommand(statusLine: unknown, ours?: string): boolean {
+  if (!isObject(statusLine) || typeof statusLine['command'] !== 'string') return false;
+  return statusLine['command'] === ours || isTokenGraphStatuslineCommand(statusLine['command']);
 }
 
 export function statuslineInstalled(settings: Settings): boolean {
@@ -28,7 +30,11 @@ export type StatuslineInstall = { settings: Settings; previous: Record<string, u
 export function installStatusline(settings: Settings, ours: string, storedPrevious: Record<string, unknown> | null): StatuslineInstall {
   const current = settings['statusLine'];
   if (current === undefined) return { settings: { ...settings, statusLine: { type: 'command', command: ours } }, previous: null };
-  if (ourCommand(current)) return { settings, previous: storedPrevious };
+  if (ourCommand(current, ours)) {
+    if ((current as Fields)['command'] === ours) return { settings, previous: storedPrevious };
+    // Ours, but pointing at another node or script (a Node upgrade, a reinstall): point it at this copy.
+    return { settings: { ...settings, statusLine: { ...(current as Fields), command: ours } }, previous: storedPrevious };
+  }
   if (!isObject(current) || typeof current['command'] !== 'string') {
     return { refusal: "Claude Code's statusLine setting is not a command tokengraph can wrap, so it was left as it is." };
   }
@@ -37,10 +43,10 @@ export function installStatusline(settings: Settings, ours: string, storedPrevio
 
 export type StatuslineRemoval = { settings: Settings } | { untouched: 'not-ours' | 'absent' };
 
-export function removeStatusline(settings: Settings, previous: Record<string, unknown> | null): StatuslineRemoval {
+export function removeStatusline(settings: Settings, previous: Record<string, unknown> | null, ours?: string): StatuslineRemoval {
   const current = settings['statusLine'];
   if (current === undefined) return { untouched: 'absent' };
-  if (!ourCommand(current)) return { untouched: 'not-ours' };
+  if (!ourCommand(current, ours)) return { untouched: 'not-ours' };
   if (previous) return { settings: { ...settings, statusLine: previous } };
   const { statusLine: _ours, ...rest } = settings;
   return { settings: rest };
@@ -80,6 +86,11 @@ export async function setClaudeLimits(on: boolean, options: ClaudeLimitsOptions 
     const result = installStatusline(settings, options.command ?? statuslineCommand(bin), config.claudeStatusline?.previous ?? null);
     if ('refusal' in result) return { message: result.refusal, code: 1 };
     if (result.settings === settings) return { message: 'Claude Code limits are already on.', code: 0 };
+    if (statuslineInstalled(settings) || ourCommand(settings['statusLine'], options.command ?? statuslineCommand(bin))) {
+      if (dry) return { message: `Would point Claude Code's status line at this copy of tokengraph in ${settingsFile}.`, code: 0 };
+      await writeJsonFile(settingsFile, result.settings);
+      return { message: `Pointed Claude Code's status line at this copy of tokengraph in ${settingsFile}.`, code: 0 };
+    }
     const kept = result.previous && typeof result.previous['command'] === 'string' ? result.previous['command'] : null;
     const verb = dry ? 'Would wrap' : 'Wrapped';
     const message = `${verb} Claude Code's status line in ${settingsFile} to read its plan limits.${kept ? ` Your own status line (${kept}) keeps showing.` : ''}`;
@@ -90,7 +101,7 @@ export async function setClaudeLimits(on: boolean, options: ClaudeLimitsOptions 
     return { message, code: 0 };
   }
 
-  const result = removeStatusline(settings, config.claudeStatusline?.previous ?? null);
+  const result = removeStatusline(settings, config.claudeStatusline?.previous ?? null, options.command ?? statuslineCommand(bin));
   const forget = async () => {
     if (dry || !config.claudeStatusline) return;
     const { claudeStatusline: _done, ...rest } = config;

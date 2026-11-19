@@ -1,6 +1,6 @@
 import type { LimitReading } from '@tokengraph/core';
 import { describe, expect, it } from 'vitest';
-import { claudeReadingFromStatusline, isTokenGraphStatuslineCommand, runStatusline, type StatuslineDeps } from '../src/commands/statusline.js';
+import { claudeReadingFromStatusline, isTokenGraphStatuslineCommand, runStatusline, statuslineShell, type StatuslineDeps } from '../src/commands/statusline.js';
 
 const NOW = new Date('2026-11-19T12:00:00Z');
 const OURS = '"/usr/local/bin/node" "/usr/local/lib/node_modules/tokengraph/bundle/bin.js" statusline';
@@ -99,6 +99,22 @@ describe('runStatusline', () => {
     expect(await runStatusline(h.deps)).toBe(3);
   });
 
+  it('never chains when it is itself running under a chained command', async () => {
+    const h = harness('{}', {
+      previous: () => ({ type: 'command', command: 'bash ~/x.sh' }),
+      inChain: () => true,
+      spawnShell: async () => ({ stdout: Buffer.from('loop'), code: 0 }),
+    });
+    expect(await runStatusline(h.deps)).toBe(0);
+    expect(h.spawned()).toBe(0);
+  });
+
+  it('marks the command it runs, so a copy of itself down the chain stops', async () => {
+    const h = harness('{}', { previous: () => ({ type: 'command', command: node('process.stdout.write(String(process.env.TOKENGRAPH_STATUSLINE))') }) });
+    await runStatusline(h.deps);
+    expect(h.written().toString()).toBe('1');
+  });
+
   it('never chains to our own command', async () => {
     const h = harness('{}', { previous: () => ({ type: 'command', command: OURS }), spawnShell: async () => ({ stdout: Buffer.from('loop'), code: 0 }) });
     expect(await runStatusline(h.deps)).toBe(0);
@@ -121,5 +137,18 @@ describe('runStatusline', () => {
     });
     expect(await runStatusline(failing.deps)).toBe(0);
     expect(failing.written().toString()).toBe('line');
+  });
+});
+
+describe('statuslineShell', () => {
+  it('uses the default shell outside Windows', () => {
+    expect(statuslineShell('darwin', {}, () => true)).toBe(true);
+    expect(statuslineShell('linux', { CLAUDE_CODE_GIT_BASH_PATH: '/x/bash' }, () => true)).toBe(true);
+  });
+
+  it("uses Claude Code's Git Bash on Windows, like Claude Code itself", () => {
+    expect(statuslineShell('win32', { CLAUDE_CODE_GIT_BASH_PATH: 'D:\\Git\\bin\\bash.exe' }, () => true)).toBe('D:\\Git\\bin\\bash.exe');
+    expect(statuslineShell('win32', { ProgramFiles: 'C:\\Program Files' }, (p) => p === 'C:\\Program Files\\Git\\bin\\bash.exe')).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
+    expect(statuslineShell('win32', {}, () => false)).toBe(true);
   });
 });

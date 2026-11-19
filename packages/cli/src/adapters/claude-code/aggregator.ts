@@ -156,7 +156,8 @@ export class UsageAggregator {
     const info = (params as Record<string, unknown>)['rate_limit_info'];
     if (typeof info !== 'object' || info === null) return;
     const { status, rateLimitType, resetsAt } = info as Record<string, unknown>;
-    if (status !== 'rejected' || typeof rateLimitType !== 'string' || rateLimitType === '') return;
+    // Overage is pay-as-you-go spending past the plan, not a plan limit window.
+    if (status !== 'rejected' || typeof rateLimitType !== 'string' || rateLimitType === '' || rateLimitType === 'overage') return;
     if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) return;
     const timestamp = entry['timestamp'];
     if (typeof timestamp !== 'string') return;
