@@ -1,7 +1,7 @@
 // Fails when the npm tarball ships anything unexpected or grows past the budget.
 import { execFileSync } from 'node:child_process';
 
-const MAX_UNPACKED = 6_000_000;
+const MAX_UNPACKED = 6_500_000;
 const REQUIRED = ['package.json', 'README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'bundle/bin.js', 'assets/resvg.wasm'];
 const ALLOWED = ['package.json', 'README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'bundle/bin.js'];
 

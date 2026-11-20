@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-20
 
 - **Plan limits for Claude Code and Codex.** `tokengraph limits` shows how much of each plan limit window (five
   hours, seven days, thirty days) is used, when it resets and how old the reading is, exactly as the agents report
