@@ -34,6 +34,11 @@ export interface CliConfig {
   update?: { check?: boolean };
   /** `names`: project root → the name the user gave it. Roots with one name are one project. Local only, like the ledger's projects. */
   projects?: { names?: Record<string, string> };
+  /**
+   * `previous`: the Claude Code `statusLine` setting that was there before `tokengraph limits on` wrapped it, kept
+   * whole so `limits off` writes it back exactly; null when there was none. Unset while the wrapper is off.
+   */
+  claudeStatusline?: { previous: Record<string, unknown> | null };
 }
 
 /** The most roots remembered for one source; a config file is not a log. */
@@ -124,6 +129,13 @@ export function parseConfig(raw: unknown): CliConfig {
       (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim() !== '' && !['__proto__', 'constructor', 'prototype'].includes(entry[0]),
     );
     if (parsed.length > 0) config.projects = { names: Object.fromEntries(parsed) };
+  }
+
+  const statusline = record(fields['claudeStatusline']);
+  if (statusline && 'previous' in statusline) {
+    const raw = statusline['previous'];
+    const previous = record(raw);
+    if (raw === null || previous) config.claudeStatusline = { previous };
   }
 
   return config;

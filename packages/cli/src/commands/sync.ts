@@ -18,6 +18,7 @@ import { runCursorFetch, type CursorFetchDeps } from '../adapters/cursor/fetch.j
 import { readFetchState } from '../adapters/cursor/fetch-state.js';
 import { cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
+import { recordLimitHits } from '../limits/store.js';
 import { readConfig, writeConfig, type CliConfig, type GitHubAccount, type GitHubAuth } from '../config.js';
 import { clientFor } from '../github/auth.js';
 import { GitHubAuthError, GitHubError, GitHubNotFoundError, GitHubRateLimitError, type GitHubClient } from '../github/http.js';
@@ -27,7 +28,7 @@ import { currentFingerprint } from '../publish/machine-identity.js';
 import { writeMachinesCache } from '../publish/machines-cache.js';
 import { publish, type PublishResult } from '../publish/publish.js';
 import { readmeSnippet } from '../readme-snippet.js';
-import { createSpinner, spinnerEnabled, type Spinner } from '../spinner.js';
+import { commandSpinner, spinnerEnabled, type Spinner } from '../spinner.js';
 import { acquireSyncLock } from '../sync-lock.js';
 
 /**
@@ -96,7 +97,7 @@ export async function runSync(options: SyncOptions): Promise<number> {
   // Also on for --quiet: `login` and `readme --colors` wait on this sync too, and the spinner is not output.
   const spinner =
     options.spinner ??
-    createSpinner(process.stderr, { enabled: (options.trigger ?? 'manual') === 'manual' && spinnerEnabled(process.stderr, process.env) });
+    commandSpinner(process.stderr, { enabled: (options.trigger ?? 'manual') === 'manual' && spinnerEnabled(process.stderr, process.env) });
   try {
     return await runSyncLocked(options, spinner);
   } finally {
@@ -158,6 +159,7 @@ async function runSyncLocked(options: SyncOptions, spinner: Spinner): Promise<nu
   }
   await mkdir(configHome(), { recursive: true, mode: 0o700 });
   await writeLedger(ledgerPath(), ledger);
+  await recordLimitHits(collected);
 
   const days = summariseByDay(allLedgerUsage(ledger, sinceKey));
   say(`\nwindow: ${sinceKey} .. ${dateKey(new Date())} (${options.sinceDays} days), all agents`);

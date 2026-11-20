@@ -14,8 +14,12 @@ import { drawInsights } from './views/insights.js';
 import { drawPalette, filterEntries, paletteEntries } from './views/palette.js';
 import { drawModels } from './views/models.js';
 import { drawOverview } from './views/overview.js';
+import { drawProjectPanel } from './views/project-panel.js';
 import { drawProjects } from './views/projects.js';
 import { drawSetup } from './views/setup.js';
+import { drawStory } from './views/story.js';
+import { drawTask } from './views/task.js';
+import type { TaskViewport } from './task-panel.js';
 import type { ViewProps, ViewResult } from './views/props.js';
 import { MIN_HEIGHT, MIN_WIDTH, drawTooSmall } from './views/too-small.js';
 import { drawHeaderMark } from './widgets/logo.js';
@@ -24,6 +28,8 @@ import { drawTabs, type TabHit } from './widgets/tabs.js';
 export interface FrameHits {
   tabs: TabHit[];
   view: ViewResult;
+  /** The task box's output rows as drawn, for scrolling it; absent while it is closed. */
+  task?: TaskViewport;
 }
 
 const TAB_LABELS = ['Overview', 'Models', 'Agents', 'Projects', 'Insights', 'Setup'];
@@ -31,7 +37,7 @@ const HINTS: Record<AppState['tab'], string> = {
   overview: '←↑↓→ day  [ ] year  t today  c colour  s rescan  : actions  ? help  q quit',
   models: '↑↓ select  ←→ range  c colour  s rescan  : actions  ? help  q quit',
   agents: '↑↓ select  ←→ range  c colour  h hooks  s rescan  : actions  ? help  q quit',
-  projects: '↑↓ select  ←→ range  s rescan  : actions  ? help  q quit',
+  projects: '↑↓ select  ←→ range  m merge  n rename  x split  s rescan  : actions  ? help  q quit',
   insights: '←→ hour  s rescan  : actions  ? help  q quit',
   setup: '↑↓ select  enter run  s rescan  : actions  ? help  q quit',
 };
@@ -42,6 +48,24 @@ const TABS_X = 18; // the mark and wordmark end at column 15; leave a gap
 const NARROW_TABS_X = 6; // below NARROW_TABS_WIDTH the wordmark gives way, so six tabs and the mode pill still fit
 const PROGRESS_SEGMENTS = 4;
 const TOAST_MS = 4000;
+const TOAST_MARKS = { good: '✓', bad: '✗', info: '·' } as const;
+
+// Hints that give way first when the status bar is short; help and quit stay as long as anything does.
+const HINT_DROP_ORDER = ['s rescan', ': actions', 'c colour', '[ ] year', 't today'];
+
+/** The key hints that fit in `max` columns: whole hints are left out, lowest value first, rather than one cut mid-word. */
+export function fitHints(text: string, max: number): string {
+  const hints = text.split('  ');
+  const width = (list: readonly string[]): number => [...list.join('  ')].length;
+  for (const drop of HINT_DROP_ORDER) {
+    if (width(hints) <= max) break;
+    const at = hints.indexOf(drop);
+    if (at >= 0) hints.splice(at, 1);
+  }
+  // Then the tab's own hints from the right, keeping the first one, help and quit.
+  while (width(hints) > max && hints.length > 3) hints.splice(hints.length - 3, 1);
+  return width(hints) <= max ? hints.join('  ') : clip(hints.join('  '), max);
+}
 
 function clip(text: string, max: number): string {
   const chars = [...text];
@@ -95,8 +119,9 @@ function drawStatusBar(buf: ScreenBuffer, state: AppState, theme: TuiTheme, moti
   if (state.burnRate !== null) parts.push({ text: `▲ ${formatTokens(state.burnRate)}/min`, fg: theme.muted });
   const toast = state.toast && motion.now - state.toast.at < TOAST_MS ? state.toast : null;
   if (toast) {
-    const text = `${toast.tone === 'good' ? '✓' : '✗'} ${toast.text}`;
-    parts.push({ text: clip(text, Math.max(10, Math.floor(buf.width / 2))), fg: toast.tone === 'good' ? theme.good : theme.bad });
+    const text = `${TOAST_MARKS[toast.tone]} ${toast.text}`;
+    const fg = toast.tone === 'good' ? theme.good : toast.tone === 'bad' ? theme.bad : theme.muted;
+    parts.push({ text: clip(text, Math.max(10, Math.floor(buf.width / 2))), fg });
   } else if (scan.running) {
     const filled = scan.total > 0 ? Math.round((Math.min(scan.done, scan.total) / scan.total) * PROGRESS_SEGMENTS) : 0;
     const bar = '▰'.repeat(filled) + '▱'.repeat(PROGRESS_SEGMENTS - filled);
@@ -106,7 +131,10 @@ function drawStatusBar(buf: ScreenBuffer, state: AppState, theme: TuiTheme, moti
   }
   const gap = 2;
   const rightWidth = parts.reduce((sum, p) => sum + [...p.text].length, 0) + gap * Math.max(0, parts.length - 1);
-  buf.text(1, y, `${buf.width >= WIDE_HINTS_WIDTH ? `1-${TABS.length} tabs  ` : ''}${HINTS[state.tab]}`, { fg: theme.muted }, Math.max(0, buf.width - 2 - (rightWidth > 0 ? rightWidth + gap : 0)));
+  // The boxes list their own keys; the view's keys do nothing while one is open.
+  const hints = state.story || state.task || state.projectPanel ? '' : `${buf.width >= WIDE_HINTS_WIDTH ? `1-${TABS.length} tabs  ` : ''}${HINTS[state.tab]}`;
+  const room = Math.max(0, buf.width - 2 - (rightWidth > 0 ? rightWidth + gap : 0));
+  buf.text(1, y, fitHints(hints, room), { fg: theme.muted }, room);
   let x = buf.width - 1 - rightWidth;
   for (const part of parts) {
     x += buf.text(x, y, part.text, { fg: part.fg }) + gap;
@@ -122,7 +150,7 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
   const props: ViewProps = { vm: state.vm, theme, motion, colorMode: state.colorMode };
   switch (state.tab) {
     case 'overview':
-      return drawOverview(buf, rect, { ...props, state: state.overview });
+      return drawOverview(buf, rect, { ...props, state: state.overview, limits: state.limits });
     case 'models':
       return drawModels(buf, rect, { ...props, state: state.table });
     case 'agents':
@@ -137,7 +165,7 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
         items,
         progress: setupProgress(items, state.setup, state.vm.sources),
         selected: state.setupSel,
-        running: state.running,
+        running: state.running === 'projects' ? null : state.running,
         loading: state.setup === null,
       });
   }
@@ -178,5 +206,10 @@ export function renderFrame(
     buf.fill({ x: edge, y: rect.y, width: rect.x + rect.width - edge, height: rect.height }, ' ', { fg: theme.ink, bg: theme.bg });
   }
   drawStatusBar(buf, state, theme, motion);
-  return { buffer: buf, hits: { tabs, view } };
+  if (state.projectPanel) drawProjectPanel(buf, { x: 0, y: 0, width: buf.width, height: buf.height }, state.projectPanel, theme);
+  // Over the whole screen rather than the view, so the QR code has every row the window offers.
+  if (state.story) drawStory(buf, { x: 0, y: 0, width: buf.width, height: buf.height }, state.story, theme);
+  // Over the whole screen too: status output and the README snippet need the width.
+  const task = state.task ? drawTask(buf, { x: 0, y: 0, width: buf.width, height: buf.height }, state.task, theme, motion.now) : undefined;
+  return { buffer: buf, hits: task ? { tabs, view, task } : { tabs, view } };
 }

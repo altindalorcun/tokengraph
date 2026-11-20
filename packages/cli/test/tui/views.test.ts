@@ -460,6 +460,18 @@ describe('setup tab and confirm modal', () => {
     expect(text).toContain('All set');
   });
 
+  it('marks a Codex hook Codex has not trusted yet with ! and says what to do', () => {
+    const pending = status();
+    pending.autoSync = {
+      ...pending.autoSync!,
+      codexNotify: true,
+      codex: { via: 'hook', approval: 'pending', notifyTaken: true, blocked: null, commands: [] },
+    };
+    const row = frame('setup', 160, 48, { setup: pending }).split('\n').find((line) => line.includes('Codex hook'))!;
+    expect(row).toContain('! Codex hook');
+    expect(row).toContain('trust it in Codex (Enter for steps)');
+  });
+
   it('shows no dot and says it is reading until the configuration is known', () => {
     const text = frame('setup', 160, 48, { setup: null });
     expect(text.split('\n')[0]).not.toContain('•');

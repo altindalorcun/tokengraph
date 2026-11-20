@@ -8,7 +8,7 @@ const BOX_WIDTH = 54;
 const PADDING = 2; // columns between the border and the text
 
 /** Greedy word wrap to `width` columns; a word wider than that is cut with an ellipsis. */
-function wrap(text: string, width: number): string[] {
+export function wrap(text: string, width: number): string[] {
   const lines: string[] = [];
   for (const word of text.split(' ')) {
     const last = lines[lines.length - 1];

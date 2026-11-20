@@ -7,6 +7,14 @@ import { parseConfig, readConfig, writeConfig } from '../src/config.js';
 const ID = '3f2a1c9e-0b7d-4c1e-9a55-2d8f6b1e7c40';
 
 describe('parseConfig', () => {
+  it('keeps the wrapped Claude Code status line whole, or null when there was none', () => {
+    const previous = { type: 'command', command: 'bash ~/.claude/statusline-command.sh', padding: 1 };
+    expect(parseConfig({ claudeStatusline: { previous } }).claudeStatusline).toEqual({ previous });
+    expect(parseConfig({ claudeStatusline: { previous: null } }).claudeStatusline).toEqual({ previous: null });
+    expect(parseConfig({ claudeStatusline: { previous: 'bash x' } }).claudeStatusline).toBeUndefined();
+    expect(parseConfig({ claudeStatusline: {} }).claudeStatusline).toBeUndefined();
+  });
+
   it('reads the local-first fields', () => {
     expect(
       parseConfig({

@@ -92,7 +92,8 @@ export function safeFileHandle(handle: string): string {
   return handle.replace(/[^A-Za-z0-9._-]/g, '-') || 'me';
 }
 
-function defaultDeps(): StoryDeps {
+/** The real machine: stdin, stdout, the network, the downloads folder. */
+export function defaultStoryDeps(): StoryDeps {
   return {
     isTTY: Boolean(process.stdout.isTTY && process.stdin.isTTY),
     env: process.env,
@@ -154,6 +155,45 @@ export function listenForKeys(
   };
 }
 
+/** Where saved cards go: the folder asked for, else the downloads folder, else the home folder. */
+export function storyOutDir(
+  deps: Pick<StoryDeps, 'platform' | 'home' | 'env' | 'downloadsDir' | 'exists'>,
+  override?: string,
+): string {
+  const { join } = deps.platform === 'win32' ? win32 : posix;
+  const downloads = [deps.downloadsDir(deps.platform, deps.home, deps.env), join(deps.home, 'Downloads')].find((dir) => dir && deps.exists(dir));
+  return override?.trim() || downloads || deps.home;
+}
+
+/** Draws one card per template, in order; `onCard` hears when each one starts and when it is done. */
+export async function renderStoryCards(
+  renderer: StoryRenderer,
+  data: StoryData,
+  options: { templates: readonly StoryTemplate[]; range: StoryRange; showCost: boolean },
+  onCard: (template: StoryTemplate, phase: 'drawing' | 'drawn') => void = () => undefined,
+): Promise<ShareCard[]> {
+  const fileHandle = safeFileHandle(data.handle);
+  const cards: ShareCard[] = [];
+  for (const template of options.templates) {
+    onCard(template, 'drawing');
+    const png = await renderer.render(template, { data, showCost: options.showCost, cta: STORY_CTA });
+    const fileName = storyFileName(fileHandle, data.endDate, { template, range: options.range, showCost: options.showCost });
+    cards.push({ id: template, title: STORY_TEMPLATE_LABELS[template].name, fileName, png, ...STORY_SIZES[template] });
+    onCard(template, 'drawn');
+  }
+  return cards;
+}
+
+/** Writes every card into `outDir`, keeping each card's file name. */
+export async function writeStoryCards(
+  cards: readonly ShareCard[],
+  outDir: string,
+  deps: Pick<StoryDeps, 'platform' | 'writeFile'>,
+): Promise<void> {
+  const { join } = deps.platform === 'win32' ? win32 : posix;
+  for (const card of cards) await deps.writeFile(join(outDir, card.fileName), card.png);
+}
+
 const CLEAR_LINE = '\r\x1b[2K';
 const dim = (text: string, tty: boolean) => (tty ? `\x1b[2m${text}\x1b[22m` : text);
 const bold = (text: string, tty: boolean) => (tty ? `\x1b[1m${text}\x1b[22m` : text);
@@ -168,7 +208,7 @@ const STOP_MESSAGES = {
 const WIDER_RANGE: Record<StoryRange, StoryRange | null> = { today: '7d', '7d': '30d', '30d': '1y', '1y': null };
 
 export async function runStory(options: StoryCommandOptions, overrides: Partial<StoryDeps> = {}): Promise<number> {
-  const deps = { ...defaultDeps(), ...overrides };
+  const deps = { ...defaultStoryDeps(), ...overrides };
   const tty = deps.isTTY;
   let range: StoryRange = 'today';
   if (options.range !== 'ask') range = options.range;
@@ -190,21 +230,16 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   deps.out('');
 
   const renderer = await deps.renderer();
-  const cards: ShareCard[] = [];
+  let cards: ShareCard[];
   const { join } = deps.platform === 'win32' ? win32 : posix;
-  const findDownloads = () =>
-    [deps.downloadsDir(deps.platform, deps.home, deps.env), join(deps.home, 'Downloads')].find((dir) => dir && deps.exists(dir));
-  const outDir = options.outDir?.trim() || findDownloads() || deps.home;
-  const fileHandle = safeFileHandle(data.handle);
+  const outDir = storyOutDir(deps, options.outDir);
   try {
-    for (const template of options.templates) {
+    cards = await renderStoryCards(renderer, data, { templates: options.templates, range, showCost: options.showCost }, (template, phase) => {
       const label = STORY_TEMPLATE_LABELS[template].name;
-      if (tty) deps.write(`${CLEAR_LINE}  ${dim(`Rendering ${label}…`, tty)}`);
-      const png = await renderer.render(template, { data, showCost: options.showCost, cta: STORY_CTA });
-      const fileName = storyFileName(fileHandle, data.endDate, { template, range, showCost: options.showCost });
-      cards.push({ id: template, title: STORY_TEMPLATE_LABELS[template].name, fileName, png, ...STORY_SIZES[template] });
-      deps.out(`${tty ? CLEAR_LINE : ''}  ${tty ? '✓' : '-'} ${label}`);
-    }
+      if (phase === 'drawing') {
+        if (tty) deps.write(`${CLEAR_LINE}  ${dim(`Rendering ${label}…`, tty)}`);
+      } else deps.out(`${tty ? CLEAR_LINE : ''}  ${tty ? '✓' : '-'} ${label}`);
+    });
   } catch (error) {
     if (tty) deps.write(CLEAR_LINE);
     deps.out('');
@@ -226,7 +261,7 @@ export async function runStory(options: StoryCommandOptions, overrides: Partial<
   /** Writes every card to outDir and lists them; false (with the reason printed) when the folder cannot be written. */
   const saveCards = async (): Promise<boolean> => {
     try {
-      for (const card of cards) await deps.writeFile(join(outDir, card.fileName), card.png);
+      await writeStoryCards(cards, outDir, deps);
     } catch (error) {
       deps.out('');
       deps.out(`  Could not save the cards to ${outDir}: ${error instanceof Error ? error.message : String(error)}`);

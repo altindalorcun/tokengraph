@@ -10,6 +10,8 @@ export interface TuiTheme {
   faint: string;
   accent: string;
   good: string;
+  /** Between good and bad: a limit window from 70% used. */
+  warn: string;
   bad: string;
   live: string;
   empty: string;
@@ -25,6 +27,7 @@ const DARK: TuiTheme = {
   faint: '#5b636d',
   accent: '#f87171',
   good: '#4ade80',
+  warn: '#facc15',
   bad: '#f87171',
   live: '#22c55e',
   empty: DISPLAY_SURFACES.dark.empty,
@@ -40,6 +43,7 @@ const LIGHT: TuiTheme = {
   faint: '#9aa1ab',
   accent: '#dc2626',
   good: '#16a34a',
+  warn: '#a16207',
   bad: '#dc2626',
   live: '#16a34a',
   empty: DISPLAY_SURFACES.light.empty,

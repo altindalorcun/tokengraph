@@ -1,5 +1,7 @@
 import {
   addSplitCounts,
+  CLAUDE_CODE_SOURCE,
+  CLAUDE_WINDOW_MINUTES,
   dateKey,
   emptySplitCounts,
   HourSums,
@@ -9,6 +11,7 @@ import {
   weightedTokens,
   type CollectResult,
   type KnownSource,
+  type LimitReading,
   type PricingTier,
   type SplitTokenCounts,
 } from '@tokengraph/core';
@@ -59,6 +62,8 @@ function readCount(value: unknown): number {
  */
 export class UsageAggregator {
   private readonly records = new Map<string, MessageRecord>();
+  /** The newest refused request per limit window (`apiErrorParams.rate_limit_info`), as a full-window reading. */
+  private readonly limitHits = new Map<string, LimitReading>();
   private readonly options: AggregatorOptions;
 
   constructor(options: AggregatorOptions = {}) {
@@ -81,6 +86,7 @@ export class UsageAggregator {
     if (typeof record !== 'object' || record === null) return;
     const entry = record as Record<string, unknown>;
     if (entry['type'] !== 'assistant') return;
+    this.addLimitHit(entry);
 
     const message = entry['message'];
     if (typeof message !== 'object' || message === null) return;
@@ -140,6 +146,37 @@ export class UsageAggregator {
     );
   }
 
+  /**
+   * A request Claude Code was refused for a plan limit: that window is full until it resets. Written as a
+   * `<synthetic>` message, so it never counts as usage; only refusals the scan window reaches are kept.
+   */
+  private addLimitHit(entry: Record<string, unknown>): void {
+    const params = entry['apiErrorParams'];
+    if (typeof params !== 'object' || params === null) return;
+    const info = (params as Record<string, unknown>)['rate_limit_info'];
+    if (typeof info !== 'object' || info === null) return;
+    const { status, rateLimitType, resetsAt } = info as Record<string, unknown>;
+    // Overage is pay-as-you-go spending past the plan, not a plan limit window.
+    if (status !== 'rejected' || typeof rateLimitType !== 'string' || rateLimitType === '' || rateLimitType === 'overage') return;
+    if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt)) return;
+    const timestamp = entry['timestamp'];
+    if (typeof timestamp !== 'string') return;
+    const instant = new Date(timestamp);
+    if (Number.isNaN(instant.getTime())) return;
+    if (this.options.since && instant < this.options.since) return;
+    const held = this.limitHits.get(rateLimitType);
+    if (held && Date.parse(held.readAt) >= instant.getTime()) return;
+    this.limitHits.set(rateLimitType, {
+      source: CLAUDE_CODE_SOURCE,
+      limitId: null,
+      plan: null,
+      origin: 'limit-hit',
+      readAt: timestamp,
+      credits: null,
+      windows: [{ id: rateLimitType, minutes: CLAUDE_WINDOW_MINUTES[rateLimitType] ?? null, usedPercent: 100, resetsAt: new Date(resetsAt * 1000).toISOString() }],
+    });
+  }
+
   result(source: KnownSource): CollectResult {
     // Bucketed once here, after every copy of every message.id has been merged to its
     // final counts — bucketing incrementally per line would sum the same message's
@@ -172,6 +209,14 @@ export class UsageAggregator {
         a.model.localeCompare(b.model) ||
         PRICING_TIERS.indexOf(a.pricingTier) - PRICING_TIERS.indexOf(b.pricingTier),
     );
-    return { source, usage, hours: hours.toList(), projects: groupByFolder(requests), requestCount: this.records.size }; // distinct requests in the window, like every other adapter
+    const limits = [...this.limitHits.values()].sort((a, b) => a.windows[0]!.id.localeCompare(b.windows[0]!.id));
+    return {
+      source,
+      usage,
+      hours: hours.toList(),
+      projects: groupByFolder(requests),
+      requestCount: this.records.size, // distinct requests in the window, like every other adapter
+      ...(limits.length > 0 ? { limits } : {}),
+    };
   }
 }

@@ -19,6 +19,11 @@ function status(label: string, value: boolean | null, action: ActionId, theme: T
   return [{ text: `${label} `, color: theme.muted, action }, { ...mark, action }];
 }
 
+function codexWorking(autoSync: AutoSyncStatus): boolean | null {
+  const codex = autoSync.codex;
+  return codex?.via === 'hook' && codex.approval !== 'approved' ? false : autoSync.codexNotify;
+}
+
 /** The statuses, each clickable to its Setup row, then `h manage`; the `auto-sync` lead-in goes when the line would not fit. */
 function autoSyncFooter(autoSync: AutoSyncStatus, theme: TuiTheme, width: number): FooterPart[] {
   const gap = { text: '  ', color: theme.muted };
@@ -27,7 +32,8 @@ function autoSyncFooter(autoSync: AutoSyncStatus, theme: TuiTheme, width: number
     gap,
     ...status('Cursor hook', autoSync.cursorHook, 'hook:cursor', theme),
     gap,
-    ...status('Codex notify', autoSync.codexNotify, 'hook:codex', theme),
+    // A hook Codex has not trusted yet does not sync: shown as not done until it does.
+    ...status('Codex hook', codexWorking(autoSync), 'hook:codex', theme),
     gap,
     ...status('Gemini hook', autoSync.geminiHook, 'hook:gemini-cli', theme),
     gap,

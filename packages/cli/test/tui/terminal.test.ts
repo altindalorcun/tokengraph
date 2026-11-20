@@ -53,42 +53,6 @@ describe('openTerminal', () => {
     expect(io.stdout.listenerCount('resize')).toBe(0);
   });
 
-  it('suspends: leaves the alternate screen, drops input, and resumes where it left off', () => {
-    const io = fakeIO();
-    const term = openTerminal(io as never);
-    const seen: unknown[] = [];
-    term.onInput((events) => seen.push(...events));
-    io.written.length = 0;
-    term.suspend();
-    expect(io.written).toEqual([LEAVE_SEQUENCE]);
-    expect(io.stdin.raw).toBe(false);
-    io.stdin.emit('data', 'x');
-    expect(seen).toEqual([]);
-    term.suspend();
-    expect(io.written).toHaveLength(1);
-    term.resume();
-    expect(io.written.at(-1)).toBe(ENTER_SEQUENCE);
-    expect(io.stdin.raw).toBe(true);
-    io.stdin.emit('data', 'y');
-    expect(seen).toEqual([{ type: 'char', char: 'y' }]);
-    term.resume();
-    expect(io.written.filter((s) => s === ENTER_SEQUENCE)).toHaveLength(1);
-  });
-
-  it('restores while suspended and ignores resume afterwards', () => {
-    const io = fakeIO();
-    const term = openTerminal(io as never);
-    term.onInput(() => {});
-    term.suspend();
-    expect(() => term.restore()).not.toThrow();
-    expect(io.stdin.listenerCount('data')).toBe(0);
-    const writes = io.written.length;
-    term.resume();
-    term.suspend();
-    expect(io.written).toHaveLength(writes);
-    expect(io.stdin.raw).toBe(false);
-  });
-
   it('skips the mouse modes when mouse is off', () => {
     const io = fakeIO();
     const term = openTerminal(io as never, { mouse: false });

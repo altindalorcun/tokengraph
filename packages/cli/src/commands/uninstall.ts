@@ -5,6 +5,7 @@ import { readConfig, type CliConfig } from '../config.js';
 import { configHome } from '../paths.js';
 import { askYesNo } from '../prompt.js';
 import { DEFAULT_HOOK_EVENT, removeAllClaudeHooks, runInstallHook, type HookAgent } from './install-hook.js';
+import { setClaudeLimits } from '../claude-statusline.js';
 import { runSchedule } from './schedule.js';
 
 export interface UninstallOptions {
@@ -16,6 +17,8 @@ export interface UninstallOptions {
 export interface UninstallDeps {
   removeHook: (agent: HookAgent, dryRun: boolean) => Promise<number>;
   removeSchedule: (dryRun: boolean) => Promise<number>;
+  /** Puts the user's Claude Code status line back (`tokengraph limits off`). */
+  removeClaudeLimits: (dryRun: boolean) => Promise<number>;
   readConfig: () => Promise<CliConfig>;
   /** The data folder to purge. */
   dataHome: () => string;
@@ -34,6 +37,11 @@ const DEFAULT_DEPS: UninstallDeps = {
   removeHook: (agent, dryRun) =>
     agent === 'claude-code' ? removeAllClaudeHooks(dryRun) : runInstallHook({ agent, event: DEFAULT_HOOK_EVENT, remove: true, dryRun }),
   removeSchedule: (dryRun) => runSchedule({ remove: true, dryRun }),
+  removeClaudeLimits: async (dryRun) => {
+    const { message, code } = await setClaudeLimits(false, { dryRun });
+    console.log(message);
+    return code;
+  },
   readConfig: () => readConfig(),
   dataHome: () => configHome(),
   userHome: () => homedir(),
@@ -61,9 +69,10 @@ const OWN_FILES = [
   'sync.lock',
   'schedule.log',
   'update-check.json',
+  'limits.json',
 ];
-/** Temp files the atomic writers (ledger.ts, config.ts, publish/machines-cache.ts, update-check.ts) leave if interrupted. */
-const OWN_TEMP = /^(?:state|config|machines|cursor-fetch|update-check)\.json\.[\d.]+\.tmp$/;
+/** Temp files the atomic writers (ledger.ts, config.ts, publish/machines-cache.ts, update-check.ts, limits/store.ts) leave if interrupted. */
+const OWN_TEMP = /^(?:state|config|machines|cursor-fetch|update-check|limits)\.json\.[\d.]+\.tmp$/;
 /** Usage fetched from cursor.com, one file per account key (adapters/cursor/accounts.ts). It can be fetched again. */
 const CURSOR_ACCOUNT_FILE = /^cursor-account-[0-9a-f]{16}\.jsonl$/;
 const CURSOR_FILES = ['cursor-events.jsonl', 'cursor-import.jsonl'];
@@ -118,6 +127,11 @@ export async function runUninstall(options: UninstallOptions, overrides: Partial
   const config = options.purge ? await deps.readConfig() : {};
 
   let failed = 0;
+  // Before anything is deleted: the user's own status line is kept in the config a purge removes.
+  if ((await deps.removeClaudeLimits(options.dryRun)) !== 0) {
+    failed += 1;
+    console.error('Could not put the Claude Code status line back.');
+  }
   for (const agent of HOOK_AGENTS) {
     const code = await deps.removeHook(agent, options.dryRun);
     if (code !== 0) {
@@ -134,8 +148,8 @@ export async function runUninstall(options: UninstallOptions, overrides: Partial
     failed === 0
       ? options.dryRun
         ? 'Dry run: nothing was changed. The lines above show what uninstall would remove.'
-        : 'No tokengraph hook (Claude Code, Cursor, Codex, Gemini CLI) or hourly schedule is left on this machine.'
-      : `${failed} of 5 removals failed.`,
+        : 'No tokengraph hook (Claude Code, Cursor, Codex, Gemini CLI), Claude Code status line wrapper or hourly schedule is left on this machine.'
+      : `${failed} of 6 removals failed.`,
   );
 
   let purgeFailed = false;

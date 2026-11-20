@@ -15,13 +15,14 @@ export interface DeviceCode {
   interval: number;
 }
 
-export type DeviceFlowFailure = 'expired' | 'denied' | 'disabled' | 'failed';
+export type DeviceFlowFailure = 'expired' | 'denied' | 'disabled' | 'failed' | 'cancelled';
 
 const MESSAGES: Record<DeviceFlowFailure, string> = {
   expired: 'The code expired before it was approved. Run `tokengraph login` again.',
   denied: 'The request was cancelled on GitHub.',
   disabled: 'GitHub refused the device flow for this app. Please report this at https://github.com/altindalorcun/tokengraph/issues',
   failed: 'GitHub could not complete the login.',
+  cancelled: 'Login cancelled.',
 };
 
 export class DeviceFlowError extends Error {
@@ -44,6 +45,8 @@ export interface DeviceFlowDeps {
   clientId?: string;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** Stops waiting for the approval (the terminal view's Esc); polling then fails with reason `cancelled`. */
+  signal?: AbortSignal;
 }
 
 async function post(deps: DeviceFlowDeps, path: string, params: Record<string, string>): Promise<Record<string, unknown>> {
@@ -55,9 +58,10 @@ async function post(deps: DeviceFlowDeps, path: string, params: Record<string, s
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(params).toString(),
-      signal: AbortSignal.timeout(30_000),
+      signal: deps.signal ? AbortSignal.any([deps.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     });
   } catch (error) {
+    if (deps.signal?.aborted) throw new DeviceFlowError('cancelled');
     throw new DeviceFlowError('failed', error instanceof Error ? error.message : String(error), true);
   }
   try {
@@ -86,14 +90,30 @@ export async function requestDeviceCode(deps: DeviceFlowDeps = {}): Promise<Devi
   };
 }
 
+/** Waits `ms`, or less when `signal` aborts first. */
+function sleepUnlessAborted(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
+}
+
 export async function pollForToken(code: DeviceCode, deps: DeviceFlowDeps = {}): Promise<{ accessToken: string; scopes: string[] }> {
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const sleep = deps.sleep ?? ((ms: number) => sleepUnlessAborted(ms, deps.signal));
   const now = deps.now ?? Date.now;
   const deadline = now() + code.expiresIn * 1000;
   let interval = Math.max(1, code.interval);
   let networkFailures = 0;
+  const cancelled = (): boolean => deps.signal?.aborted === true;
   while (now() < deadline) {
+    if (cancelled()) throw new DeviceFlowError('cancelled');
     await sleep(interval * 1000);
+    if (cancelled()) throw new DeviceFlowError('cancelled');
     let body: Record<string, unknown>;
     try {
       body = await post(deps, '/login/oauth/access_token', {
@@ -108,6 +128,8 @@ export async function pollForToken(code: DeviceCode, deps: DeviceFlowDeps = {}):
     }
     networkFailures = 0;
     if (typeof body['access_token'] === 'string') {
+      // An Esc that came while the approval was on its way still cancels: nothing is stored after it.
+      if (cancelled()) throw new DeviceFlowError('cancelled');
       const scope = typeof body['scope'] === 'string' ? body['scope'] : '';
       return { accessToken: body['access_token'], scopes: scope.split(/[,\s]+/).filter(Boolean) };
     }

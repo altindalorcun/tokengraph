@@ -3,7 +3,10 @@ import { mkdir } from 'node:fs/promises';
 import { dateKey, type Theme } from '@tokengraph/core';
 import { binPath, cliVersion } from '../bin-path.js';
 import { collectLocal, defaultAdapters, noAgentsMessage } from '../collect-local.js';
+import { recordLimitHits } from '../limits/store.js';
+import { claudeWrapperOn, limitRows, readLimits } from './limits.js';
 import { readConfig } from '../config.js';
+import { editProjects } from './projects.js';
 import type { SetupStatus } from '../tui/actions.js';
 import { ledgerToUsage, mergeLedgerAccounts, mergeLedgerHours, mergeLedgerProjects, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
@@ -13,7 +16,9 @@ import { detectAutoSync } from '../tui/auto-sync.js';
 import { detectColorDepth, openTerminal } from '../tui/terminal.js';
 import { buildViewModel, shiftDate } from '../tui/model.js';
 import { renderSnapshot } from '../tui/print.js';
-import { runAction, waitForEnter } from '../tui/run-action.js';
+import { runAction, taskRun } from '../tui/run-action.js';
+import { startStorySession } from '../tui/story-session.js';
+import { startTaskSession } from '../tui/task-session.js';
 import { knownUpdate, refreshUpdateCheck } from '../update-check.js';
 
 export interface ViewOptions {
@@ -63,8 +68,9 @@ async function modeLabel(): Promise<string> {
 
 /** What the action list needs: the login and colours from the config, the Cursor fetch switch and the installed hooks. */
 async function setupStatus(): Promise<SetupStatus> {
-  const [config, autoSync] = await Promise.all([readConfig(), detectAutoSync()]);
+  const [config, autoSync, claudeLimits] = await Promise.all([readConfig(), detectAutoSync(), claudeWrapperOn()]);
   return {
+    claudeLimits,
     update: { current: cliVersion(), latest: await knownUpdate({ config }) },
     login: config.github?.login ?? null,
     autoSync,
@@ -74,8 +80,10 @@ async function setupStatus(): Promise<SetupStatus> {
 }
 
 /** Scans with sync's adapter set, so the view matches what sync records. */
-function scan(ledger: Ledger, since: Date, onProgress: Parameters<AppDeps['scan']>[2]) {
-  return collectLocal(ledger, since, { adapters: defaultAdapters(), onProgress });
+async function scan(ledger: Ledger, since: Date, onProgress: Parameters<AppDeps['scan']>[2]) {
+  const collected = await collectLocal(ledger, since, { adapters: defaultAdapters(), onProgress });
+  await recordLimitHits(collected.results);
+  return collected;
 }
 
 async function printSnapshot(options: ViewOptions): Promise<number> {
@@ -83,6 +91,7 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
   const collected = await collectLocal(await readLedger(ledgerPath()), new Date(`${shiftDate(today, -SCAN_DAYS)}T00:00:00`), {
     adapters: defaultAdapters(),
   });
+  await recordLimitHits(collected.results);
   const vm = buildViewModel(collected.ledger, today);
   if (vm.days.length === 0 && collected.detected.length === 0) {
     console.log(noAgentsMessage());
@@ -100,6 +109,8 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
     mode: await modeLabel(),
   });
   console.log(out);
+  const { views, wrapperOn } = await readLimits();
+  console.log(['', ' Plan limits', ...limitRows(views, wrapperOn).map((line) => ` ${line}`)].join('\n'));
   return 0;
 }
 
@@ -126,25 +137,29 @@ export async function runView(options: ViewOptions): Promise<number> {
     today: () => dateKey(new Date()),
     loadLedger: () => readLedger(ledgerPath()),
     projectNames: async () => (await readConfig()).projects?.names ?? {},
+    editProjects: (edit, ledger) => editProjects(edit, { ledger: async () => ledger }),
     scan,
     persist: persistLedger,
     modeLabel,
     autoSync: () => detectAutoSync(),
+    limits: () => readLimits(),
     setupStatus,
     checkForUpdate: () => refreshUpdateCheck(),
-    runAction: async (id, kind, status) => {
-      const result = await runAction(id, kind, status);
-      reopen ||= result.reopen === true;
-      return result;
-    },
-    waitForEnter,
-    write: (text) => void process.stdout.write(text),
+    runAction,
+    startTask: (id, status, emit) =>
+      startTaskSession(taskRun(id, status), (event) => {
+        // An update put a new version on disk: closing its box ends the view, and the new version starts below.
+        if (event.kind === 'done' && event.after === 'restart') reopen = true;
+        emit(event);
+      }),
+    startStory: (range, emit) => startStorySession(range, emit),
     setTimer: (fn, ms) => {
       const timer = setTimeout(fn, ms);
       return () => clearTimeout(timer);
     },
   });
-  // The bundle on disk is the new version now; this process still holds the old one.
+  // The bundle on disk is the new version now; this process still holds the old one. The view has given the
+  // terminal back by now, so the new version may take it over the same way.
   if (!reopen) return code;
   return spawnSync(process.execPath, [binPath(), ...process.argv.slice(2)], { stdio: 'inherit' }).status ?? 1;
 }

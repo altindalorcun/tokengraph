@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { binPath, cliVersion, isEphemeralInstall } from '../bin-path.js';
+import { forwardLines } from '../child-output.js';
 import { globalBinPath, installGlobally, npmGlobalRoot } from '../npm-global.js';
 import { askYesNo } from '../prompt.js';
 import { PROJECT_URL } from '../readme-snippet.js';
@@ -52,9 +53,14 @@ export interface OfferScheduleDeps {
   runInstalled: (bin: string, args: readonly string[]) => Promise<number>;
 }
 
-function runWithThisNode(bin: string, args: readonly string[]): Promise<number> {
+/** Runs `bin` with this Node; its output goes to this terminal, or line by line to `output` when given (the terminal view). */
+export function runWithThisNode(bin: string, args: readonly string[], output?: (line: string) => void): Promise<number> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [bin, ...args], { stdio: 'inherit', windowsHide: true });
+    const child = spawn(process.execPath, [bin, ...args], { stdio: output ? ['ignore', 'pipe', 'pipe'] : 'inherit', windowsHide: true });
+    if (output) {
+      forwardLines(child.stdout, output);
+      forwardLines(child.stderr, output);
+    }
     child.on('error', () => resolve(1));
     child.on('close', (code) => resolve(code ?? 1));
   });

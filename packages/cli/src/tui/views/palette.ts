@@ -1,12 +1,13 @@
 import { actionItems, cliCommand, type ActionId, type ActionItem } from '../actions.js';
 import type { AppState, TabKey } from '../app-state.js';
+import type { ProjectPanelKind } from '../project-panel.js';
 import { ScreenBuffer, type Rect } from '../screen.js';
 import type { TuiTheme } from '../theme.js';
 import { drawBox } from '../widgets/box.js';
 import { truncate } from './dates.js';
 import { blit } from './props.js';
 
-export type PaletteTarget = { action: ActionId } | { tab: TabKey } | { command: 'rescan' | 'colour' | 'today' | 'help' };
+export type PaletteTarget = { action: ActionId } | { tab: TabKey } | { project: ProjectPanelKind } | { command: 'rescan' | 'colour' | 'today' | 'help' };
 export interface PaletteEntry {
   title: string;
   section: string;
@@ -44,13 +45,19 @@ export function paletteEntries(state: AppState): PaletteEntry[] {
   const tabs = TAB_ENTRIES.map(
     ([tab, label, keywords], i): PaletteEntry => ({ title: `Go to ${label}`, section: 'Navigate', detail: `key ${i + 1}`, keywords, target: { tab } }),
   );
+  // On the Projects tab's selected project; from another tab, on its top project.
+  const projects: PaletteEntry[] = [
+    { title: 'Merge projects', section: 'Projects', detail: 'key m', keywords: 'combine join same folders', target: { project: 'merge' } },
+    { title: 'Rename a project', section: 'Projects', detail: 'key n', keywords: 'name', target: { project: 'rename' } },
+    { title: 'Split a project', section: 'Projects', detail: 'key x', keywords: 'separate unmerge folders', target: { project: 'split' } },
+  ];
   const commands: PaletteEntry[] = [
     { title: 'Rescan now', section: 'View', detail: 'key s', keywords: 'scan refresh reload', target: { command: 'rescan' } },
     { title: 'Switch colours', section: 'View', detail: 'key c', keywords: 'color theme single family', target: { command: 'colour' } },
     { title: 'Jump to today', section: 'View', detail: 'key t', keywords: 'date cursor now', target: { command: 'today' } },
     { title: 'Show keys', section: 'View', detail: 'key ?', keywords: 'help shortcuts keybindings', target: { command: 'help' } },
   ];
-  return [...actions, ...tabs, ...commands];
+  return [...actions, ...tabs, ...projects, ...commands];
 }
 
 function isSubsequence(query: string, text: string): boolean {

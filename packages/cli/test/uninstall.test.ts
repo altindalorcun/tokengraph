@@ -13,6 +13,7 @@ describe('tokengraph uninstall', () => {
   let data: string;
   let hooks: Array<[string, boolean]>;
   let schedules: boolean[];
+  let statusLines: boolean[];
   let removeFile: ReturnType<typeof vi.fn<(path: string) => Promise<void>>>;
   let removeEmptyDir: ReturnType<typeof vi.fn<(path: string) => Promise<void>>>;
 
@@ -24,6 +25,10 @@ describe('tokengraph uninstall', () => {
       },
       removeSchedule: async (dryRun) => {
         schedules.push(dryRun);
+        return 0;
+      },
+      removeClaudeLimits: async (dryRun) => {
+        statusLines.push(dryRun);
         return 0;
       },
       readConfig: async () => ({}),
@@ -43,6 +48,7 @@ describe('tokengraph uninstall', () => {
     err = '';
     hooks = [];
     schedules = [];
+    statusLines = [];
     root = await mkdtemp(join(tmpdir(), 'tokengraph-uninstall-'));
     home = join(root, 'home');
     data = join(home, '.tokengraph');
@@ -63,10 +69,11 @@ describe('tokengraph uninstall', () => {
     expect(await runUninstall({ purge: false, yes: false, dryRun: false }, deps())).toBe(0);
     expect(hooks).toEqual([['claude-code', false], ['cursor', false], ['codex', false], ['gemini-cli', false]]);
     expect(schedules).toEqual([false]);
+    expect(statusLines).toEqual([false]);
     expect(existsSync(data)).toBe(true);
     expect(out).toContain('To remove the program too: npm uninstall -g tokengraph');
     // The summary states the end state, never a removal that may not have happened.
-    expect(out).toContain('No tokengraph hook (Claude Code, Cursor, Codex, Gemini CLI) or hourly schedule is left on this machine.');
+    expect(out).toContain('No tokengraph hook (Claude Code, Cursor, Codex, Gemini CLI), Claude Code status line wrapper or hourly schedule is left on this machine.');
     expect(out).not.toContain('Removed the Claude Code');
   });
 
@@ -75,6 +82,7 @@ describe('tokengraph uninstall', () => {
     expect(hooks.every(([, dry]) => dry)).toBe(true);
     expect(hooks).toHaveLength(4);
     expect(schedules).toEqual([true]);
+    expect(statusLines).toEqual([true]);
     expect(removeFile).not.toHaveBeenCalled();
     expect(existsSync(data)).toBe(true);
     expect(out).toContain('cursor-events.jsonl');
@@ -117,7 +125,7 @@ describe('tokengraph uninstall', () => {
   });
 
   it('purge deletes the fetched Cursor account files and the fetch state, and keeps look-alikes', async () => {
-    const mine = ['cursor-account-0123456789abcdef.jsonl', 'cursor-fetch.json', 'update-check.json', 'update-check.json.123.tmp'];
+    const mine = ['cursor-account-0123456789abcdef.jsonl', 'cursor-fetch.json', 'update-check.json', 'update-check.json.123.tmp', 'limits.json', 'limits.json.123.456.tmp'];
     const notMine = ['cursor-account-xyz.jsonl', 'cursor-account-0123456789abcdef.jsonl.bak', 'notes.txt'];
     for (const name of [...mine, ...notMine]) await writeFile(join(data, name), '');
     expect(await runUninstall({ purge: true, yes: true, dryRun: false }, deps())).toBe(0);

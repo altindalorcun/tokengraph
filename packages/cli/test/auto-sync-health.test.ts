@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   commandPaths,
@@ -86,12 +87,42 @@ describe('inspectAutoSync', () => {
       }),
     );
     expect(health.cursorHook).toEqual({ installed: true, missing: [oldNode] });
-    expect(health.codexNotify).toEqual({ installed: true, missing: ['/gone/tokengraph/bundle/bin.js'] });
+    expect(health.codexNotify).toEqual({ installed: true, detail: 'notify', missing: ['/gone/tokengraph/bundle/bin.js'] });
   });
 
   it('is unknown, not failing, for unreadable files and unsupported platforms', async () => {
     const health = await inspectAutoSync(deps({ '/home/me/.claude/settings.json': '{nope' }, { platform: 'win32' }));
     expect(health.claudeHook.installed).toBeNull();
     expect(health.schedule.installed).toBeNull();
+  });
+});
+
+describe('inspectAutoSync for the Codex hook', () => {
+  const FOREIGN = 'notify = ["/Apps/Codex Computer Use.app/SkyComputerUseClient", "turn-ended"]\n';
+  const hooks = (node: string) =>
+    JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `"${node}" "${BIN}" hook-sync --min-interval 600`, timeout: 30 }] }] } });
+
+  it('reports the Stop hook, whether Codex approved it, and its missing paths', async () => {
+    const pending = await inspectAutoSync(deps({ '/home/me/.codex/config.toml': FOREIGN, '/home/me/.codex/hooks.json': hooks(NODE), [NODE]: '', [BIN]: '' }));
+    expect(pending.codexNotify).toEqual({
+      installed: true,
+      detail: 'Stop hook in hooks.json, not trusted in Codex yet, so it does not run',
+      next: 'tokengraph install-hook --agent codex  (shows the steps)',
+      missing: [],
+    });
+    const approved = await inspectAutoSync(
+      deps({
+        '/home/me/.codex/config.toml': `${FOREIGN}[hooks.state.${JSON.stringify(`${join('/home/me/.codex', 'hooks.json')}:stop:0:0`)}]\ntrusted_hash = "sha256:1"\n`,
+        '/home/me/.codex/hooks.json': hooks('/gone/node'),
+        [BIN]: '',
+      }),
+    );
+    expect(approved.codexNotify).toEqual({ installed: true, detail: 'Stop hook in hooks.json', missing: ['/gone/node'] });
+  });
+
+  it('explains why nothing can be installed when notify is taken and hooks are off', async () => {
+    const health = await inspectAutoSync(deps({ '/home/me/.codex/config.toml': `${FOREIGN}[features]\nhooks = false\n` }));
+    expect(health.codexNotify.installed).toBe(false);
+    expect(health.codexNotify.detail).toMatch(/^cannot install: notify is taken and hooks are turned off/);
   });
 });

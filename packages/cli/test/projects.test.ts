@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolve } from 'node:path';
 import type { ProjectUsage } from '@tokengraph/core';
-import { parseProjectsArgs, runProjects, runProjectsName, runProjectsShow, type ProjectsDeps } from '../src/commands/projects.js';
+import { editProjects, parseProjectsArgs, runProjects, runProjectsMerge, runProjectsName, runProjectsShow, runProjectsSplit, type ProjectsDeps } from '../src/commands/projects.js';
 import type { CliConfig } from '../src/config.js';
 import { emptyLedger, mergeProjectRoots, mergeProjects, mergeUsage, type Ledger } from '../src/ledger.js';
 import { normaliseFolder } from '../src/project-roots.js';
@@ -128,7 +128,8 @@ describe('tokengraph projects', () => {
     it('stores root → name, and two roots with one name merge', async () => {
       expect(await runProjectsName('site', 'tokengraph', deps())).toBe(0);
       expect(await runProjectsName('code/cli', 'tokengraph', deps())).toBe(0);
-      expect(config.projects?.names).toEqual({ [`${HOME}/code/site`]: 'tokengraph', [`${HOME}/code/cli`]: 'tokengraph' });
+      // other/cli keeps its name: with code/cli named, it would otherwise be plain cli.
+      expect(config.projects?.names).toEqual({ [`${HOME}/code/site`]: 'tokengraph', [`${HOME}/code/cli`]: 'tokengraph', [`${HOME}/other/cli`]: 'other/cli' });
       out = [];
       await runProjects({ range: '30d', json: true }, deps());
       expect((JSON.parse(text()) as { projects: { name: string; weightedTokens: number }[] }).projects[0]).toMatchObject({ name: 'tokengraph', weightedTokens: 800 });
@@ -136,7 +137,12 @@ describe('tokengraph projects', () => {
 
     it('takes a folder path, relative to where it runs, and finds its project', async () => {
       expect(await runProjectsName('./cli/src', 'tokengraph', deps())).toBe(0);
-      expect(config.projects?.names).toEqual({ [`${HOME}/code/cli`]: 'tokengraph' });
+      expect(config.projects?.names).toEqual({ [`${HOME}/code/cli`]: 'tokengraph', [`${HOME}/other/cli`]: 'other/cli' });
+    });
+
+    it('naming a project like another one merges them for good, and moves no other name', async () => {
+      expect(await runProjectsName('site', 'other/cli', deps())).toBe(0);
+      expect(config.projects?.names).toEqual({ [`${HOME}/code/site`]: 'other/cli', [`${HOME}/other/cli`]: 'other/cli', [`${HOME}/code/cli`]: 'code/cli' });
     });
 
     it('renames every root of a project that already has several', async () => {
@@ -191,6 +197,75 @@ describe('tokengraph projects', () => {
     });
   });
 
+  describe('merge and split', () => {
+    const projects = async (): Promise<[string, number][]> => {
+      out = [];
+      await runProjects({ range: '30d', json: true }, deps());
+      return (JSON.parse(text()) as { projects: { name: string; weightedTokens: number }[] }).projects.map((p) => [p.name, p.weightedTokens]);
+    };
+
+    it('merge gives both projects the second name, and split takes it off again', async () => {
+      expect(await runProjectsMerge('site', 'code/cli', deps())).toBe(0);
+      expect(text()).toBe('Merged "site" into "code/cli".');
+      // The other cli folder keeps its name rather than become plain cli.
+      expect(config.projects?.names).toEqual({ [`${HOME}/code/cli`]: 'code/cli', [`${HOME}/code/site`]: 'code/cli', [`${HOME}/other/cli`]: 'other/cli' });
+      expect(await projects()).toEqual([['code/cli', 800], ['other/cli', 50], ['Not assigned', 150]]);
+
+      out = [];
+      expect(await runProjectsSplit('code/cli', deps())).toBe(0);
+      expect(text()).toBe('Split "code/cli" into "cli", "site".');
+      expect(config.projects?.names).toEqual({ [`${HOME}/other/cli`]: 'other/cli' });
+      expect(await projects()).toEqual([['cli', 600], ['site', 200], ['other/cli', 50], ['Not assigned', 150]]);
+    });
+
+    it('reads a folder or the last part of a path, like `projects name`', async () => {
+      expect(await runProjectsMerge('./site', 'other/cli', deps())).toBe(0);
+      expect(config.projects?.names).toEqual({ [`${HOME}/code/site`]: 'other/cli', [`${HOME}/other/cli`]: 'other/cli', [`${HOME}/code/cli`]: 'code/cli' });
+    });
+
+    it('splits only by exact name or folder path, never by the last part of a path', async () => {
+      config = { projects: { names: { [`${HOME}/code/cli`]: 'tg', [`${HOME}/code/site`]: 'tg' } } };
+      const save = vi.fn(async () => {});
+      expect(await runProjectsSplit('site', deps({ saveConfig: save }))).toBe(1);
+      expect(err.join('\n')).toContain('No project named "site". Give a project\'s exact name');
+      expect(save).not.toHaveBeenCalled();
+      expect(await runProjectsSplit('./site', deps())).toBe(0);
+      // other/cli showed as cli while code/cli had a name, and keeps it.
+      expect(config.projects?.names).toEqual({ [`${HOME}/other/cli`]: 'cli' });
+    });
+
+    it('keeps names set elsewhere in the config', async () => {
+      config = { machineId: '11111111-2222-3333-4444-555555555555', projects: { names: { '/elsewhere': 'kept' } } };
+      expect(await runProjectsMerge('site', 'other/cli', deps())).toBe(0);
+      expect(config.machineId).toBe('11111111-2222-3333-4444-555555555555');
+      expect(config.projects?.names?.['/elsewhere']).toBe('kept');
+    });
+
+    it('refuses an ambiguous or unknown target, Not assigned, itself and a one-folder split, and writes nothing', async () => {
+      const save = vi.fn(async () => {});
+      expect(await runProjectsMerge('cli', 'site', deps({ saveConfig: save }))).toBe(1);
+      expect(err.join('\n')).toContain('fits several projects');
+      expect(await runProjectsMerge('site', 'nope', deps({ saveConfig: save }))).toBe(1);
+      expect(err.join('\n')).toContain('No recorded usage for "nope"');
+      expect(await runProjectsMerge('Not assigned', 'site', deps({ saveConfig: save }))).toBe(1);
+      expect(await runProjectsMerge('site', 'site', deps({ saveConfig: save }))).toBe(1);
+      expect(err.join('\n')).toContain('cannot be merged with itself');
+      expect(await runProjectsSplit('./site', deps({ saveConfig: save }))).toBe(1);
+      expect(err.join('\n')).toContain('nothing to split');
+      expect(save).not.toHaveBeenCalled();
+    });
+
+    it('editProjects takes exact names, re-reads the config and reports the outcome without printing', async () => {
+      config = { projects: { names: { [`${HOME}/code/site`]: 'web' } } };
+      const result = await editProjects({ projects: 'rename', project: 'web', name: 'site' }, deps());
+      expect(result).toEqual({ ok: true, names: { [`${HOME}/code/site`]: 'site' }, message: 'Renamed "web" to "site".', select: 'site' });
+      expect(config.projects?.names).toEqual({ [`${HOME}/code/site`]: 'site' });
+      expect(await editProjects({ projects: 'merge', project: 'site', into: 'gone' }, deps())).toEqual({ ok: false, error: 'No project named "gone".' });
+      expect(out).toEqual([]);
+      expect(err).toEqual([]);
+    });
+  });
+
   describe('parseProjectsArgs', () => {
     it('defaults to a 30-day list', () => {
       expect(parseProjectsArgs({}, [])).toEqual({ action: 'list', range: '30d', json: false });
@@ -202,8 +277,13 @@ describe('tokengraph projects', () => {
       expect(parseProjectsArgs({ reset: true }, ['name', 'cli'])).toEqual({ action: 'name', target: 'cli', name: null });
     });
 
+    it('reads merge and split', () => {
+      expect(parseProjectsArgs({}, ['merge', 'cli', 'tokengraph'])).toEqual({ action: 'merge', project: 'cli', into: 'tokengraph' });
+      expect(parseProjectsArgs({}, ['split', 'tokengraph'])).toEqual({ action: 'split', project: 'tokengraph' });
+    });
+
     it('rejects anything else', () => {
-      for (const [values, positionals] of [[{ range: '5d' }, []], [{}, ['bogus']], [{}, ['show']], [{}, ['name', 'x']], [{ reset: true }, ['name', 'x', 'y']], [{}, ['show', 'x', 'y']]] as const) {
+      for (const [values, positionals] of [[{ range: '5d' }, []], [{}, ['bogus']], [{}, ['show']], [{}, ['name', 'x']], [{ reset: true }, ['name', 'x', 'y']], [{}, ['show', 'x', 'y']], [{}, ['merge', 'x']], [{}, ['merge', 'x', 'y', 'z']], [{ reset: true }, ['merge', 'x', 'y']], [{}, ['split']], [{}, ['split', 'x', 'y']]] as const) {
         expect(typeof parseProjectsArgs(values, [...positionals])).toBe('string');
       }
     });

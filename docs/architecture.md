@@ -32,7 +32,8 @@ mode 0600), `state.json` (the ledger, including the local-only hour tables), `ma
 machines' files from the last publish) and, for Cursor, `cursor-events.jsonl`, `cursor-import.jsonl`
 (rows imported from a dashboard CSV by `tokengraph import cursor`), `cursor-account-<accountKey>.jsonl`
 (rows fetched from cursor.com, one file per account) and `cursor-fetch.json` (last attempt, back-off, how
-far each account is covered; no secrets). None of the Cursor usage files is ever pruned.
+far each account is covered; no secrets). None of the Cursor usage files is ever pruned. `limits.json`
+holds the Claude Code limit readings (see Plan limits below); local only.
 
 ## Data flow
 
@@ -143,10 +144,80 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
   leave a strip between lines that only the background fills.
 - It always stops: on Ctrl+C, 30 seconds after every card has been saved, or after 10 idle minutes.
 
+In the view, Make story cards does not hand the terminal to the command. It opens a box
+(`src/tui/story-panel.ts`, drawn by `views/story.ts`) that asks for the period, then runs
+`src/tui/story-session.ts`: the same drawing, saving and server code as `tokengraph story`
+(`renderStoryCards`, `writeStoryCards`, `storyOutDir` in `commands/story.ts`), reporting through
+events instead of stdout. The code is drawn into the frame in black and white whatever the theme;
+when the window is too small for it, the box asks for a bigger one and prints the address. S saves,
+Esc (or Ctrl+C) stops the server and closes the box. While the box is open it counts as a running
+action, so the view's scans wait until it closes.
+
+No other action leaves the view either. Toggles (hooks, the hourly sync, the Cursor fetch) run behind it
+and report with a toast. Everything else (sync, login, logout, the README snippet, graph colours, the
+Cursor fetch and import, the exports, status, uninstall and update) runs in the task box
+(`src/tui/task-panel.ts` for its state and keys, `views/task.ts` to draw it, `src/tui/task-session.ts`
+to run the command, `taskRun` in `run-action.ts` for what each action calls). The command is the same
+code the CLI runs; while it runs, the session points three module-level hooks at the box and puts them
+back when it ends:
+
+- `console.*` is replaced, so every line reaches the box as it is printed, with colours, cursor moves,
+  `\r` redraws and other control characters stripped (`cleanLine`).
+- `setPromptHandler` in `prompt.ts` sends `askYesNo`, `askText` and `askChoice` to the box (a y/n
+  question, an editable line, a list), however deep in a command they are asked. Esc answers as cancel.
+- `setSpinnerRedirect` in `spinner.ts` turns the spinner of a sync (also inside login and graph colours)
+  into the box's busy line instead of frames on stderr.
+
+Nothing in those code paths writes to `process.stdout` or `process.stderr` itself (`export --out`
+reports through the console), and child processes they start (`npm install -g` for update and for the
+install login may offer, the installed copy's `schedule`) get piped output that is forwarded to the box
+line by line (`child-output.ts`), never the terminal. Output is narrowed to one column per character
+(`text-width.ts`: wide characters get a stand-in, combining marks fold or go), because the screen buffer
+holds one character per cell and a two-column one would push the border out of line. While the box is
+open it takes every key. Before the command has started (it waits for a scan or ledger write in flight)
+Esc closes the box. Esc stops a running command only where stopping is safe (login while it waits for
+GitHub's approval, through an `AbortSignal` into `pollForToken`, which also refuses a token that arrives
+after the abort); elsewhere the box says it cannot stop halfway. One Ctrl+C never quits mid-command, but a
+second within two seconds does (exit 130), so a command that hangs can always be left; the session's
+overrides are put back and the terminal restored. An Enter, y, n or digit within 150 ms of a question
+opening was typed for the previous one and is ignored. When the command ends the box shows Done, Failed
+or (after a cancel) Cancelled, and stays until Enter or Esc. Closing it
+reloads the ledger, the mode, the hooks and the config and restarts the scans; after an update that
+installed a new version it ends the view so `commands/view.ts` starts the new one, and after an
+uninstall that deleted the data it ends the view, since a rescan would write a new ledger.
+
+## Plan limits
+
+`tokengraph limits`, `status`, the Overview tab and `limits --json` show how much of each Claude Code and
+Codex plan limit window is used (terms in [GLOSSARY.md](../GLOSSARY.md)). Only what the agents report is
+shown; nothing is estimated from token counts.
+
+- **Codex** writes its readings into every `token_count` event of its rollouts. `src/limits/codex.ts` reads
+  the 8 most recently modified rollout files on demand and keeps the newest reading per `limit_id`
+  (`docs/agents/codex-usage.md`). Nothing is stored.
+- **Claude Code** passes its five-hour and seven-day readings only to its `statusLine` command
+  ([ADR 0001](adr/0001-claude-limits-via-statusline.md)). `tokengraph limits on` (or the Setup toggle) stores
+  the user's `statusLine` object whole in `config.json` (`claudeStatusline.previous`) and installs the hidden
+  `statusline` command (`claude-statusline.ts`, `commands/statusline.ts`). It saves the reading to
+  `limits.json` (atomic, only on change, every error silent) and runs the previous command through the shell
+  with the same stdin, passing its stdout and exit code through. It prints nothing of its own, never writes
+  to stderr, never chains to itself and runs no adapter or ledger code. `limits off` and `uninstall` write the
+  previous object back exactly, and leave a `statusLine` that is no longer ours alone.
+- **Limit hits**: a transcript record with `apiErrorParams.rate_limit_info` (`status: "rejected"`) is a
+  100% reading of that window at its timestamp. The Claude Code aggregator returns the newest per window in
+  `CollectResult.limits`; `sync` and the view store it when it is newer than the stored window.
+- `limitViews` in core turns readings and the current time into what every surface shows: labels (`5h`,
+  `7d`, `30d`), a level (good below 70%, warn from 70%, bad from 90%), the age, and `reset` once `resetsAt`
+  has passed, when the share is shown as unknown, never as 0%.
+- `limits --json` (schema 1, fields only ever added) adds today's weighted tokens and cost from the ledger.
+  It runs no adapter, so a menu bar can poll it.
+
 ## What never leaves the machine
 
 - Prompts, answers, code, file names and paths are never read or stored. Adapters read counters and
   model names only.
+- Plan limit readings stay in `limits.json` and memory. They never go into a machine file or a gist, and
+  reading them makes no network call.
 - Nothing is sent to a tokengraph server, because there is none. The CLI talks only to GitHub
   (`api.github.com`, `github.com`, `gist.githubusercontent.com`) for the logged-in user and, while
   the Cursor fetch is on (the default once Cursor is signed in; `tokengraph cursor off`), to
@@ -162,6 +233,16 @@ After the cards are saved, `story` can serve them to a phone on the same Wi-Fi.
   when reading (`project-usage.ts`): folder to git root (`project-roots.ts`, which reads `.git` and never starts `git`),
   root to name, and roots with one name are one project. Names live in `config.json`. Usage with no known folder, and
   anything the folders do not reach, is the Not assigned row, so projects always add up to the view's total.
+- A name made up from a folder never equals a name the user gave (it moves on to `parent/folder`, then a hash), so a
+  new folder cannot join a named project by chance. Merging, renaming and splitting projects only rewrite the user's
+  names (`project-names.ts`, pure): a merge gives every root of both projects one name, a split removes the names of a
+  project's roots. `settleNames` keeps every other project where it is: a name another project shows is written to its
+  roots too, and a root whose made-up name would change gets its current one. It also ranks the projects a merge is
+  likely to want (same name once case, separators and parts like `-cli` are ignored; a parent folder named like the
+  other; one name inside the other; folders side by side in a small folder that is not right under home). `projects merge|split` and the view's Projects tab share
+  it through `editProjects` in `commands/projects.ts`, which reads the config right before it writes it. In the view,
+  m, n and x open a box (`src/tui/project-panel.ts`, drawn by `views/project-panel.ts`); applying an edit holds the
+  view like an action: a scan in flight finishes first, the names are read again, and only then do scans resume.
 - The view, and only the view, asks `registry.npmjs.org/tokengraph/latest` for the latest version, at most once a day and
   in the background (`update-check.ts`). The answer is kept in `update-check.json`. A failure is silent, nothing ever
   waits for it, and other commands only read that file. `tokengraph update off`, `TOKENGRAPH_NO_UPDATE_CHECK`,
@@ -215,10 +296,10 @@ Code's roots also include Claude Desktop's Code and Cowork session folders (`ada
 
 ## Background syncs
 
-`install-hook` makes an agent (Claude Code, Cursor, Codex, Gemini CLI) run the hidden `hook-sync` command (Gemini: a `SessionEnd` entry in `<GEMINI_CLI_HOME or home>/.gemini/settings.json`, foreign hooks and keys kept, `docs/agents/gemini-cli-usage.md`), which only spawns a detached
+`install-hook` makes an agent (Claude Code, Cursor, Codex, Gemini CLI) run the hidden `hook-sync` command (Gemini: a `SessionEnd` entry in `<GEMINI_CLI_HOME or home>/.gemini/settings.json`, foreign hooks and keys kept, `docs/agents/gemini-cli-usage.md`) (Codex: its single `notify` when free, otherwise a `Stop` entry in `$CODEX_HOME/hooks.json` that Codex runs once the user trusts it (a startup prompt, or `/hooks`); never another program's `notify`, nothing written when Codex hooks are off or Codex is too old, `docs/agents/codex-usage.md`), which only spawns a detached
 `sync`, so the hook returns instantly. `schedule` installs an hourly `sync --since 30` (launchd,
 cron or Task Scheduler). Both take `~/.tokengraph/sync.lock`, so two syncs never run at once, and
-`status` checks that the installed commands still point at an existing node and script. `status` also reports the log-retention policy of Claude Code, Gemini CLI and Qwen Code (`--json` for scripts). `uninstall` removes the hooks and the schedule; `--purge` also deletes only tokengraph's own files in the state folder (anything else there is kept), never the user's gists or the agents' logs.
+`status` checks that the installed commands still point at an existing node and script. `status` also reports the log-retention policy of Claude Code, Gemini CLI and Qwen Code (`--json` for scripts). `uninstall` removes the hooks and the schedule, and puts back the Claude Code status line if `limits on` wrapped it; `--purge` also deletes only tokengraph's own files in the state folder (anything else there is kept), never the user's gists or the agents' logs.
 
 ## Invariants
 

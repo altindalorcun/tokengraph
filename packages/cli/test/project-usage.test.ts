@@ -53,6 +53,18 @@ describe('projectDisplayNames', () => {
     expect(names([HOME, '/'])).toEqual({ [HOME]: 'Home folder', '/': 'Home folder' });
   });
 
+  it('never makes up a name the user gave another folder', () => {
+    const user = { [`${HOME}/a/site`]: 'cli', [`${HOME}/x/y/z`]: 'b/web' };
+    expect(names([`${HOME}/a/site`, `${HOME}/b/cli`, `${HOME}/x/y/z`, `${HOME}/b/web`, `${HOME}/c/b/web`], user)).toEqual({
+      [`${HOME}/a/site`]: 'cli',
+      [`${HOME}/b/cli`]: 'b/cli',
+      [`${HOME}/x/y/z`]: 'b/web',
+      // Both are web, then both b/web, which the user gave another folder.
+      [`${HOME}/b/web`]: expect.stringMatching(/^web-[0-9a-f]{4}$/),
+      [`${HOME}/c/b/web`]: expect.stringMatching(/^web-[0-9a-f]{4}$/),
+    });
+  });
+
   it('lets a name set by the user win', () => {
     expect(names([`${HOME}/a/cli`], { [`${HOME}/a/cli`]: 'tokengraph' })).toEqual({ [`${HOME}/a/cli`]: 'tokengraph' });
   });

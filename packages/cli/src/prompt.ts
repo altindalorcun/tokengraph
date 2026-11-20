@@ -6,11 +6,31 @@ export interface PromptIO {
 }
 
 /**
+ * Answers the prompts somewhere other than the terminal: the terminal view's task box sets one while it runs a
+ * command, so a question asked deep inside a command (login's gh account, update's confirmation) reaches the box
+ * without every caller passing it down. Prompts given their own `io` (tests) never use it.
+ */
+export interface PromptHandler {
+  yesNo(question: string, defaultYes: boolean): Promise<boolean>;
+  text(question: string): Promise<string>;
+  /** null when the person cancels. */
+  choice(question: string, choices: readonly string[], defaultIndex: number): Promise<number | null>;
+}
+
+let handler: PromptHandler | null = null;
+
+/** Routes every prompt without its own `io` to `next` until it is set back to null. */
+export function setPromptHandler(next: PromptHandler | null): void {
+  handler = next;
+}
+
+/**
  * A [Y/n] question. Without a terminal it never waits: it returns the default. In a terminal, closing the
  * prompt without an answer (Ctrl+D, Ctrl+C) means no: an abort must never start a server or install a schedule.
  */
 export async function askYesNo(question: string, options: { defaultYes?: boolean; io?: PromptIO } = {}): Promise<boolean> {
   const defaultYes = options.defaultYes ?? true;
+  if (!options.io && handler) return handler.yesNo(question, defaultYes);
   const io = options.io ?? { input: process.stdin, output: process.stdout };
   if (!io.input.isTTY) return defaultYes;
   const rl = createInterface({ input: io.input, output: io.output });
@@ -29,6 +49,7 @@ export async function askYesNo(question: string, options: { defaultYes?: boolean
 
 /** One line of free text, trimmed. Without a terminal, or when the prompt is closed without an answer, it returns ''. */
 export async function askText(question: string, options: { io?: PromptIO } = {}): Promise<string> {
+  if (!options.io && handler) return (await handler.text(question)).trim();
   const io = options.io ?? { input: process.stdin, output: process.stdout };
   if (!io.input.isTTY) return '';
   const rl = createInterface({ input: io.input, output: io.output });
@@ -51,6 +72,7 @@ export async function askChoice(
   options: { defaultIndex?: number; io?: PromptIO } = {},
 ): Promise<number | null> {
   const defaultIndex = options.defaultIndex ?? 0;
+  if (!options.io && handler) return handler.choice(question, choices, defaultIndex);
   const io = options.io ?? { input: process.stdin, output: process.stdout };
   if (!io.input.isTTY) return defaultIndex;
   const rl = createInterface({ input: io.input, output: io.output });

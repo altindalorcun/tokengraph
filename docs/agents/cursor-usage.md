@@ -894,6 +894,10 @@ field is only the sum of input + output, cache not included.
 - Max mode's +20% surcharge and the Teams/Enterprise Cursor Token Rate (+$0.25 per million third-party tokens)
   are not modelled; the estimate is the vendor list price (see "Pricing" above).
 
+## Plan limits
+
+Not read yet. Cursor's plan limits (included requests or spend per billing month) are not in the local data or the usage export tokengraph reads; they would need another call to cursor.com, which tokengraph does not make.
+
 ## Sources
 
 - [Cursor forum: token usage per request (hooks)](https://forum.cursor.com/t/how-to-obtain-token-usage-per-request/168317)

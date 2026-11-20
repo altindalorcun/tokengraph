@@ -37,11 +37,15 @@ function tail(root: string, segments: number): string {
   return root.split('/').filter(Boolean).slice(-segments).join('/');
 }
 
-/** root → the name people see. A user's name wins; roots that end up with one name are one project. */
+/**
+ * root → the name people see. A user's name wins; roots that end up with one name are one project. A made-up name never
+ * equals a user's name, so a new folder called `cli` cannot join a project the user named `cli` by chance.
+ */
 export function projectDisplayNames(roots: Iterable<string>, names: Readonly<Record<string, string>>, home: string): Map<string, string> {
   const homeFolder = normaliseFolder(home);
   const result = new Map<string, string>();
   const unnamed: string[] = [];
+  const taken = new Set(Object.values(names).map(cleanProjectName).filter((name) => name !== ''));
   for (const root of new Set(roots)) {
     const own = names[root] === undefined ? '' : cleanProjectName(names[root]);
     if (own !== '') result.set(root, own);
@@ -56,7 +60,7 @@ export function projectDisplayNames(roots: Iterable<string>, names: Readonly<Rec
     for (const [, name] of spelled) counts.set(name, (counts.get(name) ?? 0) + 1);
     const next: string[] = [];
     for (const [root, name] of spelled) {
-      if (counts.get(name)! > 1 || name === NOT_ASSIGNED) next.push(root);
+      if (counts.get(name)! > 1 || name === NOT_ASSIGNED || taken.has(name)) next.push(root);
       else result.set(root, name);
     }
     pending = next;
@@ -108,6 +112,14 @@ function rowKey(source: string, date: string, model: string, tier: string): stri
   return `${source}\0${date}\0${model}\0${tier}`;
 }
 
+/** Every project root the ledger has usage for: each recorded folder through its stored root. */
+export function ledgerProjectRoots(ledger: Ledger): string[] {
+  const storedRoots = ledger.projects?.roots ?? {};
+  const roots = new Set<string>();
+  for (const source of KNOWN_SOURCES) for (const row of projectUsageRows(ledger, source)) roots.add(storedRoots[row.folder] ?? row.folder);
+  return [...roots];
+}
+
 /**
  * Splits every combined total of the ledger between projects. The totals come from `allLedgerUsage`, so Cursor's account
  * rule stays in one place. Folders take from a total largest first and can never exceed it, so projects plus Not assigned
@@ -122,6 +134,7 @@ export function projectRows(ledger: Ledger, names: Readonly<Record<string, strin
       pending.set(key, [...(pending.get(key) ?? []), { root: storedRoots[row.folder] ?? row.folder, counts: row.counts }]);
     }
   }
+  // The same roots as `ledgerProjectRoots`, so an edit planned with that list names them as this does.
   const display = projectDisplayNames([...pending.values()].flat().map((entry) => entry.root), names, home);
 
   const rows: ProjectRow[] = [];
