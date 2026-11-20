@@ -112,7 +112,7 @@ describe('inspectAutoSync for the Codex hook', () => {
     });
     const approved = await inspectAutoSync(
       deps({
-        '/home/me/.codex/config.toml': `${FOREIGN}[hooks.state."${join('/home/me/.codex', 'hooks.json')}:stop:0:0"]\ntrusted_hash = "sha256:1"\n`,
+        '/home/me/.codex/config.toml': `${FOREIGN}[hooks.state.${JSON.stringify(`${join('/home/me/.codex', 'hooks.json')}:stop:0:0`)}]\ntrusted_hash = "sha256:1"\n`,
         '/home/me/.codex/hooks.json': hooks('/gone/node'),
         [BIN]: '',
       }),

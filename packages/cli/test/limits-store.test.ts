@@ -75,7 +75,7 @@ describe('storeClaudeReading', () => {
     const reading = claude('2026-11-19T10:00:00Z', { five_hour: 40 });
     expect(await storeClaudeReading(reading, path)).toBe(true);
     expect((await readLimitsFile(path)).claudeCode).toEqual(reading);
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 
   it('does not write when nothing changed', async () => {

@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { crontabOutput, detectAutoSync } from '../../src/tui/auto-sync.js';
 
@@ -81,7 +82,7 @@ describe('detectAutoSync for Codex', () => {
   const FOREIGN = 'notify = ["/Applications/Codex Computer Use.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]\n';
   const OUR_HOOK = `"${NODE}" "${BIN}" hook-sync --min-interval 600`;
   const hooksJson = (command = OUR_HOOK) => JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command, timeout: 30 }] }] } });
-  const approval = '[hooks.state]\n\n[hooks.state."/home/me/.codex/hooks.json:stop:0:0"]\ntrusted_hash = "sha256:abc"\n';
+  const approval = `[hooks.state]\n\n[hooks.state.${JSON.stringify(`${join('/home/me/.codex', 'hooks.json')}:stop:0:0`)}]\ntrusted_hash = "sha256:abc"\n`;
 
   it('counts our notify as installed', async () => {
     const status = await detectAutoSync(deps({ '/home/me/.codex/config.toml': OUR_NOTIFY }));

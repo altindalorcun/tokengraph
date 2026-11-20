@@ -1,7 +1,7 @@
 import { runLimits } from '../commands/limits.js';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { posix, resolve, win32 } from 'node:path';
 import { format } from 'node:util';
 import { cliVersion } from '../bin-path.js';
 import { runCursor, runCursorFetchNow } from '../commands/cursor.js';
@@ -68,7 +68,7 @@ export function cleanPathInput(input: string, home: string = homedir(), platform
   // On Windows a backslash separates folders; elsewhere it only escapes the next character.
   else if (platform !== 'win32') path = path.replace(/\\(.)/g, '$1');
   if (path === '~') return home;
-  if (path.startsWith('~/')) return resolve(home, path.slice(2));
+  if (path.startsWith('~/')) return (platform === 'win32' ? win32 : posix).resolve(home, path.slice(2));
   return path;
 }
 

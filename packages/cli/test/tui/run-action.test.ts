@@ -40,6 +40,10 @@ describe('cleanPathInput', () => {
     expect(cleanPathInput('~/Downloads/usage.csv', '/home/me', 'linux')).toBe('/home/me/Downloads/usage.csv');
     expect(cleanPathInput('C:\\Users\\me\\usage.csv', 'C:\\Users\\me', 'win32')).toBe('C:\\Users\\me\\usage.csv');
   });
+
+  it('expands ~ with the given platform\'s paths, not the host\'s', () => {
+    expect(cleanPathInput('~/Downloads/usage.csv', 'C:\\Users\\me', 'win32')).toBe('C:\\Users\\me\\Downloads\\usage.csv');
+  });
 });
 
 describe('the Codex hook action', () => {

@@ -130,11 +130,11 @@ describe('install-hook --agent codex', () => {
 
     it('says it is done once Codex trusts it, and how to turn it back on when it is off', async () => {
       await runInstallHook(options(), modern);
-      await writeFile(codexConfigPath(), `${config}\n[hooks.state."${codexHooksPath()}:stop:0:0"]\ntrusted_hash = "sha256:ab"\n`);
+      await writeFile(codexConfigPath(), `${config}\n[hooks.state.${JSON.stringify(`${codexHooksPath()}:stop:0:0`)}]\ntrusted_hash = "sha256:ab"\n`);
       log.mockClear();
       expect(await runInstallHook(options(), modern)).toBe(0);
       expect(output()).toBe('The tokengraph Codex hook is already installed (Stop), and Codex trusts it.');
-      await writeFile(codexConfigPath(), `${config}\n[hooks.state."${codexHooksPath()}:stop:0:0"]\nenabled = false\ntrusted_hash = "sha256:ab"\n`);
+      await writeFile(codexConfigPath(), `${config}\n[hooks.state.${JSON.stringify(`${codexHooksPath()}:stop:0:0`)}]\nenabled = false\ntrusted_hash = "sha256:ab"\n`);
       log.mockClear();
       expect(await runInstallHook(options(), modern)).toBe(0);
       expect(output()).toContain('turned off in Codex');
@@ -209,7 +209,7 @@ describe('install-hook --agent codex', () => {
 
       // Approved in Codex: the approval goes too, and config.toml is as it was.
       await runInstallHook(options(), modern);
-      await writeFile(codexConfigPath(), `${config}\n[hooks.state]\n\n[hooks.state."${codexHooksPath()}:stop:0:0"]\ntrusted_hash = "sha256:ab"\n`);
+      await writeFile(codexConfigPath(), `${config}\n[hooks.state]\n\n[hooks.state.${JSON.stringify(`${codexHooksPath()}:stop:0:0`)}]\ntrusted_hash = "sha256:ab"\n`);
       expect(await runInstallHook(options({ remove: true }), modern)).toBe(0);
       expect(await readFile(codexConfigPath(), 'utf8')).toBe(config);
       await expect(stat(codexHooksPath())).rejects.toThrow();
