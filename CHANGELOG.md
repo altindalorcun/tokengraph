@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-26
 
 - **The terminal view shows all your machines.** Like the README graph, `tokengraph view` now adds up every
   machine you sync with the same GitHub account, from the copy of their files the last sync kept, so opening it
