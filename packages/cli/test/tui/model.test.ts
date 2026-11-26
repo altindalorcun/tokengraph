@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cacheSavingsForSplitCounts } from '@tokengraph/core';
 import { emptyLedger, mergeHours, mergeUsage, type Ledger } from '../../src/ledger.js';
+import type { MachineFile } from '../../src/publish/machines.js';
 import {
   agentBreakdown, agentBuckets, buildViewModel, familyBuckets, monthlyTotals, rangeBuckets, dailySeries, familySeries, formatCost, insights, modelBreakdown, rangeStart, rangeTotals,
   hourDetail, hourLabel, hourProfile, hourRange, busiestHourText, shiftDate, stats, yearGrid,
@@ -403,5 +404,35 @@ describe('chart buckets', () => {
     expect(at('2025-02-03')).toHaveLength(12);
     expect(at('2026-08-03').at(-1)!.label).toBe('Oct');
     expect(monthlyTotals(buildViewModel(emptyLedger(), TODAY))).toHaveLength(6);
+  });
+});
+
+describe('other machines', () => {
+  const other = (ledger: Ledger): MachineFile => ({
+    schema: 1, machineId: '11111111-2222-3333-4444-555555555555', label: 'linux-111111', fingerprint: 'f',
+    cliVersion: '1.0.0', updatedAt: `${TODAY}T08:00:00.000Z`, sources: ledger.sources,
+  });
+
+  it('adds the other machines to every total but keeps sources for setup, hours and projects local', () => {
+    let local = ledgerWith([{ source: 'claude-code', date: TODAY, model: 'claude-sonnet-4-5', c: counts(1000) }]);
+    local = mergeHours(local, 'claude-code', [{ date: TODAY, hour: 9, weighted: 1000 }]);
+    const remote = ledgerWith([
+      { source: 'claude-code', date: TODAY, model: 'claude-sonnet-4-5', c: counts(500) },
+      { source: 'codex-cli', date: shiftDate(TODAY, -1), model: 'gpt-5', c: counts(2000) },
+    ]);
+    const vm = buildViewModel(local, TODAY, { others: [other(remote)] });
+    expect(stats(vm).today).toBe(1500);
+    expect(vm.firstDay).toBe(shiftDate(TODAY, -1));
+    expect(vm.sources).toEqual(['claude-code', 'codex-cli']);
+    expect(vm.localSources).toEqual(['claude-code']);
+    expect(agentBreakdown(vm, '30d').map((row) => row.key)).toEqual(['codex-cli', 'claude-code']);
+    expect(hourProfile(vm).total).toBe(1000);
+  });
+
+  it('is this machine alone without others', () => {
+    const local = ledgerWith([{ source: 'claude-code', date: TODAY, model: 'claude-sonnet-4-5', c: counts(1000) }]);
+    const vm = buildViewModel(local, TODAY, { others: [] });
+    expect(stats(vm).today).toBe(1000);
+    expect(vm.localSources).toEqual(vm.sources);
   });
 });

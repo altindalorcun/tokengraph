@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { emptyLedger, mergeHours, mergeUsage } from '../src/ledger.js';
 import { buildViewModel, shiftDate } from '../src/tui/model.js';
-import { printWidth } from '../src/commands/view.js';
+import { cachedMachines, printWidth } from '../src/commands/view.js';
+import { machinesLine } from '../src/tui/machines.js';
 import { renderSnapshot } from '../src/tui/print.js';
 
 const TODAY = '2026-10-03';
@@ -68,5 +69,30 @@ describe('printWidth', () => {
     expect(printWidth(undefined, '80')).toBe(80);
     expect(printWidth(undefined, 'wide')).toBe(100);
     expect(printWidth(undefined, undefined)).toBe(100);
+  });
+});
+
+describe('other machines in the snapshot', () => {
+  const remote = mergeUsage(emptyLedger(), 'claude-code', [{ date: TODAY, model: 'claude-sonnet-4-5', pricingTier: 'standard', counts: c(9000) }]);
+  const file = { schema: 1 as const, machineId: 'aaaaaaaa-0000-0000-0000-000000000001', label: 'linux-aaaaaa', fingerprint: 'f', cliVersion: '1.0.0', updatedAt: `${TODAY}T10:00:00.000Z`, sources: remote.sources };
+
+  it('prints the machines line under the mode and marks the busiest hour as this machine', () => {
+    let local = mergeUsage(emptyLedger(), 'codex-cli', [{ date: TODAY, model: 'gpt-5', pricingTier: 'standard', counts: c(1000) }]);
+    local = mergeHours(local, 'codex-cli', [{ date: TODAY, hour: 9, weighted: 1000 }]);
+    const out = renderSnapshot(buildViewModel(local, TODAY, { others: [file] }), {
+      width: 100, theme: 'dark', depth: 'none', mode: 'local only',
+      machines: machinesLine({ count: 1, publishedAt: `${TODAY}T10:00:00.000Z` }, 'all', Date.parse(`${TODAY}T12:00:00.000Z`)),
+    });
+    expect(out.split('\n')[1]).toMatch(/2 machines · others as of 2h ago$/);
+    expect(out).toContain('Sonnet');
+    expect(out).toContain('(this machine, hour data from');
+  });
+
+  it('reads the cache only while logged in', async () => {
+    const files = async () => [file];
+    const publishedAt = async () => `${TODAY}T10:00:00.000Z`;
+    expect(await cachedMachines({ config: async () => ({}) as never, files, publishedAt })).toEqual({ files: [], publishedAt: null });
+    const loggedIn = async () => ({ github: { login: 'someone', auth: { kind: 'gh' } } }) as never;
+    expect(await cachedMachines({ config: loggedIn, files, publishedAt })).toEqual({ files: [file], publishedAt: `${TODAY}T10:00:00.000Z` });
   });
 });

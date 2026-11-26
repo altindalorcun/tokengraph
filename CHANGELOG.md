@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The terminal view shows all your machines.** Like the README graph, `tokengraph view` now adds up every
+  machine you sync with the same GitHub account, from the copy of their files the last sync kept, so opening it
+  still never goes online. A line under the mode says how many machines it shows and how old the other machines'
+  figures are, and asks for a sync once they are a day old. Press a (or pick it in the palette) for this machine
+  alone, or start with `--this-machine`, which also narrows `--print`. Projects and the hour charts stay this
+  machine's, and are labelled so.
+
 ## 0.3.0 — 2026-11-20
 
 - **Plan limits for Claude Code and Codex.** `tokengraph limits` shows how much of each plan limit window (five

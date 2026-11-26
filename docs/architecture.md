@@ -105,8 +105,12 @@ cursor.com (`accounts.cursor[accountKey] = { coveredThrough, days }`).
   the oldest `coveredThrough` among the accounts, and from that day on the larger of the summed
   accounts and the summed source is used per model. A machine whose account is never fetched anywhere loses its hook data on
   covered days (documented in `docs/agents/cursor-usage.md`).
-- Other machines' files are cached in `machines.json`, so `story` and `view` can show
-  all-machines numbers offline. The cache is rewritten only by a successful publish.
+- Other machines' files are cached in `machines.json`, so `story`, `status`, `export --all-machines`
+  and `view` can show all-machines numbers offline. The cache is rewritten only by a successful
+  publish, and read only while logged in. The view opens on every machine (`a` or `--this-machine`
+  narrows it), says how old the cache is under the mode pill and re-reads it after any action; its
+  Setup recommendations, hours and projects stay this machine's
+  ([specs/2026-11-26-view-all-machines.md](specs/2026-11-26-view-all-machines.md)).
 
 ## Story cards
 

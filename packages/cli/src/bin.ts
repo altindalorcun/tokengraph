@@ -76,6 +76,7 @@ const VIEW_OPTIONS: Options = {
   print: { type: 'boolean', default: false },
   'no-motion': { type: 'boolean', default: false },
   'no-live': { type: 'boolean', default: false },
+  'this-machine': { type: 'boolean', default: false },
   theme: { type: 'string', default: 'auto' },
 };
 
@@ -85,8 +86,12 @@ Opens an interactive view of your usage. Reads local data only; it publishes onl
 Sync, Connect GitHub or Graph colours in its Setup tab or command palette (: or Ctrl-K). Once a day
 it asks the npm registry for the latest version (\`tokengraph update off\` stops that).
 
+It shows every machine you sync with the same GitHub account, as of their last sync (press a for
+this machine alone). Projects and hours are always this machine's.
+
 Options:
   --print              Print a static snapshot and exit (the default when not in a terminal)
+  --this-machine       Show only this machine's usage
   --no-motion          Skip animations
   --no-live            Don't rescan while open
   --theme <name>       auto, dark or light (default: auto)
@@ -98,7 +103,13 @@ function launchView(values: Values): Promise<number> | number {
     console.error('--theme must be auto, dark or light.');
     return 1;
   }
-  return runView({ motion: !values['no-motion'], live: !values['no-live'], print: values['print'] === true, theme });
+  return runView({
+    motion: !values['no-motion'],
+    live: !values['no-live'],
+    print: values['print'] === true,
+    thisMachine: values['this-machine'] === true,
+    theme,
+  });
 }
 
 function hookSyncOptions(raw: string | boolean | undefined): { minIntervalSeconds?: number } {

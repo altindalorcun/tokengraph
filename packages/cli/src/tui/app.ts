@@ -2,10 +2,11 @@ import type { LimitsBlock } from './views/limits.js';
 import type { StoryRange, Theme } from '@tokengraph/core';
 import type { CollectProgress, LocalCollection } from '../collect-local.js';
 import type { Ledger } from '../ledger.js';
+import type { MachineFile } from '../publish/machines.js';
 import type { ProjectEdit, ProjectEditResult } from '../project-names.js';
 import { easeOutCubic, MotionController } from './animate.js';
 import { actionItems, type ActionId, type SetupStatus } from './actions.js';
-import { initialState, reduce, requestAction, selectProject, withViewModel, type AppState, type Effect, type ToastTone } from './app-state.js';
+import { initialState, reduce, requestAction, selectProject, withViewModel, type AppState, type Effect, type Scope, type ToastTone } from './app-state.js';
 import type { AutoSyncStatus } from './auto-sync.js';
 import { mix, type ColorDepth } from './color.js';
 import { renderFrame, type FrameHits } from './frame.js';
@@ -50,6 +51,12 @@ export interface AppDeps {
   autoSync: () => Promise<AutoSyncStatus>;
   /** Plan limit readings for the Overview (`tokengraph limits`); without it the Overview shows none. */
   limits?: () => Promise<LimitsBlock>;
+  /** The other machines cached by the last publish (`machines.json`); never the network. Without it the view is this machine alone. */
+  machines?: () => Promise<CachedMachines>;
+  /** The scope the view opens in (`--this-machine` is 'this'); 'all' by default. */
+  scope?: Scope;
+  /** Wall clock in ms, for the age of the cached machines; `Date.now` by default. */
+  now?: () => number;
   /** Returns a cancel function. */
   setTimer: (fn: () => void, ms: number) => () => void;
   /** Config and installed hooks, for the action list. */
@@ -99,6 +106,24 @@ function splashBuffer(deps: AppDeps, width: number, height: number, progress: nu
   return buf;
 }
 
+export interface CachedMachines {
+  files: MachineFile[];
+  publishedAt: string | null;
+}
+
+/** The cached machines, or none when there is no reader or it fails: a broken cache never stops the view. */
+async function loadMachines(deps: AppDeps): Promise<CachedMachines> {
+  try {
+    return (await deps.machines?.()) ?? { files: [], publishedAt: null };
+  } catch {
+    return { files: [], publishedAt: null };
+  }
+}
+
+function machinesInfo(cached: CachedMachines): AppState['machines'] {
+  return { count: cached.files.length, publishedAt: cached.publishedAt };
+}
+
 /** Runs until the user quits; resolves with the exit code. Always restores the terminal. */
 export async function runApp(deps: AppDeps): Promise<number> {
   const { terminal } = deps;
@@ -112,10 +137,13 @@ export async function runApp(deps: AppDeps): Promise<number> {
   try {
     const loaded = await deps.loadLedger();
     let names = await deps.projectNames().catch(() => ({}));
-    const viewModel = (from: Ledger) => buildViewModel(from, deps.today(), { projectNames: names, home: deps.home });
+    let cached = await loadMachines(deps);
+    let scope: Scope = deps.scope ?? 'all';
+    const viewModel = (from: Ledger) =>
+      buildViewModel(from, deps.today(), { projectNames: names, home: deps.home, others: scope === 'all' ? cached.files : [] });
     return await new Promise<number>((resolve, reject) => {
       let ledger = loaded;
-      let state: AppState = initialState(viewModel(ledger), '…', deps.live);
+      let state: AppState = { ...initialState(viewModel(ledger), '…', deps.live, scope), machines: machinesInfo(cached) };
       const motion = new MotionController({ enabled: deps.motion, clock: deps.clock });
       let prev: ScreenBuffer | null = null;
       let hits: FrameHits | null = null;
@@ -188,7 +216,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
             motion.startReveal();
             motionFrame = motion.frame();
           }
-          const frame = renderFrame(state, { theme: deps.theme }, width, height, motionFrame);
+          const frame = renderFrame(state, { theme: deps.theme, now: (deps.now ?? Date.now)() }, width, height, motionFrame);
           buffer = frame.buffer;
           hits = frame.hits;
         }
@@ -322,6 +350,11 @@ export async function runApp(deps: AppDeps): Promise<number> {
           if (effect === 'rescan') startScan(LIVE_SCAN_DAYS);
           else if (effect === 'bars') motion.startBars();
           else if (effect === 'wipe') motion.startWipe();
+          else if (effect === 'scope') {
+            scope = state.scope;
+            state = withViewModel(state, viewModel(ledger));
+            motion.startBars();
+          }
           else if (typeof effect === 'object') {
             if ('run' in effect) void execute(effect.run);
             else if ('task' in effect) taskCommand(effect);
@@ -354,15 +387,20 @@ export async function runApp(deps: AppDeps): Promise<number> {
 
       /** Re-reads what an action may have changed: the ledger (task actions), the mode pill, the hooks and the config. */
       const reload = async (ledgerChanged: boolean): Promise<void> => {
+        // A sync or login rewrites the machines cache; any action may have, so it is re-read every time.
+        const before = cached;
+        cached = await loadMachines(deps);
+        const machinesChanged = cached.publishedAt !== before.publishedAt || cached.files.length !== before.files.length;
+        if (!finished) state = { ...state, machines: machinesInfo(cached) };
         if (ledgerChanged) {
           try {
             ledger = await deps.loadLedger();
             names = await deps.projectNames().catch(() => names);
-            if (!finished) state = withViewModel(state, viewModel(ledger));
           } catch {
             // The in-memory ledger stays; the next scan merges into it.
           }
         }
+        if ((ledgerChanged || machinesChanged) && !finished) state = withViewModel(state, viewModel(ledger));
         await Promise.all([
           refreshSetup(),
           deps.modeLabel().then((mode) => { if (!finished) state = { ...state, mode }; }, () => {}),
@@ -464,7 +502,7 @@ export async function runApp(deps: AppDeps): Promise<number> {
       /** Runs an `inline` action behind the view and reports with a toast. */
       const execute = async (id: ActionId): Promise<void> => {
         if (state.running !== null || finished) return;
-        const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
+        const item = actionItems(state.setup, state.vm.localSources).find((candidate) => candidate.id === id);
         if (item?.kind !== 'inline') return;
         state = { ...state, running: id };
         draw();
