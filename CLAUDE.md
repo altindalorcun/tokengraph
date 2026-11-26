@@ -24,6 +24,26 @@ Vitest aliases `@tokengraph/core` to `packages/core/src`; the CLI at runtime res
 
 Every user-visible feature or fix gets a line under `## Unreleased` in `CHANGELOG.md`, in the same change. A release renames that heading to `## x.y.z — YYYY-MM-DD`. The file is the one source of the release notes: the site's `/changelog/` page is generated from it and shows released versions only, and `tokengraph update` links there.
 
+## Before pushing a PR
+
+CI (`.github/workflows/ci.yml`) runs on Ubuntu, macOS and Windows with Node 22 and 24. Run every step locally before pushing, not only the tests:
+
+```bash
+npx tsc --build && npx vitest run && npm run smoke && npm run check:pack
+node scripts/sync-readme.mjs && git diff --exit-code packages/cli/README.md   # after any README.md change
+```
+
+`packages/cli/README.md` is generated from the root `README.md` (it ships to npm). Every root README edit needs `node scripts/sync-readme.mjs` and the regenerated file in the same commit; CI fails otherwise. After pushing, watch `gh pr checks <n>` until every job is green before calling the PR done.
+
+Most past CI failures were Windows-only, so a green macOS run proves little. Write code and tests so they hold there:
+
+- **Paths:** never hard-code `/` in an expected path or build one with the host's `join` when the code takes a platform: pick `win32` or `posix` from the injected `platform` (as `story` and `schedule` do), and build expected paths in tests with `join`/`resolve`, not string literals. Windows `realpath` can turn `RUNNER~1` into `runneradmin`: compare realpaths on both sides.
+- **Permissions:** Windows has no POSIX mode bits (`0o666` reads back, not `0o600`): guard mode assertions with `process.platform !== 'win32'`. Same for unreadable-file tests (`it.skipIf(process.platform === 'win32')`).
+- **Keys built from paths:** an id or key derived from a file path (such as the Codex hook's `[hooks.state."<key>"]`, which holds the `hooks.json` path) has backslashes and a drive letter on Windows, so `JSON.stringify` escapes it and a test that writes the expected text by hand stops matching. Build expected keys the way the code does, from the same `join`.
+- **Speed:** Windows runners are slow (SQLite, many files). The default test timeout is 20 s (`vitest.config.ts`); do not lower it per test, and keep fixtures small.
+
+Runs that failed in 1–2 s with no failed step were the runner never starting (account or GitHub side), not the code: rerun them.
+
 ## Architecture
 
 - **`packages/core`** — pure, dependency-free: token types and the weighted-token formula (`tokens.ts`), pricing with dated rate history (`pricing.ts`), model labels/makers/families/logos, allowed sources (`sources.ts`), per-user percentile levels and the SVG graph renderer (`levels.ts`, `graph.ts`, `graph-colors.ts`), graph days by family (`graph-days.ts`), the embed font (`embed-font.ts`, generated), the published SVG set (`published-graphs.ts`), story data (`story/`), the `Adapter` interface. No file or network I/O, no third-party imports. `.js` import suffixes (NodeNext).
