@@ -7,7 +7,7 @@ import { drawBox } from '../widgets/box.js';
 import { truncate } from './dates.js';
 import { blit } from './props.js';
 
-export type PaletteTarget = { action: ActionId } | { tab: TabKey } | { project: ProjectPanelKind } | { command: 'rescan' | 'colour' | 'today' | 'help' };
+export type PaletteTarget = { action: ActionId } | { tab: TabKey } | { project: ProjectPanelKind } | { command: 'rescan' | 'colour' | 'scope' | 'today' | 'help' };
 export interface PaletteEntry {
   title: string;
   section: string;
@@ -39,7 +39,7 @@ function actionKeywords(item: ActionItem): string {
 
 /** Every action of the Setup tab, then the navigation and view commands, in the order the palette lists them. */
 export function paletteEntries(state: AppState): PaletteEntry[] {
-  const actions = actionItems(state.setup, state.vm.sources).map(
+  const actions = actionItems(state.setup, state.vm.localSources).map(
     (item): PaletteEntry => ({ title: item.title, section: item.section, detail: item.detail, keywords: actionKeywords(item), target: { action: item.id } }),
   );
   const tabs = TAB_ENTRIES.map(
@@ -54,6 +54,9 @@ export function paletteEntries(state: AppState): PaletteEntry[] {
   const commands: PaletteEntry[] = [
     { title: 'Rescan now', section: 'View', detail: 'key s', keywords: 'scan refresh reload', target: { command: 'rescan' } },
     { title: 'Switch colours', section: 'View', detail: 'key c', keywords: 'color theme single family', target: { command: 'colour' } },
+    state.scope === 'all'
+      ? { title: 'Show this machine only', section: 'View', detail: 'key a', keywords: 'machines computers local scope', target: { command: 'scope' } }
+      : { title: 'Show all machines', section: 'View', detail: 'key a', keywords: 'machines computers everywhere scope', target: { command: 'scope' } },
     { title: 'Jump to today', section: 'View', detail: 'key t', keywords: 'date cursor now', target: { command: 'today' } },
     { title: 'Show keys', section: 'View', detail: 'key ?', keywords: 'help shortcuts keybindings', target: { command: 'help' } },
   ];

@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
-import { allLedgerHours, allLedgerUsage, type Ledger } from '../ledger.js';
+import { allLedgerHours, allLedgerUsage, compareUsage, type Ledger } from '../ledger.js';
+import { combinedUsage, type MachineFile } from '../publish/machines.js';
 import { projectRows, summariseProjects, topProjects, type ProjectRow, type ProjectShare, type ProjectSummary } from '../project-usage.js';
 import { shortDate } from './dates.js';
 import { addCost, emptyCost, rangeStart, rowCost, SERIES_DAYS, shiftDate, type CostSummary, type RangeKey } from './usage-math.js';
@@ -68,8 +69,12 @@ export interface ViewModel {
   days: DayRow[];
   byDate: Map<string, DayRow>;
   firstDay: string | null;
-  /** Sources with at least one ledger day. */
+  /** Sources with at least one day, on any machine shown. */
   sources: string[];
+  /** Sources with at least one day on this machine: setup recommends hooks only for these. */
+  localSources: string[];
+  /** How many other machines are summed in; 0 is this machine alone. Hours and projects never include them. */
+  otherMachines: number;
   /** Per-entry rows behind `days`, for the breakdowns' counts and cost. */
   rows: UsageRow[];
   /** Weighted tokens per local (date, hour), all agents together, ascending; empty when no adapter has hour data yet. */
@@ -211,15 +216,24 @@ function buildDay(date: string, rows: UsageRow[], families: Map<string, ModelFam
   };
 }
 
-/** Turns the local ledger into per-day rows; all later numbers derive from these. */
-export function buildViewModel(ledger: Ledger, today: string, options: { projectNames?: Readonly<Record<string, string>>; home?: string } = {}): ViewModel {
+/**
+ * Turns the local ledger, plus `others` (other machines' files from the last publish), into per-day rows; all later
+ * numbers derive from these. Hours and projects are local only, so they always come from `ledger` alone.
+ */
+export function buildViewModel(
+  ledger: Ledger,
+  today: string,
+  options: { projectNames?: Readonly<Record<string, string>>; home?: string; others?: readonly MachineFile[] } = {},
+): ViewModel {
   const rows: UsageRow[] = [];
   const sources: string[] = [];
   // The family of a label comes from the first raw model id seen for it.
   const families = new Map<string, ModelFamily>();
 
   // Cursor's account figures replace its hook and import rows where they overlap (core's combining rule).
-  const combined = allLedgerUsage(ledger);
+  const local = allLedgerUsage(ledger);
+  const others = options.others ?? [];
+  const combined = others.length === 0 ? local : combinedUsage(ledger, others).sort(compareUsage);
   for (const source of KNOWN_SOURCES) {
     const usage = combined.filter((entry) => entry.source === source);
     if (usage.length === 0) continue;
@@ -257,6 +271,8 @@ export function buildViewModel(ledger: Ledger, today: string, options: { project
     byDate: new Map(days.map((day) => [day.date, day])),
     firstDay: days[0]?.date ?? null,
     sources,
+    otherMachines: others.length,
+    localSources: KNOWN_SOURCES.filter((source) => local.some((entry) => entry.source === source)),
     rows,
     hours: buildHours(ledger, today),
   };

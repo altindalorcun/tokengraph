@@ -298,8 +298,9 @@ describe('views', () => {
   });
 
   it('help drops the glossary on a short screen but keeps the keys', () => {
-    const buf = new ScreenBuffer(100, 18);
-    drawHelp(buf, { x: 0, y: 0, width: 100, height: 18 }, theme);
+    // 20 rows is the view at the smallest supported terminal (80×24).
+    const buf = new ScreenBuffer(100, 20);
+    drawHelp(buf, { x: 0, y: 0, width: 100, height: 20 }, theme);
     const text = toPlainText(buf);
     expect(text).toContain('quit');
     expect(text).not.toContain('weighted tokens');
@@ -447,7 +448,7 @@ describe('setup tab and confirm modal', () => {
   it('draws 4 of 5 as ▰▰▰▰▱', () => {
     const done = status();
     done.autoSync = { claudeHook: true, cursorHook: true, codexNotify: true, geminiHook: false, schedule: false };
-    const text = frame('setup', 160, 48, { setup: done, vm: { ...model(), sources: ['claude-code', 'cursor', 'codex-cli', 'opencode'] } });
+    const text = frame('setup', 160, 48, { setup: done, vm: { ...model(), localSources: ['claude-code', 'cursor', 'codex-cli', 'opencode'] } });
     expect(text).toContain('4 of 5 recommended steps done  ▰▰▰▰▱');
   });
 

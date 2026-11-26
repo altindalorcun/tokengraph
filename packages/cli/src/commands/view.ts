@@ -11,7 +11,9 @@ import type { SetupStatus } from '../tui/actions.js';
 import { ledgerToUsage, mergeLedgerAccounts, mergeLedgerHours, mergeLedgerProjects, mergeUsage, readLedger, writeLedger, type Ledger } from '../ledger.js';
 import { configHome, ledgerPath } from '../paths.js';
 import { acquireSyncLock } from '../sync-lock.js';
-import { runApp, type AppDeps } from '../tui/app.js';
+import { readLastPublish, readMachinesCache } from '../publish/machines-cache.js';
+import { runApp, type AppDeps, type CachedMachines } from '../tui/app.js';
+import { machinesLine } from '../tui/machines.js';
 import { detectAutoSync } from '../tui/auto-sync.js';
 import { detectColorDepth, openTerminal } from '../tui/terminal.js';
 import { buildViewModel, shiftDate } from '../tui/model.js';
@@ -25,6 +27,8 @@ export interface ViewOptions {
   motion: boolean;
   live: boolean;
   print: boolean;
+  /** Leave the other machines out (`--this-machine`). */
+  thisMachine?: boolean;
   theme: 'auto' | Theme;
 }
 
@@ -61,6 +65,17 @@ async function persistLedger(ledger: Ledger): Promise<'saved' | 'busy'> {
   }
 }
 
+/**
+ * The other machines as of the last publish, read from `machines.json`; never the network. Logged out, none: the cache
+ * belongs to an account this machine no longer publishes to, and nothing would ever refresh it.
+ */
+export async function cachedMachines(deps: { config?: typeof readConfig; files?: typeof readMachinesCache; publishedAt?: typeof readLastPublish } = {}): Promise<CachedMachines> {
+  const config = await (deps.config ?? readConfig)();
+  if (!config.github) return { files: [], publishedAt: null };
+  const [files, publishedAt] = await Promise.all([(deps.files ?? readMachinesCache)(), (deps.publishedAt ?? readLastPublish)()]);
+  return { files, publishedAt };
+}
+
 async function modeLabel(): Promise<string> {
   const config = await readConfig();
   return config.github ? `↑ publishing as @${config.github.login}` : 'local only';
@@ -92,7 +107,8 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
     adapters: defaultAdapters(),
   });
   await recordLimitHits(collected.results);
-  const vm = buildViewModel(collected.ledger, today);
+  const machines = options.thisMachine ? null : await cachedMachines().catch(() => null);
+  const vm = buildViewModel(collected.ledger, today, { others: machines?.files ?? [] });
   if (vm.days.length === 0 && collected.detected.length === 0) {
     console.log(noAgentsMessage());
     return 0;
@@ -107,6 +123,7 @@ async function printSnapshot(options: ViewOptions): Promise<number> {
     theme: resolveTheme(options.theme, process.env),
     depth: detectColorDepth(process.env, process.stdout.isTTY === true),
     mode: await modeLabel(),
+    machines: machinesLine(machines ? { count: machines.files.length, publishedAt: machines.publishedAt } : null, 'all', Date.now()),
   });
   console.log(out);
   const { views, wrapperOn } = await readLimits();
@@ -143,6 +160,8 @@ export async function runView(options: ViewOptions): Promise<number> {
     modeLabel,
     autoSync: () => detectAutoSync(),
     limits: () => readLimits(),
+    machines: () => cachedMachines(),
+    scope: options.thisMachine ? 'this' : 'all',
     setupStatus,
     checkForUpdate: () => refreshUpdateCheck(),
     runAction,

@@ -236,7 +236,7 @@ function tierOrder(tier: PricingTier): number {
   return PRICING_TIERS.indexOf(tier);
 }
 
-function compareUsage(a: DailyModelUsage, b: DailyModelUsage): number {
+export function compareUsage(a: DailyModelUsage, b: DailyModelUsage): number {
   return (
     a.date.localeCompare(b.date) || a.model.localeCompare(b.model) || tierOrder(a.pricingTier) - tierOrder(b.pricingTier)
   );

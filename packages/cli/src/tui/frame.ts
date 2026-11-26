@@ -4,6 +4,7 @@ import { TABS } from './app-state.js';
 import { actionItems, setupProgress, type ActionItem } from './actions.js';
 import type { Motion } from './animate.js';
 import { mix } from './color.js';
+import { machinesLine } from './machines.js';
 import { ScreenBuffer, type Rect } from './screen.js';
 import { tuiTheme, type TuiTheme } from './theme.js';
 import { drawAgents } from './views/agents.js';
@@ -47,6 +48,7 @@ const NARROW_TABS_WIDTH = 100; // below this the tabs sit one space apart so the
 const TABS_X = 18; // the mark and wordmark end at column 15; leave a gap
 const NARROW_TABS_X = 6; // below NARROW_TABS_WIDTH the wordmark gives way, so six tabs and the mode pill still fit
 const PROGRESS_SEGMENTS = 4;
+const MACHINES_LINE_LEFT = 6; // the two-row mark ends before this column
 const TOAST_MS = 4000;
 const TOAST_MARKS = { good: '✓', bad: '✗', info: '·' } as const;
 
@@ -109,6 +111,14 @@ function drawHeaderRight(buf: ScreenBuffer, state: AppState, theme: TuiTheme, mo
   }
 }
 
+/** Row 1, right-hand side, under the mode pill: the machines line, in the warn colour once the cache is stale. */
+function drawMachinesLine(buf: ScreenBuffer, state: AppState, theme: TuiTheme, now: number): void {
+  const line = machinesLine(state.machines, state.scope, now);
+  if (!line) return;
+  const text = clip(line.text, Math.max(0, buf.width - 2 - MACHINES_LINE_LEFT));
+  buf.text(buf.width - 2 - [...text].length, 1, text, { fg: line.stale ? theme.warn : theme.muted });
+}
+
 function drawStatusBar(buf: ScreenBuffer, state: AppState, theme: TuiTheme, motion: Motion): void {
   const y = buf.height - 1;
   const { scan } = state;
@@ -163,7 +173,7 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
       return drawSetup(buf, rect, {
         theme,
         items,
-        progress: setupProgress(items, state.setup, state.vm.sources),
+        progress: setupProgress(items, state.setup, state.vm.localSources),
         selected: state.setupSel,
         running: state.running === 'projects' ? null : state.running,
         loading: state.setup === null,
@@ -174,7 +184,8 @@ function drawView(buf: ScreenBuffer, rect: Rect, state: AppState, theme: TuiThem
 /** The whole screen for one state — exported for tests and print. */
 export function renderFrame(
   state: AppState,
-  deps: { theme: Theme },
+  /** `now` is the wall clock (ms), for the age of the other machines' figures. */
+  deps: { theme: Theme; now?: number },
   width: number,
   height: number,
   motion: Motion,
@@ -187,13 +198,14 @@ export function renderFrame(
   }
   const narrow = buf.width < NARROW_TABS_WIDTH;
   drawHeaderMark(buf, 1, 0, theme, !narrow);
-  const items = actionItems(state.setup, state.vm.sources);
-  const progress = setupProgress(items, state.setup, state.vm.sources);
+  const items = actionItems(state.setup, state.vm.localSources);
+  const progress = setupProgress(items, state.setup, state.vm.localSources);
   // The Setup tab carries a dot while a recommended step is open (not before the configuration has been read).
   const badged = state.setup !== null && progress.done < progress.total ? [TABS.indexOf('setup')] : [];
   const tabs = drawTabs(buf, narrow ? NARROW_TABS_X : TABS_X, 0, TAB_LABELS, TABS.indexOf(state.tab), theme, badged, narrow ? 1 : 2);
   const last = tabs[tabs.length - 1]!;
   drawHeaderRight(buf, state, theme, motion, last.x + last.width);
+  drawMachinesLine(buf, state, theme, deps.now ?? Date.now());
   buf.fill({ x: 1, y: 2, width: buf.width - 2, height: 1 }, '─', { fg: theme.border });
 
   const rect = { x: 1, y: 3, width: buf.width - 2, height: buf.height - 4 };

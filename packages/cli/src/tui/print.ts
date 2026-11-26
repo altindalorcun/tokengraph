@@ -20,7 +20,8 @@ const MIN_WIDTH = 40;
 /** The static snapshot: header, tiles, heatmap and top-5 models, `width` columns wide. */
 export function renderSnapshot(
   vm: ViewModel,
-  options: { width: number; theme: Theme; depth: ColorDepth; mode: string },
+  /** `machines` is the header's machines line (`machinesLine`), null when only this machine is shown. */
+  options: { width: number; theme: Theme; depth: ColorDepth; mode: string; machines?: { text: string; stale: boolean } | null },
 ): string {
   const theme = tuiTheme(options.theme);
   const width = Math.max(MIN_WIDTH, Math.floor(options.width));
@@ -34,6 +35,10 @@ export function renderSnapshot(
   drawHeaderMark(buf, 1, 0, theme);
   const pill = ` ${truncate(options.mode, Math.max(0, width - 20))} `;
   buf.text(width - 1 - pill.length, 0, pill, { fg: theme.muted, bg: theme.panel });
+  if (options.machines) {
+    const text = truncate(options.machines.text, Math.max(0, width - 8));
+    buf.text(width - 2 - [...text].length, 1, text, { fg: options.machines.stale ? theme.warn : theme.muted });
+  }
   buf.fill({ x: 1, y: 2, width: width - 2, height: 1 }, '─', { fg: theme.border });
 
   const s = stats(vm);
@@ -73,7 +78,8 @@ export function renderSnapshot(
   const hours = hourProfile(vm);
   const busiest = busiestHourText(hours);
   buf.text(1, hoursY, 'Busiest hour', { fg: theme.muted });
-  const hoursText = busiest === null ? 'no hour data yet' : `${busiest} of tokens (hour data from ${longDate(hours.firstDate!)})`;
+  const here = vm.otherMachines > 0 ? 'this machine, ' : '';
+  const hoursText = busiest === null ? 'no hour data yet' : `${busiest} of tokens (${here}hour data from ${longDate(hours.firstDate!)})`;
   buf.text(14, hoursY, truncate(hoursText, Math.max(0, inner - 13)), { fg: busiest === null ? theme.faint : theme.ink }, Math.max(0, inner - 13));
 
   const lines = toAnsiLines(buf, options.depth);

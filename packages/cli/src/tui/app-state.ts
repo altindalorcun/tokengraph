@@ -30,6 +30,10 @@ export interface AppState {
   /** The command palette while open: what was typed and the highlighted match. */
   palette: { query: string; selected: number } | null;
   mode: string;
+  /** Every machine (this one plus the cached others) or this machine alone; `a` switches. */
+  scope: Scope;
+  /** The other machines cached by the last publish: how many, and when that publish finished (ISO, null if unknown); null until read. */
+  machines: { count: number; publishedAt: string | null } | null;
   /** Whether the session rescans on its own (false with --no-live). */
   live: boolean;
   scan: { running: boolean; current: string | null; done: number; total: number; lastScanAt: number | null; note: string | null };
@@ -57,11 +61,17 @@ export interface AppState {
   projectPanel: ProjectPanel | null;
 }
 
+export type Scope = 'all' | 'this';
+
+export const NO_OTHER_MACHINES = 'No other machines yet. Run sync to fetch them.';
+
 /** `info` is a neutral note, such as why a key did nothing. */
 export type ToastTone = 'good' | 'bad' | 'info';
 
 export type Effect =
   | 'quit' | 'rescan' | 'bars' | 'wipe'
+  /** Rebuild the view model for the new `scope`. */
+  | 'scope'
   | { run: ActionId }
   | StoryCommand
   | TaskCommand
@@ -77,7 +87,7 @@ export interface Reduced {
 const WINDOW_DAYS = 364;
 
 /** The state a fresh session starts in: today selected, 30-day tables, one colour per model family. */
-export function initialState(vm: ViewModel, mode: string, live = true): AppState {
+export function initialState(vm: ViewModel, mode: string, live = true, scope: Scope = 'all'): AppState {
   return {
     vm,
     tab: 'overview',
@@ -89,6 +99,8 @@ export function initialState(vm: ViewModel, mode: string, live = true): AppState
     help: false,
     palette: null,
     mode,
+    scope,
+    machines: null,
     live,
     scan: { running: false, current: null, done: 0, total: 0, lastScanAt: null, note: null },
     detected: [],
@@ -179,7 +191,7 @@ function setRange(state: AppState, range: RangeKey): Reduced {
 }
 
 function setupItems(state: AppState): ActionItem[] {
-  return actionItems(state.setup, state.vm.sources);
+  return actionItems(state.setup, state.vm.localSources);
 }
 
 function selectSetup(state: AppState, index: number): AppState {
@@ -239,6 +251,7 @@ function onChar(state: AppState, char: string): Reduced {
   if (char === 'u' && state.setup?.update?.latest) return requestAction(state, 'update');
   if (char === 'c') return none(toggleColour(state));
   if (char === 's') return { state, effects: ['rescan'] };
+  if (char === 'a') return toggleScope(state);
   if (state.tab === 'overview') {
     const today = state.vm.today;
     if (char === 't') return none({ ...state, overview: { cursor: today, yearEnd: today } });
@@ -253,6 +266,12 @@ function onChar(state: AppState, char: string): Reduced {
   const kind = PROJECT_KEYS[char];
   if (kind && state.tab === 'projects') return openProjectBox(state, kind);
   return none();
+}
+
+/** All machines ⇄ this machine; with no other machine cached there is nothing to switch to, and the toast says why. */
+function toggleScope(state: AppState): Reduced {
+  if (!state.machines || state.machines.count === 0) return { state, effects: [{ toast: NO_OTHER_MACHINES, tone: 'info' }] };
+  return { state: { ...state, scope: state.scope === 'all' ? 'this' : 'all' }, effects: ['scope'] };
 }
 
 function toggleColour(state: AppState): AppState {
@@ -297,6 +316,7 @@ function onPalette(state: AppState, event: InputEvent, palette: NonNullable<AppS
   switch (target.command) {
     case 'rescan': return { state: closed, effects: ['rescan'] };
     case 'colour': return none(toggleColour(closed));
+    case 'scope': return toggleScope(closed);
     case 'today': return jumpToToday(closed);
     case 'help': return none({ ...closed, help: true });
   }
@@ -379,7 +399,7 @@ function onMouse(state: AppState, event: Extract<InputEvent, { type: 'mouse' }>,
 /** Asks for an action: it waits for a y when the action has a confirmation, else runs at once. Ignored while another runs. */
 export function requestAction(state: AppState, id: ActionId): Reduced {
   if (state.running !== null) return { state, effects: [] };
-  const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
+  const item = actionItems(state.setup, state.vm.localSources).find((candidate) => candidate.id === id);
   if (item?.confirm) return { state: { ...state, confirm: { id, text: item.confirm } }, effects: [] };
   return startAction(state, id);
 }
@@ -387,7 +407,7 @@ export function requestAction(state: AppState, id: ActionId): Reduced {
 /** Runs a confirmed action: story cards and `task` actions open their box at once (the app starts the command), the rest run behind the view. */
 function startAction(state: AppState, id: ActionId): Reduced {
   if (state.running !== null) return { state, effects: [] };
-  const item = actionItems(state.setup, state.vm.sources).find((candidate) => candidate.id === id);
+  const item = actionItems(state.setup, state.vm.localSources).find((candidate) => candidate.id === id);
   if (item?.kind === 'panel') return { state: { ...state, story: openStoryPanel(), running: id }, effects: [] };
   if (item?.kind === 'task') return { state: { ...state, task: openTaskPanel(id, item.title), running: id }, effects: [{ task: 'start', id }] };
   return { state, effects: [{ run: id }] };

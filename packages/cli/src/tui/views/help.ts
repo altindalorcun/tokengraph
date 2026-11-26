@@ -14,6 +14,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['h', 'manage hooks (Agents)'],
   ['m  n  x', 'merge / rename / split a project (Projects)'],
   ['Enter', 'run the selected action (Setup)'],
+  ['a', 'all machines / this machine'],
   ['c', 'per-family / single-hue colour'],
   ['s', 'rescan now'],
   [':  Ctrl-K', 'command palette'],

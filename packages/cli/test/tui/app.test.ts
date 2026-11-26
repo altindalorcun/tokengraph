@@ -5,6 +5,7 @@ import { fitHints, initialState, reduce, renderFrame, requestAction, runApp, wit
 import { buildViewModel, shiftDate } from '../../src/tui/model.js';
 import { toPlainText } from '../../src/tui/screen.js';
 import { actionItems, type SetupStatus } from '../../src/tui/actions.js';
+import { paletteEntries } from '../../src/tui/views/palette.js';
 import { limitViews } from '@tokengraph/core';
 import type { AppState } from '../../src/tui/app-state.js';
 import type { InputEvent } from '../../src/tui/input.js';
@@ -926,6 +927,46 @@ describe('runApp', () => {
       expect(await app.done).toBe(0);
     });
 
+    it('shows the cached machines, switches with a, and re-reads the cache after an action', async () => {
+      const remote = mergeUsage(emptyLedger(), 'codex-cli', [{ date: TODAY, model: 'gpt-5', pricingTier: 'standard', counts: c(4000) }]);
+      const file = (id: string) => ({ schema: 1, machineId: id, label: 'linux-aaaaaa', fingerprint: 'f', cliVersion: '1.0.0', updatedAt: `${TODAY}T10:00:00.000Z`, sources: remote.sources });
+      const caches = [
+        { files: [file('aaaaaaaa-0000-0000-0000-000000000001')], publishedAt: `${TODAY}T10:00:00.000Z` },
+        { files: [file('aaaaaaaa-0000-0000-0000-000000000001'), file('aaaaaaaa-0000-0000-0000-000000000002')], publishedAt: `${TODAY}T11:30:00.000Z` },
+      ];
+      let reads = 0;
+      const app = start({
+        machines: async () => caches[Math.min(reads++, 1)],
+        now: () => Date.parse(`${TODAY}T12:00:00.000Z`),
+        loadLedger: async () => mergeUsage(emptyLedger(), 'claude-code', [{ date: TODAY, model: 'claude-sonnet-4-5', pricingTier: 'standard', counts: c(1000) }]),
+      });
+      await wait();
+      const header = () => app.text().split('\n')[1]!;
+      expect(header()).toContain('2 machines · others as of 2h ago');
+      expect(app.text()).toContain('Codex');
+      app.term.send([{ type: 'char', char: 'a' }]);
+      await wait();
+      expect(header()).toContain('this machine · a for all');
+      expect(app.text()).not.toContain('Codex');
+      app.term.send([{ type: 'char', char: 'a' }]);
+      app.request('schedule');
+      app.term.send([{ type: 'char', char: 'y' }]);
+      await wait();
+      expect(header()).toContain('3 machines · others as of 30m ago');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
+    it('opens in this-machine scope with --this-machine', async () => {
+      const remote = mergeUsage(emptyLedger(), 'codex-cli', [{ date: TODAY, model: 'gpt-5', pricingTier: 'standard', counts: c(4000) }]);
+      const files = [{ schema: 1, machineId: 'aaaaaaaa-0000-0000-0000-000000000001', label: 'linux-aaaaaa', fingerprint: 'f', cliVersion: '1.0.0', updatedAt: `${TODAY}T10:00:00.000Z`, sources: remote.sources }];
+      const app = start({ scope: 'this', machines: async () => ({ files, publishedAt: `${TODAY}T10:00:00.000Z` }), now: () => Date.parse(`${TODAY}T12:00:00.000Z`) });
+      await wait();
+      expect(app.text().split('\n')[1]).toContain('this machine · a for all');
+      app.term.send([{ type: 'char', char: 'q' }]);
+      expect(await app.done).toBe(0);
+    });
+
     it('toasts the first line of a successful inline action and the last of a failing one', async () => {
       const ok = start({ runAction: vi.fn(async () => ({ code: 0, lines: ['Installed the hook.', '', 'If SessionEnd is not supported, try X.'] })) });
       await wait();
@@ -1036,5 +1077,59 @@ describe('runApp', () => {
       app.term.send([{ type: 'char', char: 'q' }]);
       await app.done;
     });
+  });
+});
+
+describe('other machines', () => {
+  const NOW = Date.parse(`${TODAY}T12:00:00.000Z`);
+  const withMachines = (count: number, publishedAt: string | null = `${TODAY}T10:00:00.000Z`): AppState => ({ ...state(), machines: { count, publishedAt } });
+  const header = (s: AppState) => toPlainText(renderFrame(s, { theme: 'dark', now: NOW }, 120, 36, STILL).buffer).split('\n')[1]!;
+
+  it('starts with every machine; a switches to this machine and back', () => {
+    const s = withMachines(2);
+    expect(s.scope).toBe('all');
+    const here = reduce(s, { type: 'char', char: 'a' }, null);
+    expect(here.state.scope).toBe('this');
+    expect(here.effects).toEqual(['scope']);
+    expect(reduce(here.state, { type: 'char', char: 'a' }, null).state.scope).toBe('all');
+  });
+
+  it('a explains itself when no other machine is cached', () => {
+    for (const s of [state(), withMachines(0)]) {
+      const out = reduce(s, { type: 'char', char: 'a' }, null);
+      expect(out.state.scope).toBe('all');
+      expect(out.effects).toEqual([{ toast: 'No other machines yet. Run sync to fetch them.', tone: 'info' }]);
+    }
+  });
+
+  it('offers the switch in the palette', () => {
+    const titles = (s: AppState) => paletteEntries(s).filter((entry) => entry.detail === 'key a').map((entry) => entry.title);
+    expect(titles(withMachines(1))).toEqual(['Show this machine only']);
+    expect(titles({ ...withMachines(1), scope: 'this' })).toEqual(['Show all machines']);
+    const s = withMachines(1);
+    const typed = [...'this machine'].reduce((acc, char) => reduce(acc, { type: 'char', char }, null).state, { ...s, palette: { query: '', selected: 0 } });
+    const out = reduce(typed, { type: 'key', key: 'enter' }, null);
+    expect(out.state.scope).toBe('this');
+    expect(out.effects).toEqual(['scope']);
+  });
+
+  it('labels the hour parts of Insights as this machine once others are summed in', () => {
+    let local = mergeUsage(emptyLedger(), 'claude-code', [{ date: TODAY, model: 'claude-sonnet-4-5', pricingTier: 'standard', counts: c(1000) }]);
+    local = mergeHours(local, 'claude-code', [{ date: TODAY, hour: 9, weighted: 1000 }]);
+    const remote = { schema: 1 as const, machineId: 'aaaaaaaa-0000-0000-0000-000000000001', label: 'linux-aaaaaa', fingerprint: 'f', cliVersion: '1.0.0', updatedAt: TODAY, sources: local.sources };
+    const insightsText = (others: (typeof remote)[]) =>
+      toPlainText(renderFrame({ ...initialState(buildViewModel(local, TODAY, { others }), 'local only'), tab: 'insights' }, { theme: 'dark', now: NOW }, 160, 40, STILL).buffer);
+    expect(insightsText([remote])).toContain('WHEN YOU CODE · THIS MACHINE');
+    expect(insightsText([remote])).toContain('BUSIEST HOUR · THIS MACHINE');
+    expect(insightsText([])).not.toContain('THIS MACHINE');
+  });
+
+  it('says under the mode pill how many machines are shown and how old the others are', () => {
+    expect(header(withMachines(2))).toMatch(/3 machines · others as of 2h ago\s*$/);
+    expect(header({ ...withMachines(2), scope: 'this' })).toMatch(/this machine · a for all\s*$/);
+    expect(header(withMachines(1, `${shiftDate(TODAY, -3)}T12:00:00.000Z`))).toMatch(/2 machines · others as of 3d ago · sync to refresh\s*$/);
+    expect(header(withMachines(1, null))).toMatch(/2 machines\s*$/);
+    expect(header(withMachines(0))).not.toContain('machine');
+    expect(header(state())).not.toContain('machine');
   });
 });

@@ -157,8 +157,8 @@ function hourReadout(profile: HourProfile, hour: number, theme: TuiTheme): { tex
  * blocks bracketed under them, and a readout for the selected hour (the busiest until ← → or the mouse picks another).
  * Returns a hit per hour column, view-relative.
  */
-function drawClock(view: ScreenBuffer, rect: Rect, profile: HourProfile, selected: number, theme: TuiTheme): Hit[] {
-  const inner = drawBox(view, rect, theme, 'When you code');
+function drawClock(view: ScreenBuffer, rect: Rect, profile: HourProfile, selected: number, theme: TuiTheme, title: string): Hit[] {
+  const inner = drawBox(view, rect, theme, title);
   const room = inner.width - 2;
   if (inner.height < 3 || room < 24 || profile.busiest === null) return [];
 
@@ -255,6 +255,8 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
   const view = new ScreenBuffer(rect.width, rect.height);
   const data = insights(vm);
   const profile = hourProfile(vm);
+  // Hour data never leaves the machine, so with other machines summed in the hour parts say whose they are.
+  const hereOnly = vm.otherMachines > 0 ? ' · this machine' : '';
 
   const cards: Card[] = [
     {
@@ -276,7 +278,7 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
       detail: data.favourite ? `${formatTokens(data.favourite.weighted)} weighted tokens` : undefined,
     },
     {
-      title: 'Busiest hour',
+      title: `Busiest hour${hereOnly}`,
       value: busiestHourText(profile) ?? '—',
       big: profile.busiest ? hourLabel(profile.busiest.hour) : '—',
       detail: profile.busiest ? `${Math.round(profile.busiest.share * 100)}% of tokens · ${profile.persona}` : 'no hour data yet',
@@ -347,7 +349,7 @@ export function drawInsights(buf: ScreenBuffer, rect: Rect, props: ViewProps & {
   const hits: Hit[] = [];
   if (hoursHeight > 0) {
     const selected = props.hour ?? profile.busiest!.hour;
-    for (const hit of drawClock(view, { x: 0, y: hoursY, width: view.width, height: hoursHeight }, profile, selected, theme)) {
+    for (const hit of drawClock(view, { x: 0, y: hoursY, width: view.width, height: hoursHeight }, profile, selected, theme, `When you code${hereOnly}`)) {
       hits.push({ ...hit, rect: { ...hit.rect, x: hit.rect.x + rect.x, y: hit.rect.y + rect.y } });
     }
   }

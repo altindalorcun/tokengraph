@@ -156,7 +156,7 @@ Every command takes `--help`. An unknown option is an error. The full guide is a
 
 | Command | What it does |
 | --- | --- |
-| `tokengraph [view]` | Opens the live terminal view: year heatmap, models, agents, streaks, a "When you code" chart of the hours you work in (← → picks an hour), and a Setup tab to manage hooks, the hourly schedule, sync, Cursor, export and story without leaving the view. The Projects tab shows tokens and estimated cost per project, with its models and agents; m merges the selected project with another (likely matches first), n renames it and x splits it. `:` or Ctrl-K opens a command palette of every action, the tabs and the view's own commands; type to filter it. `--print` prints a static snapshot, `--no-motion` skips animations, `--no-live` stops rescanning while open, `--theme auto\|dark\|light`. The default command in a terminal. |
+| `tokengraph [view]` | Opens the live terminal view: year heatmap, models, agents, streaks, a "When you code" chart of the hours you work in (← → picks an hour), and a Setup tab to manage hooks, the hourly schedule, sync, Cursor, export and story without leaving the view. The Projects tab shows tokens and estimated cost per project, with its models and agents; m merges the selected project with another (likely matches first), n renames it and x splits it. `:` or Ctrl-K opens a command palette of every action, the tabs and the view's own commands; type to filter it. It shows every machine you sync with the same GitHub account, as of their last sync, like your README graph; a switches to this machine alone, and projects and hours are always this machine's. `--print` prints a static snapshot, `--this-machine` leaves the other machines out, `--no-motion` skips animations, `--no-live` stops rescanning while open, `--theme auto\|dark\|light`. The default command in a terminal. |
 | `tokengraph login` | Connects GitHub, publishes your graph to your own gist, prints the README snippet. Uses your GitHub CLI login if you have one (`--gh`), or a one-time code you approve in the browser (`--device`, `--no-open`). Asks for gist access only. Then offers the hourly sync; run through `npx`, it first offers to install tokengraph globally with npm, since the schedule needs a lasting install. |
 | `tokengraph logout` | Forgets the GitHub login on this machine. Local data and your gists stay. |
 | `tokengraph sync` | Reads every agent's logs into the ledger and, when logged in, publishes. With Cursor signed in it first fetches your Cursor usage from cursor.com (at most once an hour). `--since <days>` sets how far back to read (default 90), `--local` never touches the network. |
@@ -192,7 +192,9 @@ and `limits`, one entry per agent and limit with its windows (`label`, `usedPerc
 
 Each machine writes its own file, `machine-<id>.json`, to the secret data gist. When you sync, the
 graph is built from this machine plus every other machine's file, summed per day and model, so a
-laptop and a desktop show up as one graph. The same files are a backup: after a reinstall or a
+laptop and a desktop show up as one graph. Each sync also keeps a copy of the other machines' files, so
+`tokengraph view`, `story` and `status` show all your machines without going online (the view says how
+old that copy is; press a for this machine alone). The same files are a backup: after a reinstall or a
 wiped `~/.tokengraph`, `tokengraph login` recognises your machine, restores its history and counts
 nothing twice.
 
